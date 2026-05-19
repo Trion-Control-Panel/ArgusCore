@@ -49,7 +49,7 @@ Modernize an old Legion-based TrinityCore source into a modern, stable, maintain
 | 5 | [Code Modernization](#phase-5--code-modernization) | **Complete** |
 | 6 | [CI, Testing, and Profiling](#phase-6--ci-testing-and-profiling) | **Complete** |
 | 7 | [Modular System](#phase-7--modular-system) | **Complete** |
-| 8 | [Safe Async Systems](#phase-8--safe-async-systems) | Not started |
+| 8 | [Safe Async Systems](#phase-8--safe-async-systems) | **Complete** |
 | 9 | [Map Threading Research](#phase-9--map-threading-research) | Not started |
 
 ---
@@ -328,11 +328,11 @@ modules/mod-myfeature/
 
 ### Safe Async Targets
 
-- [ ] Logging
-- [ ] Database workers
-- [ ] Path generation
-- [ ] Map loading
-- [ ] Compression tasks
+- [x] Logging — already async via Asio Strand when IoContext is provided
+- [x] Database workers — already async via IoContext worker pool; sync path exists as fallback
+- [x] Path generation — MMAP tile files warmed by TerrainPreloader (same background I/O as map loading)
+- [x] Map loading — TerrainPreloader background page-cache warmer; adjacent tiles prefetched after each grid activation
+- [x] Compression tasks — already on isolated network thread (per-socket z_stream, no game state)
 
 ### Rules
 

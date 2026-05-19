@@ -16,6 +16,7 @@
  */
 
 #include "TerrainMgr.h"
+#include "TerrainPreloader.h"
 #include "DB2Stores.h"
 #include "DisableMgr.h"
 #include "DynamicTree.h"
@@ -159,8 +160,14 @@ void TerrainInfo::LoadMapAndVMap(int32 gx, int32 gy)
     if (++_referenceCountFromMap[gx][gy] != 1)    // check if already loaded
         return;
 
-    std::lock_guard<std::mutex> lock(_loadMutex);
-    LoadMapAndVMapImpl(gx, gy);
+    {
+        std::lock_guard<std::mutex> lock(_loadMutex);
+        LoadMapAndVMapImpl(gx, gy);
+    } // release lock before touching the preloader queue
+
+    // Warm OS page cache for adjacent tiles so subsequent grid activations
+    // read from cache rather than disk, reducing stutter at grid boundaries.
+    sTerrainPreloader->QueueNeighborhood(_mapId, gx, gy);
 }
 
 void TerrainInfo::LoadMMapInstance(uint32 mapId, uint32 instanceId)
