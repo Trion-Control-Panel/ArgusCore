@@ -24,40 +24,27 @@ jobs:
           fetch-depth: 0
 
       # -------------------------------------------------------------------
-      # OpenSSL — pre-installed on windows-2022 runner
+      # Install dependencies via Chocolatey
+      # openssl  — installs to C:\Program Files\OpenSSL\
+      # boost-msvc-14.3 — installs pre-built Boost for VS 2022 (toolset 14.3)
       # -------------------------------------------------------------------
-      - name: Locate OpenSSL
-        id: openssl
-        run: |
-          $path = "C:\Program Files\OpenSSL-Win64"
-          if (Test-Path $path) {
-            echo "OPENSSL_ROOT_DIR=$path" >> $env:GITHUB_ENV
-            Write-Host "OpenSSL found at $path"
-          } else {
-            choco install openssl --no-progress -y
-            echo "OPENSSL_ROOT_DIR=C:\Program Files\OpenSSL-Win64" >> $env:GITHUB_ENV
-          }
+      - name: Install OpenSSL and Boost
+        run: choco install openssl boost-msvc-14.3 --no-progress -y
 
-      # -------------------------------------------------------------------
-      # Boost — use the version pre-installed on the GitHub runner.
-      # windows-2022 ships Boost 1.86+ at a versioned env var such as
-      # BOOST_ROOT_1_86_0. We walk the known variables newest-first and
-      # export the first one we find as BOOST_ROOT.
-      # -------------------------------------------------------------------
-      - name: Locate pre-installed Boost
+      - name: Set dependency paths
         run: |
-          $candidates = @(
-            $env:BOOST_ROOT_1_87_0,
-            $env:BOOST_ROOT_1_86_0,
-            $env:BOOST_ROOT_1_85_0,
-            $env:BOOST_ROOT_1_84_0,
-            $env:BOOST_ROOT_1_83_0,
-            $env:BOOST_ROOT
-          )
-          $found = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-          if (-not $found) { Write-Error "No pre-installed Boost found on runner"; exit 1 }
-          Write-Host "Using Boost at $found"
-          echo "BOOST_ROOT=$found" >> $env:GITHUB_ENV
+          # OpenSSL — choco installs here
+          $ssl = "C:\Program Files\OpenSSL"
+          if (-not (Test-Path $ssl)) { Write-Error "OpenSSL not found at $ssl"; exit 1 }
+          echo "OPENSSL_ROOT_DIR=$ssl" >> $env:GITHUB_ENV
+          Write-Host "OpenSSL: $ssl"
+
+          # Boost — choco installs under C:\local\boost_X_Y_Z
+          $boost = Get-ChildItem "C:\local" -Filter "boost_*" -Directory -ErrorAction SilentlyContinue |
+                   Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $boost) { Write-Error "Boost not found under C:\local"; exit 1 }
+          echo "BOOST_ROOT=$boost" >> $env:GITHUB_ENV
+          Write-Host "Boost: $boost"
 
       # -------------------------------------------------------------------
       # MySQL 8.4 connector — download the server ZIP which contains the
