@@ -27,7 +27,7 @@
 #include "StringConvert.h"
 #include "Util.h"
 
-Log::Log() : AppenderId(0), lowestLogLevel(LOG_LEVEL_FATAL), m_logsTimestamp('_' + GetTimestampStr()), _ioContext(nullptr), _strand(nullptr)
+Log::Log() : AppenderId(0), lowestLogLevel(LOG_LEVEL_FATAL), m_logsTimestamp('_' + GetTimestampStr()), _ioContext(nullptr)
 {
     RegisterAppender<AppenderConsole>();
     RegisterAppender<AppenderFile>();
@@ -35,7 +35,6 @@ Log::Log() : AppenderId(0), lowestLogLevel(LOG_LEVEL_FATAL), m_logsTimestamp('_'
 
 Log::~Log()
 {
-    delete _strand;
     Close();
 }
 
@@ -370,7 +369,7 @@ void Log::Initialize(Trinity::Asio::IoContext* ioContext)
     if (ioContext)
     {
         _ioContext = ioContext;
-        _strand = new Trinity::Asio::Strand(*ioContext);
+        _strand = std::make_unique<Trinity::Asio::Strand>(*ioContext);
     }
 
     LoadFromConfig();
@@ -378,8 +377,7 @@ void Log::Initialize(Trinity::Asio::IoContext* ioContext)
 
 void Log::SetSynchronous()
 {
-    delete _strand;
-    _strand = nullptr;
+    _strand.reset();
     _ioContext = nullptr;
 }
 

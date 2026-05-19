@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MYSQL_VERSION: "8.4.4"
+  MYSQL_VERSION: "8.4.9"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -48,8 +48,10 @@ jobs:
       # -------------------------------------------------------------------
       # MySQL 8.4 connector - download the server ZIP which contains the
       # client headers and libmysql.dll needed to build against.
-      # Primary URL: MySQL CDN (more reliable than dev.mysql.com redirects).
-      # Fallback URL: direct dev.mysql.com link.
+      # cdn.mysql.com is the direct-download CDN (no Oracle redirect chain).
+      # dev.mysql.com/get/Downloads/... is kept as a fallback.
+      # -UseBasicParsing is required on headless Windows Server runners.
+      # After download, verify the file is a ZIP (not an HTML error page).
       # -------------------------------------------------------------------
       - name: Cache MySQL ${{ env.MYSQL_VERSION }} connector
         id: cache-mysql
@@ -71,10 +73,17 @@ jobs:
           foreach ($url in $urls) {
             Write-Host "Trying: $url"
             try {
-              Invoke-WebRequest -Uri $url -OutFile mysql.zip -TimeoutSec 300 -ErrorAction Stop
-              $downloaded = $true
-              Write-Host "Downloaded from $url"
-              break
+              Invoke-WebRequest -Uri $url -OutFile mysql.zip -UseBasicParsing -TimeoutSec 300 -ErrorAction Stop
+              # Verify the download is actually a ZIP and not an HTML error page
+              $magic = [System.IO.File]::ReadAllBytes("mysql.zip")[0..1]
+              if ($magic[0] -eq 0x50 -and $magic[1] -eq 0x4B) {
+                $downloaded = $true
+                Write-Host "Downloaded from $url"
+                break
+              } else {
+                Write-Host "Got non-ZIP response from $url (HTML error page?), trying next"
+                Remove-Item mysql.zip -Force
+              }
             } catch {
               Write-Host "Failed: $_"
             }

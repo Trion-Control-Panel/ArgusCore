@@ -79,8 +79,8 @@ struct TC_GAME_API TurretAI : public CreatureAI
         float _minimumRange;
 };
 
-#define VEHICLE_CONDITION_CHECK_TIME 1000
-#define VEHICLE_DISMISS_TIME 5000
+inline constexpr uint32 VEHICLE_CONDITION_CHECK_TIME = 1000;
+inline constexpr uint32 VEHICLE_DISMISS_TIME          = 5000;
 
 struct TC_GAME_API VehicleAI : public CreatureAI
 {

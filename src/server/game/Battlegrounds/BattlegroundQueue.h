@@ -26,7 +26,7 @@
 //this container can't be deque, because deque doesn't like removing the last element - if you remove it, it invalidates next iterator and crash appears
 using BGFreeSlotQueueContainer = std::list<Battleground*>;
 
-#define COUNT_OF_PLAYERS_TO_AVERAGE_WAIT_TIME 10
+inline constexpr uint32 COUNT_OF_PLAYERS_TO_AVERAGE_WAIT_TIME = 10;
 
 struct GroupQueueInfo;                                      // type predefinition
 struct PlayerQueueInfo                                      // stores information for players in queue

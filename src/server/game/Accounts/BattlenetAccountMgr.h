@@ -24,8 +24,8 @@
 class QueryCallback;
 enum class AccountOpResult : uint8;
 
-#define MAX_BNET_EMAIL_STR 320
-#define MAX_BNET_PASS_STR 128
+inline constexpr uint32 MAX_BNET_EMAIL_STR = 320;
+inline constexpr uint32 MAX_BNET_PASS_STR  = 128;
 
 namespace Battlenet
 {

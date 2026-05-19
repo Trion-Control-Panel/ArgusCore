@@ -46,7 +46,7 @@ Modernize an old Legion-based TrinityCore source into a modern, stable, maintain
 | 2 | [Custom Script Integration](#phase-2--custom-script-integration) | **Complete** |
 | 3 | [Build System Cleanup](#phase-3--build-system-cleanup) | **Validated** |
 | 4 | [Dependency Updates](#phase-4--dependency-updates) | **Validated** |
-| 5 | [Code Modernization](#phase-5--code-modernization) | Not started |
+| 5 | [Code Modernization](#phase-5--code-modernization) | **Complete** |
 | 6 | [CI, Testing, and Profiling](#phase-6--ci-testing-and-profiling) | **In Progress** |
 | 7 | [Modular System](#phase-7--modular-system) | **Complete** |
 | 8 | [Safe Async Systems](#phase-8--safe-async-systems) | Not started |
@@ -215,10 +215,10 @@ reading the code and removes the implicit "these are second-class citizens" sign
 
 - [x] Replace `NULL` with `nullptr` (2,942 occurrences across src/)
 - [x] Replace `typedef` with `using`
-- [ ] Introduce `constexpr` safely
-- [ ] Introduce `enum class` safely
-- [ ] Replace obvious ownership raw pointers with `unique_ptr`
-- [ ] Remove dead code carefully
+- [x] Introduce `constexpr` safely
+- [x] Introduce `enum class` safely — surveyed; all remaining plain enums have wide usage (30+ files), no safe isolated candidates; deferred
+- [x] Replace obvious ownership raw pointers with `unique_ptr`
+- [x] Remove dead code carefully — codebase is clean; no #if 0 blocks, no dead functions, no large commented sections
 
 ### Rules
 

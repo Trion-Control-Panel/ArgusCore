@@ -208,10 +208,9 @@ enum BattlegroundStartingEventsIds
     BG_STARTING_EVENT_THIRD     = 2,
     BG_STARTING_EVENT_FOURTH    = 3
 };
-#define BG_STARTING_EVENT_COUNT 4
-
-#define BG_AWARD_ARENA_POINTS_MIN_LEVEL 71
-#define ARENA_TIMELIMIT_POINTS_LOSS    -16
+inline constexpr uint32 BG_STARTING_EVENT_COUNT        = 4;
+inline constexpr uint32 BG_AWARD_ARENA_POINTS_MIN_LEVEL = 71;
+inline constexpr int32  ARENA_TIMELIMIT_POINTS_LOSS      = -16;
 
 enum BattlegroundPlayerPositionConstants
 {

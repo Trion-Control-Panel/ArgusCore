@@ -21,8 +21,8 @@
 #include "Define.h"
 #include "DetourNavMesh.h"
 
-const uint32 MMAP_MAGIC = 0x4d4d4150; // 'MMAP'
-#define MMAP_VERSION 15
+inline constexpr uint32 MMAP_MAGIC    = 0x4d4d4150; // 'MMAP'
+inline constexpr uint32 MMAP_VERSION  = 15;
 
 struct MmapTileHeader
 {

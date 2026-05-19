@@ -43,16 +43,16 @@ namespace MMAP
         GRID_V9
     };
 
-    static const int V9_SIZE = 129;
-    static const int V9_SIZE_SQ = V9_SIZE*V9_SIZE;
-    static const int V8_SIZE = 128;
-    static const int V8_SIZE_SQ = V8_SIZE*V8_SIZE;
-    static const float GRID_SIZE = 533.3333f;
-    static const float GRID_PART_SIZE = GRID_SIZE/V8_SIZE;
+    constexpr int V9_SIZE = 129;
+    constexpr int V9_SIZE_SQ = V9_SIZE*V9_SIZE;
+    constexpr int V8_SIZE = 128;
+    constexpr int V8_SIZE_SQ = V8_SIZE*V8_SIZE;
+    constexpr float GRID_SIZE = 533.3333f;
+    constexpr float GRID_PART_SIZE = GRID_SIZE/V8_SIZE;
 
     // see contrib/extractor/system.cpp, CONF_use_minHeight
-    static const float INVALID_MAP_LIQ_HEIGHT = -2000.f;
-    static const float INVALID_MAP_LIQ_HEIGHT_MAX = 5000.0f;
+    constexpr float INVALID_MAP_LIQ_HEIGHT = -2000.f;
+    constexpr float INVALID_MAP_LIQ_HEIGHT_MAX = 5000.0f;
 
     // see following files:
     // contrib/extractor/system.cpp

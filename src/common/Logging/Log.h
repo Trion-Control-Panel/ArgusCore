@@ -149,7 +149,7 @@ class TC_COMMON_API Log
         std::string m_logsTimestamp;
 
         Trinity::Asio::IoContext* _ioContext;
-        Trinity::Asio::Strand* _strand;
+        std::unique_ptr<Trinity::Asio::Strand> _strand;
 };
 
 #define sLog Log::instance()

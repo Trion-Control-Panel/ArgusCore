@@ -28,7 +28,7 @@
 #include <stdexcept>
 #include <vector>
 
-#define MAX_STACK_SIZE 64
+inline constexpr uint32 MAX_STACK_SIZE = 64;
 
 struct AABound
 {

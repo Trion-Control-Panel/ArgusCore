@@ -20,6 +20,7 @@
 
 #include "Common.h"
 #include <exception>
+#include <memory>
 #include <string>
 
 class DB2FileLoaderImpl;
@@ -189,7 +190,7 @@ public:
     DB2RecordCopy GetRecordCopy(uint32 copyNumber) const;
 
 private:
-    DB2FileLoaderImpl* _impl;
+    std::unique_ptr<DB2FileLoaderImpl> _impl;
     DB2Header _header;
 };
 

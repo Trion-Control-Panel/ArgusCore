@@ -30,7 +30,7 @@
 #include <queue>
 #include <type_traits>
 
-#define READ_BLOCK_SIZE 4096
+inline constexpr uint32 READ_BLOCK_SIZE = 4096;
 #ifdef BOOST_ASIO_HAS_IOCP
 #define TC_SOCKET_USE_IOCP
 #endif

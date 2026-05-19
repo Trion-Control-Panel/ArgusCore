@@ -36,8 +36,8 @@ enum class QuestGiverStatus : uint32;
 
 using CreatureBoundary = std::vector<AreaBoundary const*>;
 
-#define TIME_INTERVAL_LOOK   5000
-#define VISIBILITY_RANGE    10000
+inline constexpr uint32 TIME_INTERVAL_LOOK = 5000;
+inline constexpr uint32 VISIBILITY_RANGE   = 10000;
 
 enum Permitions : int32
 {

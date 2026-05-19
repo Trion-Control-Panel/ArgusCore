@@ -1416,14 +1416,11 @@ void DB2Record::MakePersistent()
     _fieldOffsets = _db2.RecordCreateDetachedFieldOffsets(_fieldOffsets);
 }
 
-DB2FileLoader::DB2FileLoader() : _impl(nullptr), _header()
+DB2FileLoader::DB2FileLoader() : _impl(), _header()
 {
 }
 
-DB2FileLoader::~DB2FileLoader()
-{
-    delete _impl;
-}
+DB2FileLoader::~DB2FileLoader() = default;
 
 void DB2FileLoader::Load(DB2FileSource* source, DB2FileLoadInfo const* loadInfo)
 {
@@ -1494,9 +1491,9 @@ void DB2FileLoader::Load(DB2FileSource* source, DB2FileLoadInfo const* loadInfo)
         throw DB2FileLoadException(Trinity::StringFormat("Unexpected parent lookup found in %s", source->GetFileName()));
 
     if (!(_header.Flags & 0x1))
-        _impl = new DB2FileLoaderRegularImpl(source->GetFileName(), loadInfo, &_header);
+        _impl = std::make_unique<DB2FileLoaderRegularImpl>(source->GetFileName(), loadInfo, &_header);
     else
-        _impl = new DB2FileLoaderSparseImpl(source->GetFileName(), loadInfo, &_header);
+        _impl = std::make_unique<DB2FileLoaderSparseImpl>(source->GetFileName(), loadInfo, &_header);
 
     std::unique_ptr<DB2FieldEntry[]> fieldData = std::make_unique<DB2FieldEntry[]>(_header.FieldCount);
     if (!source->Read(fieldData.get(), sizeof(DB2FieldEntry) * _header.FieldCount))

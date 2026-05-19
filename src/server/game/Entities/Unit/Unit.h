@@ -32,15 +32,15 @@
 #include <memory>
 #include <stack>
 
-#define VISUAL_WAYPOINT 1 // Creature Entry ID used for waypoints show, visible only for GMs
-#define WORLD_TRIGGER 12999
-#define SPELL_DAZED 1604
-#define ARTIFACTS_ALL_WEAPONS_GENERAL_WEAPON_EQUIPPED_PASSIVE 197886
-#define SPELL_DH_DOUBLE_JUMP 196055
-#define DISPLAYID_HIDDEN_MOUNT 73200
+inline constexpr uint32 VISUAL_WAYPOINT = 1; // Creature Entry ID used for waypoints show, visible only for GMs
+inline constexpr uint32 WORLD_TRIGGER   = 12999;
+inline constexpr uint32 SPELL_DAZED     = 1604;
+inline constexpr uint32 ARTIFACTS_ALL_WEAPONS_GENERAL_WEAPON_EQUIPPED_PASSIVE = 197886;
+inline constexpr uint32 SPELL_DH_DOUBLE_JUMP  = 196055;
+inline constexpr uint32 DISPLAYID_HIDDEN_MOUNT = 73200;
 
-#define MAX_AGGRO_RESET_TIME 10 // in seconds
-#define MAX_AGGRO_RADIUS 45.0f  // yards
+inline constexpr uint32 MAX_AGGRO_RESET_TIME = 10;   // in seconds
+inline constexpr float  MAX_AGGRO_RADIUS     = 45.0f; // yards
 
 enum VictimState
 {

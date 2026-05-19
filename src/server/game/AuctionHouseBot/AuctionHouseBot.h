@@ -41,7 +41,7 @@ enum AuctionQuality
     AUCTION_QUALITY_YELLOW  = ITEM_QUALITY_ARTIFACT,
 };
 
-#define MAX_AUCTION_QUALITY 7
+inline constexpr uint32 MAX_AUCTION_QUALITY = 7;
 
 // EnumUtils: DESCRIBE THIS
 enum AuctionHouseType
@@ -51,7 +51,7 @@ enum AuctionHouseType
     AUCTION_HOUSE_HORDE     = 2
 };
 
-#define MAX_AUCTION_HOUSE_TYPE 3
+inline constexpr uint32 MAX_AUCTION_HOUSE_TYPE = 3;
 
 enum AuctionBotConfigUInt32Values
 {
