@@ -182,7 +182,7 @@ reading the code and removes the implicit "these are second-class citizens" sign
 
 1. [x] OpenSSL — installed 4.0.0 (released Apr 2026); floor kept at `3` so Linux builds (still on 3.x) are not broken; 4.0.0 confirmed working on Windows
 2. [x] Boost — installed 1.91.0; Windows floor updated 1.83 → 1.91; Linux floor stays 1.74 (Ubuntu 22.04 apt)
-3. [x] MySQL — installed 8.4.9 (current LTS); floor updated 8.0.34 → 8.4.0
+3. [x] MySQL — installed 8.4.9 (current LTS); floor kept at 8.0.34 for Linux CI compat (Ubuntu 24.04 apt provides 8.0.x); Windows production uses 8.4.9
 4. [ ] MariaDB LTS — not installed; floor stays 10.6.3 until tested
 
 ### Rules

@@ -22,18 +22,13 @@ jobs:
 
       # -------------------------------------------------------------------
       # System packages
-      # Ubuntu 24.04 provides: cmake 3.28+, gcc-13, libboost-all-dev 1.83,
-      # libssl-dev 3.x. We add the MySQL APT config to get libmysqlclient-dev
-      # 8.4 so it matches the minimum version we enforce in CMake.
+      # Ubuntu 24.04 provides cmake 3.28+, gcc-13, libboost-all-dev 1.83,
+      # libssl-dev 3.x, and libmysqlclient-dev 8.0.x — all sufficient to
+      # compile against. No third-party APT repositories needed.
       # -------------------------------------------------------------------
-      - name: Add MySQL 8.4 APT repository
-        run: |
-          wget -q https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
-          sudo DEBIAN_FRONTEND=noninteractive dpkg -i mysql-apt-config_0.8.33-1_all.deb
-          sudo apt-get update -q
-
       - name: Install build dependencies
         run: |
+          sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends \
             cmake \
             gcc-13 \

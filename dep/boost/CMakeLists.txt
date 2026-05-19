@@ -47,8 +47,9 @@ if(WIN32)
 endif()
 
 if (WIN32)
-  # Windows minimum tracks the version confirmed working with the MSVC pre-built binaries.
-  set(BOOST_REQUIRED_VERSION 1.91)
+  # Windows minimum: 1.83 is the floor where BoostConfig.cmake became stable on MSVC.
+  # Confirmed working with 1.91 locally and 1.86 on GitHub CI runners.
+  set(BOOST_REQUIRED_VERSION 1.83)
 else()
   # Linux minimum kept conservative to support Ubuntu 22.04 LTS apt packages (1.74).
   set(BOOST_REQUIRED_VERSION 1.74)
