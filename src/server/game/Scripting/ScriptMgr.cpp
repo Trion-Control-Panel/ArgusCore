@@ -1259,6 +1259,18 @@ private:
     FOR_SCRIPTS(T, itr, end) \
         itr->second
 
+// Per-hook dispatch lists populated at script registration.
+// Index 0..N-1 matches the PlayerHook / WorldHook enum values.
+// An old-style script (no hooks vector) is subscribed to ALL slots for backward compat.
+static std::vector<std::vector<WorldScript*>>  sWorldHooks;
+static std::vector<std::vector<PlayerScript*>> sPlayerHooks;
+
+// Iterate only the scripts that subscribed to a specific hook.
+#define CALL_ENABLED_HOOKS(hookVec, hookId, action) \
+    if (!(hookVec).empty() && (hookId) < static_cast<uint16_t>((hookVec).size()) \
+            && !(hookVec)[(hookId)].empty()) \
+        for (auto* script : (hookVec)[(hookId)]) { action; }
+
 // Utility macros for finding specific scripts.
 #define GET_SCRIPT(T, I, V) \
     T* V = ScriptRegistry<T>::Instance()->GetScriptById(I); \
@@ -1514,32 +1526,32 @@ void ScriptMgr::OnPacketSend(WorldSession* session, WorldPacket const& packet)
 
 void ScriptMgr::OnOpenStateChange(bool open)
 {
-    FOREACH_SCRIPT(WorldScript)->OnOpenStateChange(open);
+    CALL_ENABLED_HOOKS(sWorldHooks, WORLDHOOK_ON_OPEN_STATE_CHANGE, script->OnOpenStateChange(open));
 }
 
 void ScriptMgr::OnConfigLoad(bool reload)
 {
-    FOREACH_SCRIPT(WorldScript)->OnConfigLoad(reload);
+    CALL_ENABLED_HOOKS(sWorldHooks, WORLDHOOK_ON_CONFIG_LOAD, script->OnConfigLoad(reload));
 }
 
 void ScriptMgr::OnMotdChange(std::string& newMotd)
 {
-    FOREACH_SCRIPT(WorldScript)->OnMotdChange(newMotd);
+    CALL_ENABLED_HOOKS(sWorldHooks, WORLDHOOK_ON_MOTD_CHANGE, script->OnMotdChange(newMotd));
 }
 
 void ScriptMgr::OnShutdownInitiate(ShutdownExitCode code, ShutdownMask mask)
 {
-    FOREACH_SCRIPT(WorldScript)->OnShutdownInitiate(code, mask);
+    CALL_ENABLED_HOOKS(sWorldHooks, WORLDHOOK_ON_SHUTDOWN_INITIATE, script->OnShutdownInitiate(code, mask));
 }
 
 void ScriptMgr::OnShutdownCancel()
 {
-    FOREACH_SCRIPT(WorldScript)->OnShutdownCancel();
+    CALL_ENABLED_HOOKS(sWorldHooks, WORLDHOOK_ON_SHUTDOWN_CANCEL, script->OnShutdownCancel());
 }
 
 void ScriptMgr::OnWorldUpdate(uint32 diff)
 {
-    FOREACH_SCRIPT(WorldScript)->OnUpdate(diff);
+    CALL_ENABLED_HOOKS(sWorldHooks, WORLDHOOK_ON_UPDATE, script->OnUpdate(diff));
 }
 
 void ScriptMgr::OnHonorCalculation(float& honor, uint8 level, float multiplier)
@@ -1631,7 +1643,7 @@ void ScriptMgr::OnPlayerEnterMap(Map* map, Player* player)
     ASSERT(map);
     ASSERT(player);
 
-    FOREACH_SCRIPT(PlayerScript)->OnMapChanged(player);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_MAP_CHANGED, script->OnMapChanged(player));
 
     ForEachMapScript([](auto* script, auto* map, Player* player) { script->OnPlayerEnter(map, player); }, map, player);
 }
@@ -1966,12 +1978,12 @@ void ScriptMgr::OnRelocate(Transport* transport, uint32 mapId, float x, float y,
 
 void ScriptMgr::OnStartup()
 {
-    FOREACH_SCRIPT(WorldScript)->OnStartup();
+    CALL_ENABLED_HOOKS(sWorldHooks, WORLDHOOK_ON_STARTUP, script->OnStartup());
 }
 
 void ScriptMgr::OnShutdown()
 {
-    FOREACH_SCRIPT(WorldScript)->OnShutdown();
+    CALL_ENABLED_HOOKS(sWorldHooks, WORLDHOOK_ON_SHUTDOWN, script->OnShutdown());
 }
 
 // Achievement
@@ -1996,162 +2008,162 @@ bool ScriptMgr::OnCriteriaCheck(uint32 scriptId, Player* source, Unit* target)
 // Player
 void ScriptMgr::OnPVPKill(Player* killer, Player* killed)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnPVPKill(killer, killed);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_PVP_KILL, script->OnPVPKill(killer, killed));
 }
 
 void ScriptMgr::OnCreatureKill(Player* killer, Creature* killed)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnCreatureKill(killer, killed);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_CREATURE_KILL, script->OnCreatureKill(killer, killed));
 }
 
 void ScriptMgr::OnPlayerKilledByCreature(Creature* killer, Player* killed)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnPlayerKilledByCreature(killer, killed);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_PLAYER_KILLED_BY_CREATURE, script->OnPlayerKilledByCreature(killer, killed));
 }
 
 void ScriptMgr::OnPlayerLevelChanged(Player* player, uint8 oldLevel)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnLevelChanged(player, oldLevel);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_LEVEL_CHANGED, script->OnLevelChanged(player, oldLevel));
 }
 
 void ScriptMgr::OnPlayerFreeTalentPointsChanged(Player* player, uint32 points)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnFreeTalentPointsChanged(player, points);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_FREE_TALENT_POINTS_CHANGED, script->OnFreeTalentPointsChanged(player, points));
 }
 
 void ScriptMgr::OnPlayerTalentsReset(Player* player, bool noCost)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnTalentsReset(player, noCost);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_TALENTS_RESET, script->OnTalentsReset(player, noCost));
 }
 
 void ScriptMgr::OnPlayerMoneyChanged(Player* player, int64& amount)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnMoneyChanged(player, amount);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_MONEY_CHANGED, script->OnMoneyChanged(player, amount));
 }
 
 void ScriptMgr::OnPlayerMoneyLimit(Player* player, int64 amount)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnMoneyLimit(player, amount);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_MONEY_LIMIT, script->OnMoneyLimit(player, amount));
 }
 
 void ScriptMgr::OnGivePlayerXP(Player* player, uint32& amount, Unit* victim)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnGiveXP(player, amount, victim);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_GIVE_XP, script->OnGiveXP(player, amount, victim));
 }
 
 void ScriptMgr::OnPlayerReputationChange(Player* player, uint32 factionID, int32& standing, bool incremental)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnReputationChange(player, factionID, standing, incremental);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_REPUTATION_CHANGE, script->OnReputationChange(player, factionID, standing, incremental));
 }
 
 void ScriptMgr::OnPlayerDuelRequest(Player* target, Player* challenger)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnDuelRequest(target, challenger);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_DUEL_REQUEST, script->OnDuelRequest(target, challenger));
 }
 
 void ScriptMgr::OnPlayerDuelStart(Player* player1, Player* player2)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnDuelStart(player1, player2);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_DUEL_START, script->OnDuelStart(player1, player2));
 }
 
 void ScriptMgr::OnPlayerDuelEnd(Player* winner, Player* loser, DuelCompleteType type)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnDuelEnd(winner, loser, type);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_DUEL_END, script->OnDuelEnd(winner, loser, type));
 }
 
 void ScriptMgr::OnPlayerChat(Player* player, uint32 type, uint32 lang, std::string& msg)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnChat(player, type, lang, msg);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_CHAT, script->OnChat(player, type, lang, msg));
 }
 
 void ScriptMgr::OnPlayerChat(Player* player, uint32 type, uint32 lang, std::string& msg, Player* receiver)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnChat(player, type, lang, msg, receiver);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_CHAT, script->OnChat(player, type, lang, msg, receiver));
 }
 
 void ScriptMgr::OnPlayerChat(Player* player, uint32 type, uint32 lang, std::string& msg, Group* group)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnChat(player, type, lang, msg, group);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_CHAT, script->OnChat(player, type, lang, msg, group));
 }
 
 void ScriptMgr::OnPlayerChat(Player* player, uint32 type, uint32 lang, std::string& msg, Guild* guild)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnChat(player, type, lang, msg, guild);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_CHAT, script->OnChat(player, type, lang, msg, guild));
 }
 
 void ScriptMgr::OnPlayerChat(Player* player, uint32 type, uint32 lang, std::string& msg, Channel* channel)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnChat(player, type, lang, msg, channel);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_CHAT, script->OnChat(player, type, lang, msg, channel));
 }
 
 void ScriptMgr::OnPlayerClearEmote(Player* player)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnClearEmote(player);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_CLEAR_EMOTE, script->OnClearEmote(player));
 }
 
 void ScriptMgr::OnPlayerTextEmote(Player* player, uint32 textEmote, uint32 emoteNum, ObjectGuid guid)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnTextEmote(player, textEmote, emoteNum, guid);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_TEXT_EMOTE, script->OnTextEmote(player, textEmote, emoteNum, guid));
 }
 
 void ScriptMgr::OnPlayerSpellCast(Player* player, Spell* spell, bool skipCheck)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnSpellCast(player, spell, skipCheck);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_SPELL_CAST, script->OnSpellCast(player, spell, skipCheck));
 }
 
 void ScriptMgr::OnPlayerLogin(Player* player, bool firstLogin)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnLogin(player, firstLogin);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_LOGIN, script->OnLogin(player, firstLogin));
 }
 
 void ScriptMgr::OnPlayerLogout(Player* player)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnLogout(player);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_LOGOUT, script->OnLogout(player));
 }
 
 void ScriptMgr::OnPlayerCreate(Player* player)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnCreate(player);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_CREATE, script->OnCreate(player));
 }
 
 void ScriptMgr::OnPlayerDelete(ObjectGuid guid, uint32 accountId)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnDelete(guid, accountId);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_DELETE, script->OnDelete(guid, accountId));
 }
 
 void ScriptMgr::OnPlayerFailedDelete(ObjectGuid guid, uint32 accountId)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnFailedDelete(guid, accountId);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_FAILED_DELETE, script->OnFailedDelete(guid, accountId));
 }
 
 void ScriptMgr::OnPlayerSave(Player* player)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnSave(player);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_SAVE, script->OnSave(player));
 }
 
 void ScriptMgr::OnPlayerBindToInstance(Player* player, Difficulty difficulty, uint32 mapid, bool permanent, uint8 extendState)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnBindToInstance(player, difficulty, mapid, permanent, extendState);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_BIND_TO_INSTANCE, script->OnBindToInstance(player, difficulty, mapid, permanent, extendState));
 }
 
 void ScriptMgr::OnPlayerUpdateZone(Player* player, uint32 newZone, uint32 newArea)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnUpdateZone(player, newZone, newArea);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_UPDATE_ZONE, script->OnUpdateZone(player, newZone, newArea));
 }
 
 void ScriptMgr::OnQuestStatusChange(Player* player, uint32 questId)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnQuestStatusChange(player, questId);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_QUEST_STATUS_CHANGE, script->OnQuestStatusChange(player, questId));
 }
 
 void ScriptMgr::OnPlayerRepop(Player* player)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnPlayerRepop(player);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_PLAYER_REPOP, script->OnPlayerRepop(player));
 }
 
 void ScriptMgr::OnMovieComplete(Player* player, uint32 movieId)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnMovieComplete(player, movieId);
+    CALL_ENABLED_HOOKS(sPlayerHooks, PLAYERHOOK_ON_MOVIE_COMPLETE, script->OnMovieComplete(player, movieId));
 }
 
 void ScriptMgr::OnPlayerChoiceResponse(WorldObject* object, Player* player, PlayerChoice const* choice, PlayerChoiceResponse const* response)
@@ -2439,9 +2451,36 @@ void ServerScript::OnPacketReceive(WorldSession* /*session*/, WorldPacket& /*pac
 {
 }
 
+static void RegisterWorldHooks(WorldScript* script, std::vector<uint16_t> const& hooks)
+{
+    if (sWorldHooks.empty())
+        sWorldHooks.resize(WORLDHOOK_END);
+
+    if (hooks.empty())
+    {
+        // Legacy: no hooks specified — subscribe to every slot so old scripts keep firing.
+        for (auto& slot : sWorldHooks)
+            slot.push_back(script);
+    }
+    else
+    {
+        for (uint16_t h : hooks)
+            if (h < static_cast<uint16_t>(sWorldHooks.size()))
+                sWorldHooks[h].push_back(script);
+    }
+}
+
 WorldScript::WorldScript(char const* name) noexcept
     : ScriptObject(name)
 {
+    RegisterWorldHooks(this, {});
+    ScriptRegistry<WorldScript>::Instance()->AddScript(this);
+}
+
+WorldScript::WorldScript(char const* name, std::vector<uint16_t> enabledHooks) noexcept
+    : ScriptObject(name)
+{
+    RegisterWorldHooks(this, enabledHooks);
     ScriptRegistry<WorldScript>::Instance()->AddScript(this);
 }
 
@@ -2888,9 +2927,36 @@ AchievementCriteriaScript::AchievementCriteriaScript(char const* name) noexcept
 
 AchievementCriteriaScript::~AchievementCriteriaScript() = default;
 
+static void RegisterPlayerHooks(PlayerScript* script, std::vector<uint16_t> const& hooks)
+{
+    if (sPlayerHooks.empty())
+        sPlayerHooks.resize(PLAYERHOOK_END);
+
+    if (hooks.empty())
+    {
+        // Legacy: no hooks specified — subscribe to every slot so old scripts keep firing.
+        for (auto& slot : sPlayerHooks)
+            slot.push_back(script);
+    }
+    else
+    {
+        for (uint16_t h : hooks)
+            if (h < static_cast<uint16_t>(sPlayerHooks.size()))
+                sPlayerHooks[h].push_back(script);
+    }
+}
+
 PlayerScript::PlayerScript(char const* name) noexcept
     : ScriptObject(name)
 {
+    RegisterPlayerHooks(this, {});
+    ScriptRegistry<PlayerScript>::Instance()->AddScript(this);
+}
+
+PlayerScript::PlayerScript(char const* name, std::vector<uint16_t> enabledHooks) noexcept
+    : ScriptObject(name)
+{
+    RegisterPlayerHooks(this, enabledHooks);
     ScriptRegistry<PlayerScript>::Instance()->AddScript(this);
 }
 

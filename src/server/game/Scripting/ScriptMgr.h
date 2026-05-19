@@ -22,6 +22,7 @@
 #include "ObjectGuid.h"
 #include "Tuples.h"
 #include <boost/preprocessor/punctuation/remove_parens.hpp>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -245,11 +246,27 @@ class TC_GAME_API ServerScript : public ScriptObject
         virtual void OnPacketReceive(WorldSession* session, WorldPacket& packet);
 };
 
+// Hook IDs for WorldScript. Pass a subset to the constructor to subscribe only
+// to those dispatches. An empty vector (legacy default) subscribes to all hooks.
+enum WorldHook : uint16_t
+{
+    WORLDHOOK_ON_OPEN_STATE_CHANGE  = 0,
+    WORLDHOOK_ON_CONFIG_LOAD        = 1,
+    WORLDHOOK_ON_MOTD_CHANGE        = 2,
+    WORLDHOOK_ON_SHUTDOWN_INITIATE  = 3,
+    WORLDHOOK_ON_SHUTDOWN_CANCEL    = 4,
+    WORLDHOOK_ON_UPDATE             = 5,
+    WORLDHOOK_ON_STARTUP            = 6,
+    WORLDHOOK_ON_SHUTDOWN           = 7,
+    WORLDHOOK_END                   = 8,
+};
+
 class TC_GAME_API WorldScript : public ScriptObject
 {
     protected:
 
         explicit WorldScript(char const* name) noexcept;
+        explicit WorldScript(char const* name, std::vector<uint16_t> enabledHooks) noexcept;
 
     public:
 
@@ -688,11 +705,48 @@ class TC_GAME_API AchievementCriteriaScript : public ScriptObject
         virtual bool OnCheck(Player* source, Unit* target) = 0;
 };
 
+// Hook IDs for PlayerScript. Pass a subset to the constructor to subscribe only
+// to those dispatches. An empty vector (legacy default) subscribes to all hooks.
+enum PlayerHook : uint16_t
+{
+    PLAYERHOOK_ON_PVP_KILL                   = 0,
+    PLAYERHOOK_ON_CREATURE_KILL              = 1,
+    PLAYERHOOK_ON_PLAYER_KILLED_BY_CREATURE  = 2,
+    PLAYERHOOK_ON_LEVEL_CHANGED              = 3,
+    PLAYERHOOK_ON_FREE_TALENT_POINTS_CHANGED = 4,
+    PLAYERHOOK_ON_TALENTS_RESET              = 5,
+    PLAYERHOOK_ON_MONEY_CHANGED              = 6,
+    PLAYERHOOK_ON_MONEY_LIMIT                = 7,
+    PLAYERHOOK_ON_GIVE_XP                    = 8,
+    PLAYERHOOK_ON_REPUTATION_CHANGE          = 9,
+    PLAYERHOOK_ON_DUEL_REQUEST               = 10,
+    PLAYERHOOK_ON_DUEL_START                 = 11,
+    PLAYERHOOK_ON_DUEL_END                   = 12,
+    PLAYERHOOK_ON_CHAT                       = 13,
+    PLAYERHOOK_ON_CLEAR_EMOTE                = 14,
+    PLAYERHOOK_ON_TEXT_EMOTE                 = 15,
+    PLAYERHOOK_ON_SPELL_CAST                 = 16,
+    PLAYERHOOK_ON_LOGIN                      = 17,
+    PLAYERHOOK_ON_LOGOUT                     = 18,
+    PLAYERHOOK_ON_CREATE                     = 19,
+    PLAYERHOOK_ON_DELETE                     = 20,
+    PLAYERHOOK_ON_FAILED_DELETE              = 21,
+    PLAYERHOOK_ON_SAVE                       = 22,
+    PLAYERHOOK_ON_BIND_TO_INSTANCE           = 23,
+    PLAYERHOOK_ON_UPDATE_ZONE                = 24,
+    PLAYERHOOK_ON_MAP_CHANGED                = 25,
+    PLAYERHOOK_ON_QUEST_STATUS_CHANGE        = 26,
+    PLAYERHOOK_ON_PLAYER_REPOP               = 27,
+    PLAYERHOOK_ON_MOVIE_COMPLETE             = 28,
+    PLAYERHOOK_END                           = 29,
+};
+
 class TC_GAME_API PlayerScript : public ScriptObject
 {
     protected:
 
         explicit PlayerScript(char const* name) noexcept;
+        explicit PlayerScript(char const* name, std::vector<uint16_t> enabledHooks) noexcept;
 
     public:
 

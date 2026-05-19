@@ -304,7 +304,7 @@ modules/mod-myfeature/
 
 ### First Modular Targets (future)
 
-- [ ] Move `world_solo_lfg.cpp` into `modules/mod-solo-lfg/`
+- [x] Move `world_solo_lfg.cpp` into `modules/mod-solo-lfg/` and `modules/mod-solocraft/` — merged AzerothCore mod-solocraft feature set (per-dungeon tables Classic→Legion, class balance, XP balancing, group offset balancing) with ArgusCore TrinityCore API; old core file deleted
 - [ ] Custom commands module
 - [ ] QoL systems module
 

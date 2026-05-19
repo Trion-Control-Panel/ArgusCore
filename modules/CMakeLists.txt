@@ -30,6 +30,27 @@ foreach(_mod_dir IN LISTS _mod_dirs)
 endforeach()
 
 # -----------------------------------------------------------------------
+# External modules
+# Point cmake at standalone module repos that live outside this tree:
+#   cmake -DARGUS_EXTRA_MODULE_DIRS="C:/path/mod-a;C:/path/mod-b" ...
+# Each directory must contain a CMakeLists.txt that calls add_argus_module().
+# -----------------------------------------------------------------------
+set(ARGUS_EXTRA_MODULE_DIRS "" CACHE STRING
+    "Semicolon-separated list of external module directories to include in the build.")
+
+if(ARGUS_EXTRA_MODULE_DIRS)
+    foreach(_ext_dir IN LISTS ARGUS_EXTRA_MODULE_DIRS)
+        if(IS_DIRECTORY "${_ext_dir}" AND EXISTS "${_ext_dir}/CMakeLists.txt")
+            get_filename_component(_ext_name "${_ext_dir}" NAME)
+            message(STATUS "ArgusCore: Loading external module ${_ext_name} from ${_ext_dir}")
+            add_subdirectory("${_ext_dir}" "${CMAKE_CURRENT_BINARY_DIR}/${_ext_name}")
+        else()
+            message(WARNING "ArgusCore: External module not found or missing CMakeLists.txt: ${_ext_dir}")
+        endif()
+    endforeach()
+endif()
+
+# -----------------------------------------------------------------------
 # Generate modules_loader.cpp
 # Defines AddModuleScripts() which calls each module's script entry point.
 # This file is always generated — with zero modules it produces an empty

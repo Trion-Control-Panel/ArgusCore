@@ -34,8 +34,7 @@ void AddSC_xp_boost();
 // player
 void AddSC_chat_log();
 void AddSC_duel_reset();
-// custom
-void AddSC_world_solo_lfg();
+// solo LFG and SoloCraft moved to modules/mod-solo-lfg and modules/mod-solocraft
 
 // The name of this function should match:
 // void Add${NameOfDirectory}Scripts()
@@ -58,7 +57,6 @@ void AddWorldScripts()
     if (sWorld->getBoolConfig(CONFIG_IP_BASED_ACTION_LOGGING))
         AddSC_action_ip_logger(); // location: scripts\World\action_ip_logger.cpp
     AddSC_duel_reset();
-    AddSC_world_solo_lfg();
     if (sWorld->getIntConfig(CONFIG_XP_BOOST_DAYMASK) != 0)
         AddSC_xp_boost();
 }
