@@ -301,7 +301,7 @@ struct SymbolPair
     DWORD _type;
     DWORD_PTR _offset;
 };
-typedef std::set<SymbolPair> SymbolPairs;
+using SymbolPairs = std::set<SymbolPair>;
 
 struct SymbolDetail
 {
@@ -396,7 +396,7 @@ class TC_COMMON_API WheatyExceptionReport
         std::stack<SymbolDetail> m_symbolDetails;
         bool m_alreadyCrashed;
         SRWLOCK m_alreadyCrashedLock;
-        typedef NTSTATUS(NTAPI* pRtlGetVersion)(PRTL_OSVERSIONINFOW lpVersionInformation);
+        using pRtlGetVersion = NTSTATUS(NTAPI*)(PRTL_OSVERSIONINFOW lpVersionInformation);
         pRtlGetVersion RtlGetVersion;
 
         SymbolDetail& PushSymbolDetail();

@@ -42,7 +42,7 @@ struct CreatureAIFactory : public SelectableAI<Creature, CreatureAI>
     }
 };
 
-typedef SelectableAI<Creature, CreatureAI>::FactoryHolderRegistry CreatureAIRegistry;
+using CreatureAIRegistry = SelectableAI<Creature, CreatureAI>::FactoryHolderRegistry;
 
 #define sCreatureAIRegistry CreatureAIRegistry::instance()
 

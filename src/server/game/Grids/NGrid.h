@@ -51,14 +51,14 @@ private:
     bool   i_unloadExplicitLock    : 1;                     // explicit manual lock or config setting
 };
 
-typedef enum
+enum grid_state_t
 {
     GRID_STATE_INVALID = 0,
     GRID_STATE_ACTIVE = 1,
     GRID_STATE_IDLE = 2,
     GRID_STATE_REMOVAL= 3,
     MAX_GRID_STATE = 4
-} grid_state_t;
+};
 
 template
 <
@@ -69,7 +69,7 @@ class GRID_OBJECT_CONTAINER
 class NGrid
 {
     public:
-        typedef Grid<WORLD_OBJECT_CONTAINER, GRID_OBJECT_CONTAINER> GridType;
+        using GridType = Grid<WORLD_OBJECT_CONTAINER, GRID_OBJECT_CONTAINER>;
         NGrid(uint32 id, int32 x, int32 y, time_t expiry, bool unload = true) :
             i_gridId(id), i_GridInfo(GridInfo(expiry, unload)), i_x(x), i_y(y),
             i_cellstate(GRID_STATE_INVALID), i_GridObjectDataLoaded(false)

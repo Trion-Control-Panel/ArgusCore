@@ -121,7 +121,7 @@ class TC_GAME_API MailReceiver
 
 class TC_GAME_API MailDraft
 {
-    typedef std::map<ObjectGuid::LowType, Item*> MailItemMap;
+    using MailItemMap = std::map<ObjectGuid::LowType, Item*>;
 
     public:                                                 // Constructors
         explicit MailDraft(uint16 mailTemplateId, bool need_items = true)
@@ -165,7 +165,7 @@ struct MailItemInfo
     ObjectGuid::LowType item_guid;
     uint32 item_template;
 };
-typedef std::vector<MailItemInfo> MailItemInfoVec;
+using MailItemInfoVec = std::vector<MailItemInfo>;
 
 struct Mail
 {

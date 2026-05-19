@@ -158,7 +158,7 @@ protected:
     }
 
 private:
-    typedef std::vector<std::shared_ptr<SocketType>> SocketContainer;
+    using SocketContainer = std::vector<std::shared_ptr<SocketType>>;
 
     std::atomic<int32> _connections;
     std::atomic<bool> _stopped;

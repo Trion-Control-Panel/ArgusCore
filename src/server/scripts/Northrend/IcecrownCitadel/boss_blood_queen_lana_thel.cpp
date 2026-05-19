@@ -459,7 +459,7 @@ private:
 };
 
 // helper for shortened code
-typedef boss_blood_queen_lana_thel LanaThelAI;
+using LanaThelAI = boss_blood_queen_lana_thel;
 
 // 70946, 71475, 71476, 71477 - Vampiric Bite
 class spell_blood_queen_vampiric_bite : public SpellScript

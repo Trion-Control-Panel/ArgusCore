@@ -49,7 +49,7 @@ enum class ReputationFlags : uint16
 
 DEFINE_ENUM_FLAG(ReputationFlags);
 
-typedef uint32 RepListID;
+using RepListID = uint32;
 struct FactionState
 {
     uint32 ID;
@@ -60,8 +60,8 @@ struct FactionState
     bool needSave;
 };
 
-typedef std::map<RepListID, FactionState> FactionStateList;
-typedef std::map<uint32, ReputationRank> ForcedReactions;
+using FactionStateList = std::map<RepListID, FactionState>;
+using ForcedReactions = std::map<uint32, ReputationRank>;
 
 class Player;
 

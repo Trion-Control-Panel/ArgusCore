@@ -1,4 +1,4 @@
-﻿/*
+/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -43,8 +43,8 @@ struct BuyerItemInfo
     double TotalBidPrice;
 };
 
-typedef std::map<uint32, BuyerItemInfo> BuyerItemInfoMap;
-typedef std::map<uint32, BuyerAuctionEval> CheckEntryMap;
+using BuyerItemInfoMap = std::map<uint32, BuyerItemInfo>;
+using CheckEntryMap = std::map<uint32, BuyerAuctionEval>;
 
 struct BuyerConfiguration
 {

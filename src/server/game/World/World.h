@@ -550,7 +550,7 @@ private:
     CliCommandHolder& operator=(CliCommandHolder const& right) = delete;
 };
 
-typedef std::unordered_map<uint32, WorldSession*> SessionMap;
+using SessionMap = std::unordered_map<uint32, WorldSession*>;
 
 /// The World
 class TC_GAME_API World
@@ -608,7 +608,7 @@ class TC_GAME_API World
         uint32 GetPlayerAmountLimit() const { return m_playerLimit; }
 
         //player Queue
-        typedef std::list<WorldSession*> Queue;
+        using Queue = std::list<WorldSession*>;
         void AddQueuedPlayer(WorldSession*);
         bool RemoveQueuedPlayer(WorldSession* session);
         int32 GetQueuePos(WorldSession*);
@@ -818,7 +818,7 @@ class TC_GAME_API World
 
         SessionMap m_sessions;
         std::unordered_multimap<ObjectGuid, WorldSession*> m_sessionsByBnetGuid;
-        typedef std::unordered_map<uint32, time_t> DisconnectMap;
+        using DisconnectMap = std::unordered_map<uint32, time_t>;
         DisconnectMap m_disconnects;
         uint32 m_maxActiveSessionCount;
         uint32 m_maxQueuedSessionCount;
@@ -870,7 +870,7 @@ class TC_GAME_API World
             std::string Message;
             uint8 Weight;
         };
-        typedef std::unordered_map<uint8, Autobroadcast> AutobroadcastContainer;
+        using AutobroadcastContainer = std::unordered_map<uint8, Autobroadcast>;
         AutobroadcastContainer m_Autobroadcasts;
 
         void ProcessQueryCallbacks();

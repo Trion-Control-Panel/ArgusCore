@@ -36,8 +36,8 @@ class TC_COMMON_API EventMap
     * - Bit 24 - 31: Phase
     * - Pattern: 0xPPGGEEEE
     */
-    typedef std::multimap<TimePoint, uint32> EventStore;
-    typedef std::map<uint32 /*event data*/, std::vector<Milliseconds>> EventSeriesStore;
+    using EventStore = std::multimap<TimePoint, uint32>;
+    using EventSeriesStore = std::map<uint32 /*event data*/, std::vector<Milliseconds>>;
 
 public:
     EventMap() : _time(TimePoint::min()), _phase(0), _lastEvent(0) { }

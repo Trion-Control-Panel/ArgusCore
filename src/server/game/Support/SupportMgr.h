@@ -185,9 +185,9 @@ private:
     std::string _note;
 };
 
-typedef std::map<uint32, BugTicket*> BugTicketList;
-typedef std::map<uint32, ComplaintTicket*> ComplaintTicketList;
-typedef std::map<uint32, SuggestionTicket*> SuggestionTicketList;
+using BugTicketList = std::map<uint32, BugTicket*>;
+using ComplaintTicketList = std::map<uint32, ComplaintTicket*>;
+using SuggestionTicketList = std::map<uint32, SuggestionTicket*>;
 
 class TC_GAME_API SupportMgr
 {

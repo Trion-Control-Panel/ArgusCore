@@ -1434,7 +1434,7 @@ class npc_influence_tentacle : public CreatureScript
         }
 };
 
-typedef boss_sara::boss_saraAI SaraAI;
+using SaraAI = boss_sara::boss_saraAI;
 
 class npc_descend_into_madness : public CreatureScript
 {

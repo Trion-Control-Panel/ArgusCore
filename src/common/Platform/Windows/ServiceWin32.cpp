@@ -35,7 +35,7 @@ SERVICE_STATUS ServiceStatus;
 SERVICE_STATUS_HANDLE ServiceStatusHandle = nullptr;
 }
 
-typedef BOOL (WINAPI *CSD_T)(SC_HANDLE, DWORD, LPCVOID);
+using CSD_T = BOOL (WINAPI *)(SC_HANDLE, DWORD, LPCVOID);
 
 void Trinity::Service::Init(_TCHAR* serviceLongName, _TCHAR* serviceName, _TCHAR* serviceDescription, int(* entryPoint)(int argc, char** argv), int* status)
 {

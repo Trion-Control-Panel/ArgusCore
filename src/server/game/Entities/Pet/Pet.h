@@ -30,8 +30,8 @@ struct PetSpell
     PetSpellType type;
 };
 
-typedef std::unordered_map<uint32, PetSpell> PetSpellMap;
-typedef std::vector<uint32> AutoSpellList;
+using PetSpellMap = std::unordered_map<uint32, PetSpell>;
+using AutoSpellList = std::vector<uint32>;
 
 class Player;
 class PetAura;

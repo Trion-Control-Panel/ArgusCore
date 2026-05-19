@@ -50,20 +50,20 @@ class TC_COMMON_API TaskScheduler
     friend class TaskContext;
 
     // Time definitions (use steady clock)
-    typedef std::chrono::steady_clock clock_t;
-    typedef clock_t::time_point timepoint_t;
-    typedef clock_t::duration duration_t;
+    using clock_t = std::chrono::steady_clock;
+    using timepoint_t = clock_t::time_point;
+    using duration_t = clock_t::duration;
 
     // Task group type
-    typedef uint32 group_t;
+    using group_t = uint32;
     // Task repeated type
-    typedef uint32 repeated_t;
+    using repeated_t = uint32;
     // Task handle type
-    typedef std::function<void(TaskContext)> task_handler_t;
+    using task_handler_t = std::function<void(TaskContext)>;
     // Predicate type
-    typedef std::function<bool()> predicate_t;
+    using predicate_t = std::function<bool()>;
     // Success handle type
-    typedef std::function<void()> success_t;
+    using success_t = std::function<void()>;
 
     class Task
     {
@@ -116,7 +116,7 @@ class TC_COMMON_API TaskScheduler
         }
     };
 
-    typedef std::shared_ptr<Task> TaskContainer;
+    using TaskContainer = std::shared_ptr<Task>;
 
     /// Container which provides Task order, insert and reschedule operations.
     struct Compare
@@ -158,7 +158,7 @@ class TC_COMMON_API TaskScheduler
     /// The Task Queue which contains all task objects.
     TaskQueue _task_holder;
 
-    typedef std::queue<std::function<void()>> AsyncHolder;
+    using AsyncHolder = std::queue<std::function<void()>>;
 
     /// Contains all asynchronous tasks which will be invoked at
     /// the next update tick.

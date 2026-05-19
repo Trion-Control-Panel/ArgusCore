@@ -32,7 +32,7 @@ class TC_GAME_API Transport final : public GameObject, public TransportBase
 
         Transport();
     public:
-        typedef std::set<WorldObject*> PassengerSet;
+        using PassengerSet = std::set<WorldObject*>;
 
         ~Transport();
 

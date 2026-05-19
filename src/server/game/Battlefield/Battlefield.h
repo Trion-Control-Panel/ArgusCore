@@ -90,8 +90,8 @@ namespace WorldPackets
     }
 }
 
-typedef std::vector<BfGraveyard*> GraveyardVect;
-typedef std::map<ObjectGuid, time_t> PlayerTimerMap;
+using GraveyardVect = std::vector<BfGraveyard*>;
+using PlayerTimerMap = std::map<ObjectGuid, time_t>;
 
 class TC_GAME_API BattlefieldControlZoneHandler : public ControlZoneHandler
 {
@@ -153,7 +153,7 @@ class TC_GAME_API Battlefield : public ZoneScript
 
         /// typedef of map witch store capturepoint and the associate gameobject entry
 
-        typedef std::unordered_map<uint32 /*control zone entry*/, std::unique_ptr<BattlefieldControlZoneHandler>> ControlZoneHandlerMap;
+        using ControlZoneHandlerMap = std::unordered_map<uint32 /*control zone entry*/, std::unique_ptr<BattlefieldControlZoneHandler>>;
 
         /// Call this to init the Battlefield
         virtual bool SetupBattlefield() { return true; }

@@ -72,7 +72,7 @@ class TC_GAME_API GridMap
     bool isHole(int row, int col) const;
 
     // Get height functions and pointers
-    typedef float (GridMap::* GetHeightPtr) (float x, float y) const;
+    using GetHeightPtr = float (GridMap::*)(float x, float y) const;
     GetHeightPtr _gridGetHeight;
     float getHeightFromFloat(float x, float y) const;
     float getHeightFromUint16(float x, float y) const;

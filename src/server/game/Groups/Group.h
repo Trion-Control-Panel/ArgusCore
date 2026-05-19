@@ -1,4 +1,4 @@
-﻿/*
+/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -192,8 +192,8 @@ class TC_GAME_API Group
             uint8       roles;
             bool        readyChecked;
         };
-        typedef std::list<MemberSlot> MemberSlotList;
-        typedef MemberSlotList::const_iterator member_citerator;
+        using MemberSlotList = std::list<MemberSlot>;
+        using member_citerator = MemberSlotList::const_iterator;
 
         class CountdownInfo
         {
@@ -216,8 +216,8 @@ class TC_GAME_API Group
         };
 
     protected:
-        typedef MemberSlotList::iterator member_witerator;
-        typedef std::set<Player*> InvitesList;
+        using member_witerator = MemberSlotList::iterator;
+        using InvitesList = std::set<Player*>;
 
     public:
         Group();

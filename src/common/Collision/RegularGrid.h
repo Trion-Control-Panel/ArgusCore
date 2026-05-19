@@ -47,7 +47,7 @@ public:
     #define HGRID_MAP_SIZE  (533.33333f * 64.f)     // shouldn't be changed
     #define CELL_SIZE       float(HGRID_MAP_SIZE/(float)CELL_NUMBER)
 
-    typedef std::unordered_multimap<const T*, Node*> MemberTable;
+    using MemberTable = std::unordered_multimap<const T*, Node*>;
 
     MemberTable memberTable;
     Node* nodes[CELL_NUMBER][CELL_NUMBER];

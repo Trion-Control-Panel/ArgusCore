@@ -37,8 +37,8 @@ using Hours = std::chrono::hours;
 using FloatHours = std::chrono::duration<float, Hours::period>;
 
 /// time_point shorthand typedefs
-typedef std::chrono::steady_clock::time_point TimePoint;
-typedef std::chrono::system_clock::time_point SystemTimePoint;
+using TimePoint = std::chrono::steady_clock::time_point;
+using SystemTimePoint = std::chrono::system_clock::time_point;
 
 /// Makes std::chrono_literals globally available.
 using namespace std::chrono_literals;

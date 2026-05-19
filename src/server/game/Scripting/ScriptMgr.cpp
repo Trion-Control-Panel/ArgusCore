@@ -1,4 +1,4 @@
-﻿/*
+/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -1010,12 +1010,12 @@ class SpecializedScriptRegistry<ScriptType, true>
 public:
     SpecializedScriptRegistry() noexcept = default;
 
-    typedef std::unordered_map<
+    using ScriptStoreType = std::unordered_map<
         uint32 /*script id*/,
         std::unique_ptr<ScriptType>
-    > ScriptStoreType;
+    >;
 
-    typedef typename ScriptStoreType::iterator ScriptStoreIteratorType;
+    using ScriptStoreIteratorType = typename ScriptStoreType::iterator;
 
     void ReleaseContext(std::string const& context) final override
     {
@@ -1170,8 +1170,8 @@ class SpecializedScriptRegistry<ScriptType, false>
     friend class ScriptRegistrySwapHooks;
 
 public:
-    typedef std::unordered_multimap<std::string /*context*/, std::unique_ptr<ScriptType>> ScriptStoreType;
-    typedef typename ScriptStoreType::iterator ScriptStoreIteratorType;
+    using ScriptStoreType = std::unordered_multimap<std::string /*context*/, std::unique_ptr<ScriptType>>;
+    using ScriptStoreIteratorType = typename ScriptStoreType::iterator;
 
     SpecializedScriptRegistry() noexcept = default;
 

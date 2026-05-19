@@ -157,10 +157,10 @@ struct VehicleTemplate
     EnumFlag<VehicleCustomFlags> CustomFlags = VehicleCustomFlags::None;
 };
 
-typedef std::vector<VehicleAccessory> VehicleAccessoryList;
-typedef std::map<ObjectGuid::LowType, VehicleAccessoryList> VehicleAccessoryContainer;
-typedef std::map<uint32, VehicleAccessoryList> VehicleAccessoryTemplateContainer;
-typedef std::map<int8, VehicleSeat> SeatMap;
+using VehicleAccessoryList = std::vector<VehicleAccessory>;
+using VehicleAccessoryContainer = std::map<ObjectGuid::LowType, VehicleAccessoryList>;
+using VehicleAccessoryTemplateContainer = std::map<uint32, VehicleAccessoryList>;
+using SeatMap = std::map<int8, VehicleSeat>;
 
 class TransportBase
 {

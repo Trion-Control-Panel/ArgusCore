@@ -62,14 +62,14 @@ class Conversation;
 #define MAX_FALL_DISTANCE     250000.0f                     // "unlimited fall" to find VMap ground if it is available, just larger than MAX_HEIGHT - INVALID_HEIGHT
 #define DEFAULT_HEIGHT_SEARCH     50.0f                     // default search distance to find height at nearby locations
 
-typedef GridRefManager<Corpse>          CorpseMapType;
-typedef GridRefManager<Creature>        CreatureMapType;
-typedef GridRefManager<DynamicObject>   DynamicObjectMapType;
-typedef GridRefManager<GameObject>      GameObjectMapType;
-typedef GridRefManager<Player>          PlayerMapType;
-typedef GridRefManager<AreaTrigger>     AreaTriggerMapType;
-typedef GridRefManager<SceneObject>     SceneObjectMapType;
-typedef GridRefManager<Conversation>    ConversationMapType;
+using CorpseMapType = GridRefManager<Corpse>;
+using CreatureMapType = GridRefManager<Creature>;
+using DynamicObjectMapType = GridRefManager<DynamicObject>;
+using GameObjectMapType = GridRefManager<GameObject>;
+using PlayerMapType = GridRefManager<Player>;
+using AreaTriggerMapType = GridRefManager<AreaTrigger>;
+using SceneObjectMapType = GridRefManager<SceneObject>;
+using ConversationMapType = GridRefManager<Conversation>;
 
 enum GridMapTypeMask
 {
@@ -88,14 +88,14 @@ enum GridMapTypeMask
 extern template struct TypeListContainer<GridRefManagerContainer, GameObject, Creature/*except pets*/, DynamicObject, Corpse/*Bones*/, AreaTrigger, SceneObject, Conversation>;
 extern template struct TypeListContainer<GridRefManagerContainer, Player, Creature/*pets*/, Corpse/*resurrectable*/, DynamicObject/*farsight target*/>;
 
-typedef TypeListContainer<GridRefManagerContainer, GameObject, Creature/*except pets*/, DynamicObject, Corpse/*Bones*/, AreaTrigger, SceneObject, Conversation> GridTypeMapContainer;
-typedef TypeListContainer<GridRefManagerContainer, Player, Creature/*pets*/, Corpse/*resurrectable*/, DynamicObject/*farsight target*/> WorldTypeMapContainer;
+using GridTypeMapContainer = TypeListContainer<GridRefManagerContainer, GameObject, Creature/*except pets*/, DynamicObject, Corpse/*Bones*/, AreaTrigger, SceneObject, Conversation>;
+using WorldTypeMapContainer = TypeListContainer<GridRefManagerContainer, Player, Creature/*pets*/, Corpse/*resurrectable*/, DynamicObject/*farsight target*/>;
 
 extern template class Grid<WorldTypeMapContainer, GridTypeMapContainer>;
 extern template class NGrid<MAX_NUMBER_OF_CELLS, WorldTypeMapContainer, GridTypeMapContainer>;
 
-typedef Grid<WorldTypeMapContainer, GridTypeMapContainer> GridType;
-typedef NGrid<MAX_NUMBER_OF_CELLS, WorldTypeMapContainer, GridTypeMapContainer> NGridType;
+using GridType = Grid<WorldTypeMapContainer, GridTypeMapContainer>;
+using NGridType = NGrid<MAX_NUMBER_OF_CELLS, WorldTypeMapContainer, GridTypeMapContainer>;
 
 template<uint32 LIMIT>
 struct CoordPair
@@ -170,8 +170,8 @@ struct CoordPair
     uint32 y_coord;
 };
 
-typedef CoordPair<MAX_NUMBER_OF_GRIDS> GridCoord;
-typedef CoordPair<TOTAL_NUMBER_OF_CELLS_PER_MAP> CellCoord;
+using GridCoord = CoordPair<MAX_NUMBER_OF_GRIDS>;
+using CellCoord = CoordPair<TOTAL_NUMBER_OF_CELLS_PER_MAP>;
 
 namespace Trinity
 {

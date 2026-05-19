@@ -93,7 +93,7 @@ enum WorldDatabaseStatements : uint32
 class TC_DATABASE_API WorldDatabaseConnection : public MySQLConnection
 {
 public:
-    typedef WorldDatabaseStatements Statements;
+    using Statements = WorldDatabaseStatements;
 
     WorldDatabaseConnection(MySQLConnectionInfo& connInfo, ConnectionFlags connectionFlags);
     ~WorldDatabaseConnection();

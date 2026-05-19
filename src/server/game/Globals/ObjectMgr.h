@@ -143,7 +143,7 @@ enum ChatType
     CHAT_TYPE_END                = 255
 };
 
-typedef std::map<uint32, PageText> PageTextContainer;
+using PageTextContainer = std::map<uint32, PageText>;
 
 struct InstanceTemplate
 {
@@ -151,7 +151,7 @@ struct InstanceTemplate
     uint32 ScriptId;
 };
 
-typedef std::unordered_map<uint16, InstanceTemplate> InstanceTemplateContainer;
+using InstanceTemplateContainer = std::unordered_map<uint16, InstanceTemplate>;
 
 struct GameTele
 {
@@ -164,7 +164,7 @@ struct GameTele
     std::wstring wnameLow;
 };
 
-typedef std::unordered_map<uint32, GameTele> GameTeleContainer;
+using GameTeleContainer = std::unordered_map<uint32, GameTele>;
 
 enum ScriptsType
 {
@@ -410,10 +410,10 @@ struct ScriptInfo
     std::string GetDebugInfo() const;
 };
 
-typedef std::multimap<uint32, ScriptInfo> ScriptMap;
-typedef std::map<uint32, ScriptMap> ScriptMapMap;
-typedef std::multimap<uint32 /*spell id*/, std::pair<uint32 /*script id*/, bool /*enabled*/>> SpellScriptsContainer;
-typedef std::pair<SpellScriptsContainer::iterator, SpellScriptsContainer::iterator> SpellScriptsBounds;
+using ScriptMap = std::multimap<uint32, ScriptInfo>;
+using ScriptMapMap = std::map<uint32, ScriptMap>;
+using SpellScriptsContainer = std::multimap<uint32 /*spell id*/, std::pair<uint32 /*script id*/, bool /*enabled*/>>;
+using SpellScriptsBounds = std::pair<SpellScriptsContainer::iterator, SpellScriptsContainer::iterator>;
 TC_GAME_API extern ScriptMapMap sSpellScripts;
 TC_GAME_API extern ScriptMapMap sEventScripts;
 
@@ -448,7 +448,7 @@ struct TC_GAME_API SpellClickInfo
     bool IsFitToRequirements(Unit const* clicker, Unit const* clickee) const;
 };
 
-typedef std::multimap<uint32, SpellClickInfo> SpellClickInfoContainer;
+using SpellClickInfoContainer = std::multimap<uint32, SpellClickInfo>;
 
 struct AreaTriggerStruct
 {
@@ -477,56 +477,56 @@ struct AccessRequirement
     std::string questFailedText;
 };
 
-typedef std::set<ObjectGuid::LowType> CellGuidSet;
+using CellGuidSet = std::set<ObjectGuid::LowType>;
 struct CellObjectGuids
 {
     CellGuidSet creatures;
     CellGuidSet gameobjects;
 };
-typedef std::unordered_map<uint32/*cell_id*/, CellObjectGuids> CellObjectGuidsMap;
-typedef std::unordered_map<std::pair<uint32 /*mapId*/, Difficulty>, CellObjectGuidsMap> MapObjectGuids;
-typedef std::map<std::tuple<uint32/*mapId*/, Difficulty, uint32 /*phaseId*/>, CellObjectGuidsMap> MapPersonalObjectGuids;
+using CellObjectGuidsMap = std::unordered_map<uint32/*cell_id*/, CellObjectGuids>;
+using MapObjectGuids = std::unordered_map<std::pair<uint32 /*mapId*/, Difficulty>, CellObjectGuidsMap>;
+using MapPersonalObjectGuids = std::map<std::tuple<uint32/*mapId*/, Difficulty, uint32 /*phaseId*/>, CellObjectGuidsMap>;
 
 struct TrinityString
 {
     std::vector<std::string> Content;
 };
 
-typedef std::map<ObjectGuid, ObjectGuid> LinkedRespawnContainer;
-typedef std::unordered_map<uint32, CreatureTemplate> CreatureTemplateContainer;
-typedef std::unordered_map<uint32, CreatureAddon> CreatureTemplateAddonContainer;
-typedef std::unordered_map<uint32, std::vector<float>> CreatureTemplateSparringContainer;
-typedef std::unordered_map<ObjectGuid::LowType, CreatureData> CreatureDataContainer;
-typedef std::unordered_map<ObjectGuid::LowType, CreatureAddon> CreatureAddonContainer;
-typedef std::unordered_map<uint16, CreatureBaseStats> CreatureBaseStatsContainer;
-typedef std::unordered_map<uint8, EquipmentInfo> EquipmentInfoContainerInternal;
-typedef std::unordered_map<uint32, EquipmentInfoContainerInternal> EquipmentInfoContainer;
-typedef std::unordered_map<uint32, CreatureModelInfo> CreatureModelContainer;
-typedef std::unordered_map<std::pair<uint32, Difficulty>, std::vector<uint32>> CreatureQuestItemMap;
-typedef std::unordered_map<std::pair<ObjectGuid::LowType, Difficulty>, CreatureStaticFlagsOverride> CreatureStaticFlagsOverrideMap;
-typedef std::unordered_map<uint32, DestructibleHitpoint> DestructibleHitpointContainer;
-typedef std::unordered_map<uint32, GameObjectTemplate> GameObjectTemplateContainer;
-typedef std::unordered_map<uint32, GameObjectTemplateAddon> GameObjectTemplateAddonContainer;
-typedef std::unordered_map<ObjectGuid::LowType, GameObjectOverride> GameObjectOverrideContainer;
-typedef std::unordered_map<ObjectGuid::LowType, GameObjectData> GameObjectDataContainer;
-typedef std::unordered_map<ObjectGuid::LowType, GameObjectAddon> GameObjectAddonContainer;
-typedef std::unordered_map<uint32, std::vector<uint32>> GameObjectQuestItemMap;
-typedef std::unordered_map<uint32, SpawnGroupTemplateData> SpawnGroupDataContainer;
-typedef std::multimap<uint32, SpawnMetadata const*> SpawnGroupLinkContainer;
-typedef std::unordered_map<uint16, std::vector<InstanceSpawnGroupInfo>> InstanceSpawnGroupContainer;
-typedef std::unordered_map<uint32, SpawnTrackingTemplateData> SpawnTrackingTemplateContainer;
-typedef std::multimap<uint32, SpawnMetadata const*> SpawnTrackingLinkContainer;
-typedef std::unordered_map<uint32 /*spawnTrackingId*/, std::vector<QuestObjective const*>> SpawnTrackingQuestObjectiveContainer;
-typedef std::map<TempSummonGroupKey, std::vector<TempSummonData>> TempSummonDataContainer;
-typedef std::unordered_map<uint32, CreatureLocale> CreatureLocaleContainer;
-typedef std::unordered_map<uint32, GameObjectLocale> GameObjectLocaleContainer;
-typedef std::unordered_map<uint32, ItemTemplate> ItemTemplateContainer;
-typedef std::unordered_map<uint32, QuestTemplateLocale> QuestTemplateLocaleContainer;
-typedef std::unordered_map<uint32, QuestObjectivesLocale> QuestObjectivesLocaleContainer;
-typedef std::unordered_map<uint32, QuestOfferRewardLocale> QuestOfferRewardLocaleContainer;
-typedef std::unordered_map<uint32, QuestRequestItemsLocale> QuestRequestItemsLocaleContainer;
-typedef std::unordered_map<uint32, PageTextLocale> PageTextLocaleContainer;
-typedef std::unordered_map<uint32, VehicleSeatAddon> VehicleSeatAddonContainer;
+using LinkedRespawnContainer = std::map<ObjectGuid, ObjectGuid>;
+using CreatureTemplateContainer = std::unordered_map<uint32, CreatureTemplate>;
+using CreatureTemplateAddonContainer = std::unordered_map<uint32, CreatureAddon>;
+using CreatureTemplateSparringContainer = std::unordered_map<uint32, std::vector<float>>;
+using CreatureDataContainer = std::unordered_map<ObjectGuid::LowType, CreatureData>;
+using CreatureAddonContainer = std::unordered_map<ObjectGuid::LowType, CreatureAddon>;
+using CreatureBaseStatsContainer = std::unordered_map<uint16, CreatureBaseStats>;
+using EquipmentInfoContainerInternal = std::unordered_map<uint8, EquipmentInfo>;
+using EquipmentInfoContainer = std::unordered_map<uint32, EquipmentInfoContainerInternal>;
+using CreatureModelContainer = std::unordered_map<uint32, CreatureModelInfo>;
+using CreatureQuestItemMap = std::unordered_map<std::pair<uint32, Difficulty>, std::vector<uint32>>;
+using CreatureStaticFlagsOverrideMap = std::unordered_map<std::pair<ObjectGuid::LowType, Difficulty>, CreatureStaticFlagsOverride>;
+using DestructibleHitpointContainer = std::unordered_map<uint32, DestructibleHitpoint>;
+using GameObjectTemplateContainer = std::unordered_map<uint32, GameObjectTemplate>;
+using GameObjectTemplateAddonContainer = std::unordered_map<uint32, GameObjectTemplateAddon>;
+using GameObjectOverrideContainer = std::unordered_map<ObjectGuid::LowType, GameObjectOverride>;
+using GameObjectDataContainer = std::unordered_map<ObjectGuid::LowType, GameObjectData>;
+using GameObjectAddonContainer = std::unordered_map<ObjectGuid::LowType, GameObjectAddon>;
+using GameObjectQuestItemMap = std::unordered_map<uint32, std::vector<uint32>>;
+using SpawnGroupDataContainer = std::unordered_map<uint32, SpawnGroupTemplateData>;
+using SpawnGroupLinkContainer = std::multimap<uint32, SpawnMetadata const*>;
+using InstanceSpawnGroupContainer = std::unordered_map<uint16, std::vector<InstanceSpawnGroupInfo>>;
+using SpawnTrackingTemplateContainer = std::unordered_map<uint32, SpawnTrackingTemplateData>;
+using SpawnTrackingLinkContainer = std::multimap<uint32, SpawnMetadata const*>;
+using SpawnTrackingQuestObjectiveContainer = std::unordered_map<uint32 /*spawnTrackingId*/, std::vector<QuestObjective const*>>;
+using TempSummonDataContainer = std::map<TempSummonGroupKey, std::vector<TempSummonData>>;
+using CreatureLocaleContainer = std::unordered_map<uint32, CreatureLocale>;
+using GameObjectLocaleContainer = std::unordered_map<uint32, GameObjectLocale>;
+using ItemTemplateContainer = std::unordered_map<uint32, ItemTemplate>;
+using QuestTemplateLocaleContainer = std::unordered_map<uint32, QuestTemplateLocale>;
+using QuestObjectivesLocaleContainer = std::unordered_map<uint32, QuestObjectivesLocale>;
+using QuestOfferRewardLocaleContainer = std::unordered_map<uint32, QuestOfferRewardLocale>;
+using QuestRequestItemsLocaleContainer = std::unordered_map<uint32, QuestRequestItemsLocale>;
+using PageTextLocaleContainer = std::unordered_map<uint32, PageTextLocale>;
+using VehicleSeatAddonContainer = std::unordered_map<uint32, VehicleSeatAddon>;
 
 struct GossipMenuItemsLocale
 {
@@ -534,14 +534,14 @@ struct GossipMenuItemsLocale
     std::vector<std::string> BoxText;
 };
 
-typedef std::unordered_map<std::pair<uint32, uint32>, GossipMenuItemsLocale> GossipMenuItemsLocaleContainer;
+using GossipMenuItemsLocaleContainer = std::unordered_map<std::pair<uint32, uint32>, GossipMenuItemsLocale>;
 
 struct PointOfInterestLocale
 {
     std::vector<std::string> Name;
 };
 
-typedef std::unordered_map<uint32, PointOfInterestLocale> PointOfInterestLocaleContainer;
+using PointOfInterestLocaleContainer = std::unordered_map<uint32, PointOfInterestLocale>;
 
 struct PlayerChoiceResponseLocale
 {
@@ -557,10 +557,10 @@ struct PlayerChoiceLocale
     std::unordered_map<int32 /*ResponseId*/, PlayerChoiceResponseLocale> Responses;
 };
 
-typedef std::unordered_map<uint32, TrinityString> TrinityStringContainer;
+using TrinityStringContainer = std::unordered_map<uint32, TrinityString>;
 
-typedef std::multimap<uint32, uint32> QuestRelations; // unit/go -> quest
-typedef std::multimap<uint32, uint32> QuestRelationsReverse; // quest -> unit/go
+using QuestRelations = std::multimap<uint32, uint32>; // unit/go -> quest
+using QuestRelationsReverse = std::multimap<uint32, uint32>; // quest -> unit/go
 
 struct QuestRelationResult
 {
@@ -609,8 +609,8 @@ struct QuestRelationResult
         bool _onlyActive;
 };
 
-typedef std::multimap<int32, uint32> ExclusiveQuestGroups; // exclusiveGroupId -> quest
-typedef std::pair<ExclusiveQuestGroups::const_iterator, ExclusiveQuestGroups::const_iterator> ExclusiveQuestGroupsBounds;
+using ExclusiveQuestGroups = std::multimap<int32, uint32>; // exclusiveGroupId -> quest
+using ExclusiveQuestGroupsBounds = std::pair<ExclusiveQuestGroups::const_iterator, ExclusiveQuestGroups::const_iterator>;
 
 enum class PlayerCreateMode : int8
 {
@@ -628,14 +628,14 @@ struct PlayerCreateInfoItem
     uint32 item_amount = 0;
 };
 
-typedef std::vector<PlayerCreateInfoItem> PlayerCreateInfoItems;
+using PlayerCreateInfoItems = std::vector<PlayerCreateInfoItem>;
 
 struct PlayerLevelInfo
 {
     int32 stats[MAX_STATS] = { };
 };
 
-typedef std::vector<uint32> PlayerCreateInfoSpells;
+using PlayerCreateInfoSpells = std::vector<uint32>;
 
 struct PlayerCreateInfoAction
 {
@@ -646,9 +646,9 @@ struct PlayerCreateInfoAction
     uint32 action = 0;
 };
 
-typedef std::vector<PlayerCreateInfoAction> PlayerCreateInfoActions;
+using PlayerCreateInfoActions = std::vector<PlayerCreateInfoAction>;
 
-typedef std::vector<SkillRaceClassInfoEntry const*> PlayerCreateInfoSkills;
+using PlayerCreateInfoSkills = std::vector<SkillRaceClassInfoEntry const*>;
 
 // existence checked by displayId != 0
 struct PlayerInfo
@@ -692,8 +692,8 @@ struct MailLevelReward
     uint32 senderEntry;
 };
 
-typedef std::list<MailLevelReward> MailLevelRewardList;
-typedef std::unordered_map<uint8, MailLevelRewardList> MailLevelRewardContainer;
+using MailLevelRewardList = std::list<MailLevelReward>;
+using MailLevelRewardContainer = std::unordered_map<uint8, MailLevelRewardList>;
 
 // We assume the rate is in general the same for all three types below, but chose to keep three for scalability and customization
 struct RepRewardRate
@@ -770,12 +770,12 @@ struct GossipMenuAddon
     int32 FriendshipFactionID;
 };
 
-typedef std::multimap<uint32, GossipMenus> GossipMenusContainer;
-typedef std::pair<GossipMenusContainer::const_iterator, GossipMenusContainer::const_iterator> GossipMenusMapBounds;
-typedef std::pair<GossipMenusContainer::iterator, GossipMenusContainer::iterator> GossipMenusMapBoundsNonConst;
-typedef std::multimap<uint32, GossipMenuItems> GossipMenuItemsContainer;
-typedef std::unordered_map<uint32, GossipMenuAddon> GossipMenuAddonContainer;
-typedef std::unordered_map<std::pair<uint32, uint32>, GossipMenuItemAddon> GossipMenuItemAddonContainer;
+using GossipMenusContainer = std::multimap<uint32, GossipMenus>;
+using GossipMenusMapBounds = std::pair<GossipMenusContainer::const_iterator, GossipMenusContainer::const_iterator>;
+using GossipMenusMapBoundsNonConst = std::pair<GossipMenusContainer::iterator, GossipMenusContainer::iterator>;
+using GossipMenuItemsContainer = std::multimap<uint32, GossipMenuItems>;
+using GossipMenuAddonContainer = std::unordered_map<uint32, GossipMenuAddon>;
+using GossipMenuItemAddonContainer = std::unordered_map<std::pair<uint32, uint32>, GossipMenuItemAddon>;
 
 struct QuestPOIBlobPoint
 {
@@ -822,10 +822,10 @@ struct QuestPOIData
     ByteBuffer QueryDataBuffer;
 };
 
-typedef std::unordered_map<uint32, QuestPOIData> QuestPOIContainer;
+using QuestPOIContainer = std::unordered_map<uint32, QuestPOIData>;
 
-typedef std::array<std::unordered_map<uint32, QuestGreeting>, 2> QuestGreetingContainer;
-typedef std::array<std::unordered_map<uint32, QuestGreetingLocale>, 2> QuestGreetingLocaleContainer;
+using QuestGreetingContainer = std::array<std::unordered_map<uint32, QuestGreeting>, 2>;
+using QuestGreetingLocaleContainer = std::array<std::unordered_map<uint32, QuestGreetingLocale>, 2>;
 
 struct GraveyardData
 {
@@ -833,13 +833,13 @@ struct GraveyardData
     ConditionsReference Conditions;
 };
 
-typedef std::multimap<uint32, GraveyardData> GraveyardContainer;
-typedef std::pair<GraveyardContainer::const_iterator, GraveyardContainer::const_iterator> GraveyardMapBounds;
-typedef std::pair<GraveyardContainer::iterator, GraveyardContainer::iterator> GraveyardMapBoundsNonConst;
+using GraveyardContainer = std::multimap<uint32, GraveyardData>;
+using GraveyardMapBounds = std::pair<GraveyardContainer::const_iterator, GraveyardContainer::const_iterator>;
+using GraveyardMapBoundsNonConst = std::pair<GraveyardContainer::iterator, GraveyardContainer::iterator>;
 
-typedef std::unordered_map<uint32, VendorItemData> CacheVendorItemContainer;
+using CacheVendorItemContainer = std::unordered_map<uint32, VendorItemData>;
 
-typedef std::unordered_map<uint32, std::string> RealmNameContainer;
+using RealmNameContainer = std::unordered_map<uint32, std::string>;
 
 struct SceneTemplate
 {
@@ -849,9 +849,9 @@ struct SceneTemplate
     uint32 ScriptId;
 };
 
-typedef std::unordered_map<uint32, SceneTemplate> SceneTemplateContainer;
+using SceneTemplateContainer = std::unordered_map<uint32, SceneTemplate>;
 
-typedef std::unordered_map<uint32, std::string> PhaseNameContainer;
+using PhaseNameContainer = std::unordered_map<uint32, std::string>;
 
 enum SkillRangeType
 {
@@ -889,8 +889,8 @@ struct ExtendedPlayerName
 
 ExtendedPlayerName ExtractExtendedPlayerName(std::string const& name);
 
-typedef std::unordered_map<uint32, uint32> FinalDungeonEncounterContainer;
-typedef std::unordered_map<uint32, std::unordered_set<uint32>> PvpStatContainer;
+using FinalDungeonEncounterContainer = std::unordered_map<uint32, uint32>;
+using PvpStatContainer = std::unordered_map<uint32, std::unordered_set<uint32>>;
 
 struct TerrainSwapInfo
 {
@@ -952,23 +952,23 @@ class TC_GAME_API ObjectMgr
 
         static ObjectMgr* instance();
 
-        typedef std::unordered_map<uint32, Trinity::unique_trackable_ptr<Quest>> QuestContainer;
-        typedef std::unordered_map<uint32 /*questObjectiveId*/, QuestObjective const*> QuestObjectivesByIdContainer;
+        using QuestContainer = std::unordered_map<uint32, Trinity::unique_trackable_ptr<Quest>>;
+        using QuestObjectivesByIdContainer = std::unordered_map<uint32 /*questObjectiveId*/, QuestObjective const*>;
 
-        typedef std::unordered_map<uint32, AreaTriggerStruct> AreaTriggerContainer;
+        using AreaTriggerContainer = std::unordered_map<uint32, AreaTriggerStruct>;
 
-        typedef std::unordered_map<uint32, uint32> AreaTriggerScriptContainer;
+        using AreaTriggerScriptContainer = std::unordered_map<uint32, uint32>;
 
-        typedef std::unordered_map<uint64, AccessRequirement> AccessRequirementContainer;
+        using AccessRequirementContainer = std::unordered_map<uint64, AccessRequirement>;
 
-        typedef std::set<uint32> EventContainer;
-        typedef std::unordered_map<uint32, uint32> EventScriptContainer;
+        using EventContainer = std::set<uint32>;
+        using EventScriptContainer = std::unordered_map<uint32, uint32>;
 
-        typedef std::unordered_map<uint32, RepRewardRate > RepRewardRateContainer;
-        typedef std::unordered_map<uint32, ReputationOnKillEntry> RepOnKillContainer;
-        typedef std::unordered_map<uint32, RepSpilloverTemplate> RepSpilloverTemplateContainer;
+        using RepRewardRateContainer = std::unordered_map<uint32, RepRewardRate >;
+        using RepOnKillContainer = std::unordered_map<uint32, ReputationOnKillEntry>;
+        using RepSpilloverTemplateContainer = std::unordered_map<uint32, RepSpilloverTemplate>;
 
-        typedef std::unordered_map<uint32, PointOfInterest> PointOfInterestContainer;
+        using PointOfInterestContainer = std::unordered_map<uint32, PointOfInterest>;
 
         class ScriptNameContainer
         {
@@ -1001,7 +1001,7 @@ class TC_GAME_API ObjectMgr
             std::unordered_set<std::string> GetAllDBScriptNames() const;
         };
 
-        typedef std::map<uint32, uint32> CharacterConversionMap;
+        using CharacterConversionMap = std::map<uint32, uint32>;
 
         DestructibleHitpoint const* GetDestructibleHitpoint(uint32 entry) const;
         GameObjectTemplate const* GetGameObjectTemplate(uint32 entry) const;
@@ -1694,10 +1694,10 @@ class TC_GAME_API ObjectMgr
         std::vector<Quest const*> _questTemplatesAutoPush;
         QuestObjectivesByIdContainer _questObjectives;
 
-        typedef std::unordered_map<uint32, NpcText> NpcTextContainer;
-        typedef std::unordered_map<uint32, std::unordered_set<uint32>> QuestAreaTriggerContainer;
-        typedef std::set<uint32> TavernAreaTriggerContainer;
-        typedef std::set<uint32> GameObjectForQuestContainer;
+        using NpcTextContainer = std::unordered_map<uint32, NpcText>;
+        using QuestAreaTriggerContainer = std::unordered_map<uint32, std::unordered_set<uint32>>;
+        using TavernAreaTriggerContainer = std::set<uint32>;
+        using GameObjectForQuestContainer = std::set<uint32>;
 
         QuestAreaTriggerContainer _questAreaTriggerStore;
         TavernAreaTriggerContainer _tavernAreaTriggerStore;
@@ -1737,7 +1737,7 @@ class TC_GAME_API ObjectMgr
         ExclusiveQuestGroups _exclusiveQuestGroups;
 
         //character reserved names
-        typedef std::set<std::wstring> ReservedNamesContainer;
+        using ReservedNamesContainer = std::set<std::wstring>;
         ReservedNamesContainer _reservedNamesStore;
 
         GameTeleContainer _gameTeleStore;
@@ -1786,24 +1786,24 @@ class TC_GAME_API ObjectMgr
 
         CreatureBaseStatsContainer _creatureBaseStatsStore;
 
-        typedef std::unordered_map<uint32 /*creatureId*/, std::unique_ptr<PetLevelInfo[] /*level*/>> PetLevelInfoContainer;
+        using PetLevelInfoContainer = std::unordered_map<uint32 /*creatureId*/, std::unique_ptr<PetLevelInfo[] /*level*/>>;
         PetLevelInfoContainer _petInfoStore;
 
         void BuildPlayerLevelInfo(uint8 race, uint8 class_, uint8 level, PlayerLevelInfo* plinfo) const;
 
         std::unordered_map<std::pair<Races, Classes>, std::unique_ptr<PlayerInfo>> _playerInfo;
 
-        typedef std::vector<uint32> PlayerXPperLevel;       // [level]
+        using PlayerXPperLevel = std::vector<uint32>;       // [level]
         PlayerXPperLevel _playerXPperLevel;
 
-        typedef std::map<uint32, uint32> BaseXPContainer;          // [area level][base xp]
+        using BaseXPContainer = std::map<uint32, uint32>;          // [area level][base xp]
         BaseXPContainer _baseXPTable;
 
-        typedef std::map<uint32, int32> FishingBaseSkillContainer; // [areaId][base skill level]
+        using FishingBaseSkillContainer = std::map<uint32, int32>; // [areaId][base skill level]
         FishingBaseSkillContainer _fishingBaseForAreaStore;
         std::unordered_map<uint32, SkillTiersEntry> _skillTiers;
 
-        typedef std::map<uint32, std::vector<std::string>> HalfNameContainer;
+        using HalfNameContainer = std::map<uint32, std::vector<std::string>>;
         HalfNameContainer _petHalfName0;
         HalfNameContainer _petHalfName1;
 

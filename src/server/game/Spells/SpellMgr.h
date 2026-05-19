@@ -348,7 +348,7 @@ struct SpellEnchantProcEntry
     uint32      AttributesMask; // bitmask, see EnchantProcAttributes
 };
 
-typedef std::unordered_map<uint32, SpellEnchantProcEntry> SpellEnchantProcEventMap;
+using SpellEnchantProcEventMap = std::unordered_map<uint32, SpellEnchantProcEntry>;
 
 enum SpellGroup
 {
@@ -375,12 +375,12 @@ namespace std
 #define SPELL_GROUP_DB_RANGE_MIN 1000
 
 //                  spell_id, group_id
-typedef std::unordered_multimap<uint32, SpellGroup> SpellSpellGroupMap;
-typedef std::pair<SpellSpellGroupMap::const_iterator, SpellSpellGroupMap::const_iterator> SpellSpellGroupMapBounds;
+using SpellSpellGroupMap = std::unordered_multimap<uint32, SpellGroup>;
+using SpellSpellGroupMapBounds = std::pair<SpellSpellGroupMap::const_iterator, SpellSpellGroupMap::const_iterator>;
 
 //                      group_id, spell_id
-typedef std::unordered_multimap<SpellGroup, int32> SpellGroupSpellMap;
-typedef std::pair<SpellGroupSpellMap::const_iterator, SpellGroupSpellMap::const_iterator> SpellGroupSpellMapBounds;
+using SpellGroupSpellMap = std::unordered_multimap<SpellGroup, int32>;
+using SpellGroupSpellMapBounds = std::pair<SpellGroupSpellMap::const_iterator, SpellGroupSpellMap::const_iterator>;
 
 enum SpellGroupStackRule
 {
@@ -392,9 +392,9 @@ enum SpellGroupStackRule
     SPELL_GROUP_STACK_RULE_MAX
 };
 
-typedef std::unordered_map<SpellGroup, SpellGroupStackRule> SpellGroupStackMap;
+using SpellGroupStackMap = std::unordered_map<SpellGroup, SpellGroupStackRule>;
 
-typedef std::unordered_map<SpellGroup, std::unordered_set<uint32 /*auraName*/>> SameEffectStackMap;
+using SameEffectStackMap = std::unordered_map<SpellGroup, std::unordered_set<uint32 /*auraName*/>>;
 
 struct SpellThreatEntry
 {
@@ -403,12 +403,12 @@ struct SpellThreatEntry
     float       apPctMod;                                   // Pct of AP that is added as Threat - default: 0.0f
 };
 
-typedef std::unordered_map<uint32, SpellThreatEntry> SpellThreatMap;
+using SpellThreatMap = std::unordered_map<uint32, SpellThreatEntry>;
 
 // coordinates for spells (accessed using SpellMgr functions)
 using SpellTargetPosition = WorldLocation;
 
-typedef std::multimap<std::pair<uint32 /*spell_id*/, SpellEffIndex /*effIndex*/>, SpellTargetPosition> SpellTargetPositionMap;
+using SpellTargetPositionMap = std::multimap<std::pair<uint32 /*spell_id*/, SpellEffIndex /*effIndex*/>, SpellTargetPosition>;
 
 // Enum with EffectRadiusIndex and their actual radius
 enum EffectRadiusIndex
@@ -476,7 +476,7 @@ enum EffectRadiusIndex
 class TC_GAME_API PetAura
 {
     private:
-        typedef std::unordered_map<uint32, uint32> PetAuraMap;
+        using PetAuraMap = std::unordered_map<uint32, uint32>;
 
     public:
         PetAura() : removeOnChangePet(false), damage(0) { }
@@ -518,7 +518,7 @@ class TC_GAME_API PetAura
         bool removeOnChangePet;
         int32 damage;
 };
-typedef std::map<uint32, PetAura> SpellPetAuraMap;
+using SpellPetAuraMap = std::map<uint32, PetAura>;
 
 enum SpellAreaFlag
 {
@@ -544,14 +544,14 @@ struct TC_GAME_API SpellArea
     bool IsFitToRequirements(Player const* player, uint32 newZone, uint32 newArea) const;
 };
 
-typedef std::multimap<uint32, SpellArea> SpellAreaMap;
-typedef std::multimap<uint32, SpellArea const*> SpellAreaForQuestMap;
-typedef std::multimap<uint32, SpellArea const*> SpellAreaForAuraMap;
-typedef std::multimap<uint32, SpellArea const*> SpellAreaForAreaMap;
-typedef std::pair<SpellAreaMap::const_iterator, SpellAreaMap::const_iterator> SpellAreaMapBounds;
-typedef std::pair<SpellAreaForQuestMap::const_iterator, SpellAreaForQuestMap::const_iterator> SpellAreaForQuestMapBounds;
-typedef std::pair<SpellAreaForAuraMap::const_iterator, SpellAreaForAuraMap::const_iterator> SpellAreaForAuraMapBounds;
-typedef std::pair<SpellAreaForAreaMap::const_iterator, SpellAreaForAreaMap::const_iterator> SpellAreaForAreaMapBounds;
+using SpellAreaMap = std::multimap<uint32, SpellArea>;
+using SpellAreaForQuestMap = std::multimap<uint32, SpellArea const*>;
+using SpellAreaForAuraMap = std::multimap<uint32, SpellArea const*>;
+using SpellAreaForAreaMap = std::multimap<uint32, SpellArea const*>;
+using SpellAreaMapBounds = std::pair<SpellAreaMap::const_iterator, SpellAreaMap::const_iterator>;
+using SpellAreaForQuestMapBounds = std::pair<SpellAreaForQuestMap::const_iterator, SpellAreaForQuestMap::const_iterator>;
+using SpellAreaForAuraMapBounds = std::pair<SpellAreaForAuraMap::const_iterator, SpellAreaForAuraMap::const_iterator>;
+using SpellAreaForAreaMapBounds = std::pair<SpellAreaForAreaMap::const_iterator, SpellAreaForAreaMap::const_iterator>;
 
 // Spell rank chain  (accessed using SpellMgr functions)
 struct SpellChainNode
@@ -563,15 +563,15 @@ struct SpellChainNode
     uint8  rank;
 };
 
-typedef std::unordered_map<uint32, SpellChainNode> SpellChainMap;
+using SpellChainMap = std::unordered_map<uint32, SpellChainNode>;
 
 //                   spell_id  req_spell
-typedef std::multimap<uint32, uint32> SpellRequiredMap;
-typedef std::pair<SpellRequiredMap::const_iterator, SpellRequiredMap::const_iterator> SpellRequiredMapBounds;
+using SpellRequiredMap = std::multimap<uint32, uint32>;
+using SpellRequiredMapBounds = std::pair<SpellRequiredMap::const_iterator, SpellRequiredMap::const_iterator>;
 
 //                   req_spell spell_id
-typedef std::multimap<uint32, uint32> SpellsRequiringSpellMap;
-typedef std::pair<SpellsRequiringSpellMap::const_iterator, SpellsRequiringSpellMap::const_iterator> SpellsRequiringSpellMapBounds;
+using SpellsRequiringSpellMap = std::multimap<uint32, uint32>;
+using SpellsRequiringSpellMapBounds = std::pair<SpellsRequiringSpellMap::const_iterator, SpellsRequiringSpellMap::const_iterator>;
 
 // Spell learning properties (accessed using SpellMgr functions)
 struct SpellLearnSkillNode
@@ -582,7 +582,7 @@ struct SpellLearnSkillNode
     uint16 maxvalue;                                        // 0  - max skill value for player level
 };
 
-typedef std::unordered_map<uint32, SpellLearnSkillNode> SpellLearnSkillMap;
+using SpellLearnSkillMap = std::unordered_map<uint32, SpellLearnSkillNode>;
 
 struct SpellLearnSpellNode
 {
@@ -612,21 +612,21 @@ struct CreatureImmunities
     EnumFlag<SpellOtherImmunity> Other = SpellOtherImmunity::None;
 };
 
-typedef std::multimap<uint32, SpellLearnSpellNode> SpellLearnSpellMap;
-typedef std::pair<SpellLearnSpellMap::const_iterator, SpellLearnSpellMap::const_iterator> SpellLearnSpellMapBounds;
+using SpellLearnSpellMap = std::multimap<uint32, SpellLearnSpellNode>;
+using SpellLearnSpellMapBounds = std::pair<SpellLearnSpellMap::const_iterator, SpellLearnSpellMap::const_iterator>;
 
-typedef std::multimap<uint32, SpellLearnSpellNode const*> SpellLearnedBySpellMap;
+using SpellLearnedBySpellMap = std::multimap<uint32, SpellLearnSpellNode const*>;
 
-typedef std::multimap<uint32, SkillLineAbilityEntry const*> SkillLineAbilityMap;
-typedef std::pair<SkillLineAbilityMap::const_iterator, SkillLineAbilityMap::const_iterator> SkillLineAbilityMapBounds;
+using SkillLineAbilityMap = std::multimap<uint32, SkillLineAbilityEntry const*>;
+using SkillLineAbilityMapBounds = std::pair<SkillLineAbilityMap::const_iterator, SkillLineAbilityMap::const_iterator>;
 
-typedef std::set<uint32> PetFamilySpellsSet;
-typedef std::map<uint32, PetFamilySpellsSet> PetFamilySpellsStore;
+using PetFamilySpellsSet = std::set<uint32>;
+using PetFamilySpellsStore = std::map<uint32, PetFamilySpellsSet>;
 
-typedef std::multimap<uint32, uint32> PetLevelupSpellSet;
-typedef std::map<uint32, PetLevelupSpellSet> PetLevelupSpellMap;
+using PetLevelupSpellSet = std::multimap<uint32, uint32>;
+using PetLevelupSpellMap = std::map<uint32, PetLevelupSpellSet>;
 
-typedef std::map<uint32, uint32> SpellDifficultySearcherMap;
+using SpellDifficultySearcherMap = std::map<uint32, uint32>;
 
 #define MAX_CREATURE_SPELL_DATA_SLOT 4
 
@@ -636,9 +636,9 @@ struct PetDefaultSpellsEntry
 };
 
 // < 0 for petspelldata id, > 0 for creature_id
-typedef std::map<int32, PetDefaultSpellsEntry> PetDefaultSpellsMap;
+using PetDefaultSpellsMap = std::map<int32, PetDefaultSpellsEntry>;
 
-typedef std::unordered_map<std::pair<SpellLinkedType, uint32>, std::vector<int32>> SpellLinkedMap;
+using SpellLinkedMap = std::unordered_map<std::pair<SpellLinkedType, uint32>, std::vector<int32>>;
 
 bool IsPrimaryProfessionSkill(uint32 skill);
 
@@ -682,7 +682,7 @@ struct SpellInfoLoadHelper
     std::vector<SpellXSpellVisualEntry const*> Visuals; // only to group visuals when parsing sSpellXSpellVisualStore, not for loading
 };
 
-typedef std::map<std::pair<uint32 /*SpellId*/, uint8 /*RaceId*/>, uint32 /*DisplayId*/> SpellTotemModelMap;
+using SpellTotemModelMap = std::map<std::pair<uint32 /*SpellId*/, uint8 /*RaceId*/>, uint32 /*DisplayId*/>;
 
 class TC_GAME_API SpellMgr
 {

@@ -169,7 +169,7 @@ class TC_GAME_API Aura
     friend class Unit;
 
     public:
-        typedef std::unordered_map<ObjectGuid, AuraApplication*> ApplicationMap;
+        using ApplicationMap = std::unordered_map<ObjectGuid, AuraApplication*>;
 
         static uint32 BuildEffectMaskForOwner(SpellInfo const* spellProto, uint32 availableEffectMask, WorldObject* owner);
         static Aura* TryRefreshStackOrCreate(AuraCreateInfo& createInfo, bool updateEffectMask = true);

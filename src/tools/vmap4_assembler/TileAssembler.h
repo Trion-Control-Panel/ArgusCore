@@ -61,7 +61,7 @@ namespace VMAP
         std::map<uint32 /*packedTileId*/, std::set<uint32 /*Id*/>> ParentTileEntries;
     };
 
-    typedef std::deque<MapSpawns> MapData;
+    using MapData = std::deque<MapSpawns>;
     //===============================================
 
     struct GroupModel_Raw

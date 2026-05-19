@@ -2487,7 +2487,7 @@ void SpellMgr::LoadSpellAreas()
     TC_LOG_INFO("server.loading", ">> Loaded {} spell area requirements in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
 }
 
-typedef std::vector<SpellEffectEntry const*> SpellEffectVector;
+using SpellEffectVector = std::vector<SpellEffectEntry const*>;
 
 void SpellMgr::LoadSpellInfoStore()
 {

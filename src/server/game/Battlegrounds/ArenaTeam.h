@@ -122,7 +122,7 @@ class TC_GAME_API ArenaTeam
         void Disband(WorldSession* session);
         void Disband();
 
-        typedef std::list<ArenaTeamMember> MemberList;
+        using MemberList = std::list<ArenaTeamMember>;
 
         uint32 GetId() const { return TeamId; }
         uint32 GetType() const { return Type; }

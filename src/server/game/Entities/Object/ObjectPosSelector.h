@@ -41,7 +41,7 @@ struct TC_GAME_API ObjectPosSelector
         float dist;                                         // dist to central point (including central point size)
     };
 
-    typedef std::multimap<float, UsedPos> UsedPosList;       // abs(angle)->Node
+    using UsedPosList = std::multimap<float, UsedPos>;       // abs(angle)->Node
 
     ObjectPosSelector(float x, float y, float size, float dist);
 

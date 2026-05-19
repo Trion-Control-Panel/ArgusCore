@@ -105,8 +105,8 @@ struct BossBoundaryEntry
 
 struct TC_GAME_API BossBoundaryData
 {
-    typedef std::vector<BossBoundaryEntry> StorageType;
-    typedef StorageType::const_iterator const_iterator;
+    using StorageType = std::vector<BossBoundaryEntry>;
+    using const_iterator = StorageType::const_iterator;
 
     BossBoundaryData(std::initializer_list<BossBoundaryEntry> data) : _data(data) { }
     ~BossBoundaryData();
@@ -128,7 +128,7 @@ struct ObjectData
     uint32 type;
 };
 
-typedef std::vector<AreaBoundary const*> CreatureBoundary;
+using CreatureBoundary = std::vector<AreaBoundary const*>;
 
 struct BossInfo
 {
@@ -170,12 +170,12 @@ struct UpdateAdditionalSaveDataEvent
     std::variant<int64, double> Value;
 };
 
-typedef std::multimap<uint32 /*entry*/, DoorInfo> DoorInfoMap;
-typedef std::pair<DoorInfoMap::const_iterator, DoorInfoMap::const_iterator> DoorInfoMapBounds;
+using DoorInfoMap = std::multimap<uint32 /*entry*/, DoorInfo>;
+using DoorInfoMapBounds = std::pair<DoorInfoMap::const_iterator, DoorInfoMap::const_iterator>;
 
-typedef std::map<uint32 /*entry*/, MinionInfo> MinionInfoMap;
-typedef std::map<uint32 /*type*/, ObjectGuid /*guid*/> ObjectGuidMap;
-typedef std::map<uint32 /*entry*/, uint32 /*type*/> ObjectInfoMap;
+using MinionInfoMap = std::map<uint32 /*entry*/, MinionInfo>;
+using ObjectGuidMap = std::map<uint32 /*type*/, ObjectGuid /*guid*/>;
+using ObjectInfoMap = std::map<uint32 /*entry*/, uint32 /*type*/>;
 
 class TC_GAME_API InstanceScript : public ZoneScript
 {

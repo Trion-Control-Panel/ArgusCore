@@ -27,7 +27,7 @@ template<class T, class O, class Key = std::string>
 class FactoryHolder
 {
     public:
-        typedef ObjectRegistry<FactoryHolder<T, O, Key>, Key> FactoryHolderRegistry;
+        using FactoryHolderRegistry = ObjectRegistry<FactoryHolder<T, O, Key>, Key>;
 
         explicit FactoryHolder(Key const& k) : _key(k) { }
         virtual ~FactoryHolder() { }

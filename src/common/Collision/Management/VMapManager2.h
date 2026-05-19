@@ -48,8 +48,8 @@ namespace VMAP
     class StaticMapTree;
     class WorldModel;
 
-    typedef std::unordered_map<uint32, StaticMapTree*> InstanceTreeMap;
-    typedef std::unordered_map<std::string, std::weak_ptr<ManagedModel>> ModelFileMap;
+    using InstanceTreeMap = std::unordered_map<uint32, StaticMapTree*>;
+    using ModelFileMap = std::unordered_map<std::string, std::weak_ptr<ManagedModel>>;
 
     enum DisableTypes
     {
@@ -116,10 +116,10 @@ namespace VMAP
 
             int32 getParentMapId(uint32 mapId) const;
 
-            typedef uint32(*GetLiquidFlagsFn)(uint32 liquidType);
+            using GetLiquidFlagsFn = uint32(*)(uint32 liquidType);
             GetLiquidFlagsFn GetLiquidFlagsPtr;
 
-            typedef bool(*IsVMAPDisabledForFn)(uint32 entry, uint8 flags);
+            using IsVMAPDisabledForFn = bool(*)(uint32 entry, uint8 flags);
             IsVMAPDisabledForFn IsVMAPDisabledForPtr;
     };
 }

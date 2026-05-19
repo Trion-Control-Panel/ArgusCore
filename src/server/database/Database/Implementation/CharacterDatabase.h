@@ -612,7 +612,7 @@ enum CharacterDatabaseStatements : uint32
 class TC_DATABASE_API CharacterDatabaseConnection : public MySQLConnection
 {
 public:
-    typedef CharacterDatabaseStatements Statements;
+    using Statements = CharacterDatabaseStatements;
 
     CharacterDatabaseConnection(MySQLConnectionInfo& connInfo, ConnectionFlags connectionFlags);
     ~CharacterDatabaseConnection();

@@ -32,7 +32,7 @@ class TC_GAME_API AggressorAI : public CreatureAI
         static int32 Permissible(Creature const* creature);
 };
 
-typedef std::vector<uint32> SpellVector;
+using SpellVector = std::vector<uint32>;
 
 class TC_GAME_API CombatAI : public CreatureAI
 {

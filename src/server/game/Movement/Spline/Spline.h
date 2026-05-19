@@ -29,8 +29,8 @@ namespace Movement {
 class SplineBase
 {
 public:
-    typedef int index_type;
-    typedef std::vector<Vector3> ControlArray;
+    using index_type = int;
+    using ControlArray = std::vector<Vector3>;
 
     enum EvaluationMode
     {
@@ -61,7 +61,7 @@ protected:
     void EvaluateLinear(index_type, float, Vector3&) const;
     void EvaluateCatmullRom(index_type, float, Vector3&) const;
     void EvaluateBezier3(index_type, float, Vector3&) const;
-    typedef void (SplineBase::*EvaluationMethtod)(index_type, float, Vector3&) const;
+    using EvaluationMethtod = void (SplineBase::*)(index_type, float, Vector3&) const;
     static EvaluationMethtod evaluators[ModesEnd];
 
     void EvaluateDerivativeLinear(index_type, float, Vector3&) const;
@@ -72,13 +72,13 @@ protected:
     float SegLengthLinear(index_type) const;
     float SegLengthCatmullRom(index_type) const;
     float SegLengthBezier3(index_type) const;
-    typedef float (SplineBase::*SegLenghtMethtod)(index_type) const;
+    using SegLenghtMethtod = float (SplineBase::*)(index_type) const;
     static SegLenghtMethtod seglengths[ModesEnd];
 
     void InitLinear(Vector3 const*, index_type, index_type);
     void InitCatmullRom(Vector3 const*, index_type, index_type);
     void InitBezier3(Vector3 const*, index_type, index_type);
-    typedef void (SplineBase::*InitMethtod)(Vector3 const*, index_type, index_type);
+    using InitMethtod = void (SplineBase::*)(Vector3 const*, index_type, index_type);
     static InitMethtod initializers[ModesEnd];
 
     void UninitializedSplineEvaluationMethod(index_type, float, Vector3&) const { ABORT(); }
@@ -144,8 +144,8 @@ template<typename length_type>
 class Spline : public SplineBase
 {
 public:
-    typedef length_type LengthType;
-    typedef std::vector<length_type> LengthArray;
+    using LengthType = length_type;
+    using LengthArray = std::vector<length_type>;
 protected:
 
     LengthArray lengths;

@@ -53,7 +53,7 @@ public:
     struct executor_with_default : InnerExecutor
     {
         /// Specify @c AsExpected as the default completion token type.
-        typedef AsExpected default_completion_token_type;
+        using default_completion_token_type = AsExpected;
 
         /// Construct the adapted executor from the inner executor type.
         template <typename InnerExecutor1>
@@ -117,7 +117,7 @@ template <typename Handler>
 class AsExpectedHandler
 {
 public:
-    typedef void result_type;
+    using result_type = void;
 
     template <typename CompletionToken>
     AsExpectedHandler(AsExpected<CompletionToken> e) : handler_(static_cast<CompletionToken&&>(e.token_)) { }

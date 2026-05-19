@@ -96,8 +96,8 @@ static bool EmptyValidator()
 class TC_GAME_API MotionMaster
 {
     public:
-        typedef std::function<void()> DelayedActionDefine;
-        typedef std::function<bool()> DelayedActionValidator;
+        using DelayedActionDefine = std::function<void()>;
+        using DelayedActionValidator = std::function<bool()>;
 
         class DelayedAction
         {
@@ -242,9 +242,9 @@ class TC_GAME_API MotionMaster
         void CalculateJumpSpeeds(float dist, UnitMoveType moveType, float speedMultiplier, float minHeight, float maxHeight, float& speedXY, float& speedZ) const;
 
     private:
-        typedef std::unique_ptr<MovementGenerator, MovementGeneratorDeleter> MovementGeneratorPointer;
-        typedef std::multiset<MovementGenerator*, MovementGeneratorComparator> MotionMasterContainer;
-        typedef std::unordered_multimap<uint32, MovementGenerator const*> MotionMasterUnitStatesContainer;
+        using MovementGeneratorPointer = std::unique_ptr<MovementGenerator, MovementGeneratorDeleter>;
+        using MotionMasterContainer = std::multiset<MovementGenerator*, MovementGeneratorComparator>;
+        using MotionMasterUnitStatesContainer = std::unordered_multimap<uint32, MovementGenerator const*>;
 
         void AddFlag(uint8 const flag) { _flags |= flag; }
         bool HasFlag(uint8 const flag) const { return (_flags & flag) != 0; }

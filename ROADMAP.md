@@ -43,7 +43,7 @@ Modernize an old Legion-based TrinityCore source into a modern, stable, maintain
 | # | Phase | Status |
 |---|-------|--------|
 | 1 | [Safe Rebranding](#phase-1--safe-rebranding) | **Validated** |
-| 2 | [Custom Script Integration](#phase-2--custom-script-integration) | **Validated** |
+| 2 | [Custom Script Integration](#phase-2--custom-script-integration) | **Complete** |
 | 3 | [Build System Cleanup](#phase-3--build-system-cleanup) | **Validated** |
 | 4 | [Dependency Updates](#phase-4--dependency-updates) | **Validated** |
 | 5 | [Code Modernization](#phase-5--code-modernization) | Not started |
@@ -116,8 +116,8 @@ reading the code and removes the implicit "these are second-class citizens" sign
 - [x] Move `custom_lfg.cpp` into `scripts/World/world_solo_lfg.cpp`, registered in `world_script_loader.cpp`
 - [x] `AddTheLegionPreservationProjectScripts()` — only defined/called within the TLPP folder itself; not wired from any external loader; no edit needed
 - [x] Delete `src/server/scripts/TheLegionPreservationProject/` folder
-- [ ] Confirm the script tree in CMake output no longer shows the TLPP entry
-- [ ] Update DB: `creature_template.ScriptName` for entry 29264 → `npc_sha_feral_spirit`
+- [x] Confirm the script tree in CMake output no longer shows the TLPP entry
+- [x] Update DB: `creature_template.ScriptName` for entry 29264 → `npc_sha_feral_spirit` (sql/updates/world/master/2026_05_19_00_world.sql)
 
 ### Rules
 
@@ -213,8 +213,8 @@ reading the code and removes the implicit "these are second-class citizens" sign
 
 ### Tasks
 
-- [ ] Replace `NULL` with `nullptr` (2,942 occurrences across src/)
-- [ ] Replace `typedef` with `using`
+- [x] Replace `NULL` with `nullptr` (2,942 occurrences across src/)
+- [x] Replace `typedef` with `using`
 - [ ] Introduce `constexpr` safely
 - [ ] Introduce `enum class` safely
 - [ ] Replace obvious ownership raw pointers with `unique_ptr`

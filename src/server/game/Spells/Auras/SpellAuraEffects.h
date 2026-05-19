@@ -24,7 +24,7 @@ class AuraEffect;
 class Unit;
 class WorldObject;
 
-typedef void(AuraEffect::*pAuraEffectHandler)(AuraApplication const* aurApp, uint8 mode, bool apply) const;
+using pAuraEffectHandler = void(AuraEffect::*)(AuraApplication const* aurApp, uint8 mode, bool apply) const;
 
 class TC_GAME_API AuraEffect
 {

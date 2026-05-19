@@ -79,7 +79,7 @@ namespace WorldPackets
     }
 }
 
-typedef std::unordered_map<Player*, UpdateData> UpdateDataMapType;
+using UpdateDataMapType = std::unordered_map<Player*, UpdateData>;
 
 struct CreateObjectBits
 {
@@ -109,7 +109,7 @@ struct CreateObjectBits
 
 namespace UpdateMask
 {
-    typedef uint32 BlockType;
+    using BlockType = uint32;
 
     enum DynamicFieldChangeType : uint16
     {

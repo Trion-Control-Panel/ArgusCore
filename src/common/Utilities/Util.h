@@ -482,13 +482,13 @@ template <typename T>
 class HookList
 {
     private:
-        typedef std::vector<T> ContainerType;
+        using ContainerType = std::vector<T>;
 
         ContainerType _container;
 
     public:
-        typedef typename ContainerType::const_iterator const_iterator;
-        typedef typename ContainerType::iterator iterator;
+        using const_iterator = typename ContainerType::const_iterator;
+        using iterator = typename ContainerType::iterator;
 
         HookList<T>& operator+=(T&& t)
         {

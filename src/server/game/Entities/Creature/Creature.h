@@ -46,7 +46,7 @@ struct VendorItemCount
     time_t lastIncrementTime;
 };
 
-typedef std::list<VendorItemCount> VendorItemCounts;
+using VendorItemCounts = std::list<VendorItemCount>;
 
 // max different by z coordinate for creature aggro reaction
 #define CREATURE_Z_ATTACK_RANGE 3
@@ -63,8 +63,8 @@ static constexpr uint8 WILD_BATTLE_PET_DEFAULT_LEVEL = 1;
 static constexpr size_t CREATURE_TAPPERS_SOFT_CAP = 5;
 
 //used for handling non-repeatable random texts
-typedef std::vector<uint8> CreatureTextRepeatIds;
-typedef std::unordered_map<uint8, CreatureTextRepeatIds> CreatureTextRepeatGroup;
+using CreatureTextRepeatIds = std::vector<uint8>;
+using CreatureTextRepeatGroup = std::unordered_map<uint8, CreatureTextRepeatIds>;
 
 class TC_GAME_API Creature : public Unit, public GridObject<Creature>, public MapObject
 {

@@ -33,7 +33,7 @@ using namespace VMAP;
 
 namespace MMAP
 {
-    typedef std::unordered_map<uint32, Trinity::Containers::FlatSet<uint32>> TileList;
+    using TileList = std::unordered_map<uint32, Trinity::Containers::FlatSet<uint32>>;
 
     struct Tile
     {

@@ -40,7 +40,7 @@ struct GameObjectAIFactory : public SelectableAI<GameObject, GameObjectAI>
     }
 };
 
-typedef SelectableAI<GameObject, GameObjectAI>::FactoryHolderRegistry GameObjectAIRegistry;
+using GameObjectAIRegistry = SelectableAI<GameObject, GameObjectAI>::FactoryHolderRegistry;
 
 #define sGameObjectAIRegistry GameObjectAIRegistry::instance()
 

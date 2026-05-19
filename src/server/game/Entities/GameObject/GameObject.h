@@ -457,7 +457,7 @@ class TC_GAME_API GameObject : public WorldObject, public GridObject<GameObject>
         GuidSet m_unique_users;
         uint32 m_usetimes;
 
-        typedef std::map<uint32, ObjectGuid> ChairSlotAndUser;
+        using ChairSlotAndUser = std::map<uint32, ObjectGuid>;
         ChairSlotAndUser ChairListSlots;
 
         ObjectGuid::LowType m_spawnId;                               ///< For new or temporary gameobjects is 0 for saved it is lowguid

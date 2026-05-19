@@ -29,7 +29,7 @@ namespace Battlenet
     {
         class Account : public Service<account::v1::AccountService>
         {
-            typedef Service<account::v1::AccountService> AccountService;
+            using AccountService = Service<account::v1::AccountService>;
 
         public:
             Account(Session* session);

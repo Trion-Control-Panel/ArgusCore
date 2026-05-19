@@ -395,7 +395,7 @@ class boss_halion : public CreatureScript
         }
 };
 
-typedef boss_halion::boss_halionAI HalionAI;
+using HalionAI = boss_halion::boss_halionAI;
 
 class boss_twilight_halion : public CreatureScript
 {

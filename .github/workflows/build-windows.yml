@@ -12,10 +12,11 @@ concurrency:
 
 env:
   MYSQL_VERSION: "8.4.4"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
-    name: Windows 2022 — MSVC 2022 — RelWithDebInfo
+    name: Windows 2022 - MSVC 2022 - RelWithDebInfo
     runs-on: windows-2022
 
     steps:
@@ -25,21 +26,19 @@ jobs:
 
       # -------------------------------------------------------------------
       # Install dependencies via Chocolatey
-      # openssl  — installs to C:\Program Files\OpenSSL\
-      # boost-msvc-14.3 — installs pre-built Boost for VS 2022 (toolset 14.3)
+      # openssl       - installs to C:\Program Files\OpenSSL\
+      # boost-msvc-14.3 - installs pre-built Boost for VS 2022 (toolset 14.3)
       # -------------------------------------------------------------------
       - name: Install OpenSSL and Boost
         run: choco install openssl boost-msvc-14.3 --no-progress -y
 
       - name: Set dependency paths
         run: |
-          # OpenSSL — choco installs here
           $ssl = "C:\Program Files\OpenSSL"
           if (-not (Test-Path $ssl)) { Write-Error "OpenSSL not found at $ssl"; exit 1 }
           echo "OPENSSL_ROOT_DIR=$ssl" >> $env:GITHUB_ENV
           Write-Host "OpenSSL: $ssl"
 
-          # Boost — choco installs under C:\local\boost_X_Y_Z
           $boost = Get-ChildItem "C:\local" -Filter "boost_*" -Directory -ErrorAction SilentlyContinue |
                    Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
           if (-not $boost) { Write-Error "Boost not found under C:\local"; exit 1 }
@@ -47,8 +46,10 @@ jobs:
           Write-Host "Boost: $boost"
 
       # -------------------------------------------------------------------
-      # MySQL 8.4 connector — download the server ZIP which contains the
+      # MySQL 8.4 connector - download the server ZIP which contains the
       # client headers and libmysql.dll needed to build against.
+      # Primary URL: MySQL CDN (more reliable than dev.mysql.com redirects).
+      # Fallback URL: direct dev.mysql.com link.
       # -------------------------------------------------------------------
       - name: Cache MySQL ${{ env.MYSQL_VERSION }} connector
         id: cache-mysql
@@ -60,11 +61,27 @@ jobs:
       - name: Download MySQL ${{ env.MYSQL_VERSION }}
         if: steps.cache-mysql.outputs.cache-hit != 'true'
         run: |
-          $url = "https://dev.mysql.com/get/Downloads/MySQL-8.4/mysql-${{ env.MYSQL_VERSION }}-winx64.zip"
-          Write-Host "Downloading MySQL from $url"
-          Invoke-WebRequest -Uri $url -OutFile mysql.zip -TimeoutSec 300
+          $ver  = "${{ env.MYSQL_VERSION }}"
+          $file = "mysql-${ver}-winx64.zip"
+          $urls = @(
+            "https://cdn.mysql.com/Downloads/MySQL-8.4/${file}",
+            "https://dev.mysql.com/get/Downloads/MySQL-8.4/${file}"
+          )
+          $downloaded = $false
+          foreach ($url in $urls) {
+            Write-Host "Trying: $url"
+            try {
+              Invoke-WebRequest -Uri $url -OutFile mysql.zip -TimeoutSec 300 -ErrorAction Stop
+              $downloaded = $true
+              Write-Host "Downloaded from $url"
+              break
+            } catch {
+              Write-Host "Failed: $_"
+            }
+          }
+          if (-not $downloaded) { Write-Error "All MySQL download URLs failed"; exit 1 }
           Expand-Archive mysql.zip -DestinationPath C:\mysql-tmp
-          Move-Item "C:\mysql-tmp\mysql-${{ env.MYSQL_VERSION }}-winx64" "C:\mysql"
+          Move-Item "C:\mysql-tmp\mysql-${ver}-winx64" "C:\mysql"
 
       # -------------------------------------------------------------------
       # Configure
@@ -90,30 +107,25 @@ jobs:
         run: cmake --build build --config RelWithDebInfo --parallel 2
 
       # -------------------------------------------------------------------
-      # Package — collect binaries, configs, and required runtime DLLs
+      # Package - collect binaries, configs, and required runtime DLLs
       # -------------------------------------------------------------------
       - name: Package artifacts
         run: |
           $out = "dist"
           New-Item -ItemType Directory -Force $out | Out-Null
 
-          # Binaries
           Copy-Item "build\bin\RelWithDebInfo\*.exe" $out
           Copy-Item "build\bin\RelWithDebInfo\*.dll" $out -ErrorAction SilentlyContinue
 
-          # Configs
           if (Test-Path "build\bin\RelWithDebInfo\configs") {
             Copy-Item "build\bin\RelWithDebInfo\configs" "$out\configs" -Recurse
           }
 
-          # MySQL runtime
           Copy-Item "C:\mysql\lib\libmysql.dll" $out
 
-          # OpenSSL runtime
           $ssl = $env:OPENSSL_ROOT_DIR
           Get-ChildItem "$ssl\bin\*.dll" | Copy-Item -Destination $out
 
-          # Zip — one with symbols, one without
           Compress-Archive "$out\*" "ArgusCore-Win64-${{ github.sha }}.zip"
           Get-ChildItem $out -Filter *.pdb -Recurse | Remove-Item -Force
           Compress-Archive "$out\*" "ArgusCore-Win64-${{ github.sha }}-NoSymbols.zip"

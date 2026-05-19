@@ -40,8 +40,8 @@ struct SkillDiscoveryEntry
         : spellId(_spellId), reqSkillValue(req_skill_val), chance(_chance) { }
 };
 
-typedef std::list<SkillDiscoveryEntry> SkillDiscoveryList;
-typedef std::unordered_map<int32, SkillDiscoveryList> SkillDiscoveryMap;
+using SkillDiscoveryList = std::list<SkillDiscoveryEntry>;
+using SkillDiscoveryMap = std::unordered_map<int32, SkillDiscoveryList>;
 
 static SkillDiscoveryMap SkillDiscoveryStore;
 

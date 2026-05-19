@@ -34,7 +34,7 @@ private:
     ~GuildMgr();
 
 public:
-    typedef std::unordered_map<ObjectGuid::LowType, Trinity::unique_trackable_ptr<Guild>> GuildContainer;
+    using GuildContainer = std::unordered_map<ObjectGuid::LowType, Trinity::unique_trackable_ptr<Guild>>;
 
     GuildMgr(GuildMgr const&) = delete;
     GuildMgr(GuildMgr&&) = delete;

@@ -159,18 +159,18 @@ struct LfgProposal;
 struct LfgProposalPlayer;
 struct LfgPlayerBoot;
 
-typedef std::map<uint8, LFGQueue> LfgQueueContainer;
-typedef std::multimap<uint32, LfgReward const*> LfgRewardContainer;
-typedef std::pair<LfgRewardContainer::const_iterator, LfgRewardContainer::const_iterator> LfgRewardContainerBounds;
-typedef std::map<uint8, LfgDungeonSet> LfgCachedDungeonContainer;
-typedef std::map<ObjectGuid, LfgAnswer> LfgAnswerContainer;
-typedef std::map<ObjectGuid, LfgRoleCheck> LfgRoleCheckContainer;
-typedef std::map<uint32, LfgProposal> LfgProposalContainer;
-typedef std::map<ObjectGuid, LfgProposalPlayer> LfgProposalPlayerContainer;
-typedef std::map<ObjectGuid, LfgPlayerBoot> LfgPlayerBootContainer;
-typedef std::map<ObjectGuid, LfgGroupData> LfgGroupDataContainer;
-typedef std::map<ObjectGuid, LfgPlayerData> LfgPlayerDataContainer;
-typedef std::unordered_map<uint32, LFGDungeonData> LFGDungeonContainer;
+using LfgQueueContainer = std::map<uint8, LFGQueue>;
+using LfgRewardContainer = std::multimap<uint32, LfgReward const*>;
+using LfgRewardContainerBounds = std::pair<LfgRewardContainer::const_iterator, LfgRewardContainer::const_iterator>;
+using LfgCachedDungeonContainer = std::map<uint8, LfgDungeonSet>;
+using LfgAnswerContainer = std::map<ObjectGuid, LfgAnswer>;
+using LfgRoleCheckContainer = std::map<ObjectGuid, LfgRoleCheck>;
+using LfgProposalContainer = std::map<uint32, LfgProposal>;
+using LfgProposalPlayerContainer = std::map<ObjectGuid, LfgProposalPlayer>;
+using LfgPlayerBootContainer = std::map<ObjectGuid, LfgPlayerBoot>;
+using LfgGroupDataContainer = std::map<ObjectGuid, LfgGroupData>;
+using LfgPlayerDataContainer = std::map<ObjectGuid, LfgPlayerData>;
+using LFGDungeonContainer = std::unordered_map<uint32, LFGDungeonData>;
 
 // Data needed by SMSG_LFG_JOIN_RESULT
 struct LfgJoinResultData

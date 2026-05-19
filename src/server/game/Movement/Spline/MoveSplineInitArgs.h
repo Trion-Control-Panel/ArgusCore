@@ -30,7 +30,7 @@ enum class AnimTier : uint8;
 
 namespace Movement
 {
-    typedef std::vector<Vector3> PointsArray;
+    using PointsArray = std::vector<Vector3>;
 
     struct FacingInfo
     {

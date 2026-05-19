@@ -351,7 +351,7 @@ const int32 BOUNDARY_VISUALIZE_FAILSAFE_LIMIT = 750;
 const float BOUNDARY_VISUALIZE_SPAWN_HEIGHT = 5.0f;
 int32 CreatureAI::VisualizeBoundary(Seconds duration, Unit* owner, bool fill) const
 {
-    typedef std::pair<int32, int32> coordinate;
+    using coordinate = std::pair<int32, int32>;
 
     if (!owner)
         return -1;

@@ -70,8 +70,8 @@ enum class ToyFlags : uint32
 
 DEFINE_ENUM_FLAG(ToyFlags);
 
-typedef std::map<uint32, EnumFlag<ToyFlags>> ToyBoxContainer;
-typedef std::map<uint32, HeirloomData> HeirloomContainer;
+using ToyBoxContainer = std::map<uint32, EnumFlag<ToyFlags>>;
+using HeirloomContainer = std::map<uint32, HeirloomData>;
 
 enum MountStatusFlags : uint8
 {
@@ -80,8 +80,8 @@ enum MountStatusFlags : uint8
     MOUNT_IS_FAVORITE   = 0x02
 };
 
-typedef std::map<uint32, MountStatusFlags> MountContainer;
-typedef std::unordered_map<uint32, uint32> MountDefinitionMap;
+using MountContainer = std::map<uint32, MountStatusFlags>;
+using MountDefinitionMap = std::unordered_map<uint32, uint32>;
 
 class TC_GAME_API CollectionMgr
 {

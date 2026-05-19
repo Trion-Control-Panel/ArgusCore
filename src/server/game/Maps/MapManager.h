@@ -134,8 +134,8 @@ class TC_GAME_API MapManager
 
     private:
         using MapKey = std::pair<uint32, uint32>;
-        typedef std::map<MapKey, Trinity::unique_trackable_ptr<Map>> MapMapType;
-        typedef boost::dynamic_bitset<size_t> InstanceIds;
+        using MapMapType = std::map<MapKey, Trinity::unique_trackable_ptr<Map>>;
+        using InstanceIds = boost::dynamic_bitset<size_t>;
 
         Map* FindMap_i(uint32 mapId, uint32 instanceId) const;
 

@@ -45,7 +45,7 @@ class RealmEntry;
 class TC_SHARED_API RealmList
 {
 public:
-    typedef std::map<Battlenet::RealmHandle, std::shared_ptr<Realm>> RealmMap;
+    using RealmMap = std::map<Battlenet::RealmHandle, std::shared_ptr<Realm>>;
 
     static RealmList* Instance();
 

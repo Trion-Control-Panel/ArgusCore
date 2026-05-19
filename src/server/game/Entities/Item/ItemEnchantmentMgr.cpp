@@ -40,7 +40,7 @@ struct EnchStoreItem
         : type(_type), ench(_ench), chance(_chance) { }
 };
 
-typedef std::vector<EnchStoreItem> EnchStoreList;
+using EnchStoreList = std::vector<EnchStoreItem>;
 
 class EnchantmentStore
 {

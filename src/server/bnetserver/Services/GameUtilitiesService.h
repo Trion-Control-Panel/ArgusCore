@@ -29,7 +29,7 @@ namespace Battlenet
     {
         class GameUtilities : public Service<game_utilities::v1::GameUtilitiesService>
         {
-            typedef Service<game_utilities::v1::GameUtilitiesService> GameUtilitiesService;
+            using GameUtilitiesService = Service<game_utilities::v1::GameUtilitiesService>;
 
         public:
             GameUtilities(Session* session);

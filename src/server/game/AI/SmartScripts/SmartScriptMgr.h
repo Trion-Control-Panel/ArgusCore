@@ -30,7 +30,7 @@
 
 class WorldObject;
 enum SpellEffIndex : uint8;
-typedef uint32 SAIBool;
+using SAIBool = uint32;
 
 enum eSmartAI
 {
@@ -1687,7 +1687,7 @@ struct SmartScriptHolder
     static constexpr uint32 DEFAULT_PRIORITY = std::numeric_limits<uint32>::max();
 };
 
-typedef std::vector<WorldObject*> ObjectVector;
+using ObjectVector = std::vector<WorldObject*>;
 
 class ObjectGuidVector
 {
@@ -1711,18 +1711,18 @@ class ObjectGuidVector
         //sanitize vector using _guidVector
         void UpdateObjects(WorldObject const& ref) const;
 };
-typedef std::unordered_map<uint32, ObjectGuidVector> ObjectVectorMap;
+using ObjectVectorMap = std::unordered_map<uint32, ObjectGuidVector>;
 
 // all events for a single entry
-typedef std::vector<SmartScriptHolder> SmartAIEventList;
-typedef std::vector<SmartScriptHolder> SmartAIEventStoredList;
+using SmartAIEventList = std::vector<SmartScriptHolder>;
+using SmartAIEventStoredList = std::vector<SmartScriptHolder>;
 
 // all events for all entries / guids
-typedef std::unordered_map<int64, SmartAIEventList> SmartAIEventMap;
+using SmartAIEventMap = std::unordered_map<int64, SmartAIEventList>;
 
 // Helper Stores
-typedef std::map<uint32 /*entry*/, std::pair<uint32 /*spellId*/, SpellEffIndex /*effIndex*/> > CacheSpellContainer;
-typedef std::pair<CacheSpellContainer::const_iterator, CacheSpellContainer::const_iterator> CacheSpellContainerBounds;
+using CacheSpellContainer = std::map<uint32 /*entry*/, std::pair<uint32 /*spellId*/, SpellEffIndex /*effIndex*/> >;
+using CacheSpellContainerBounds = std::pair<CacheSpellContainer::const_iterator, CacheSpellContainer::const_iterator>;
 
 class TC_GAME_API SmartAIMgr
 {

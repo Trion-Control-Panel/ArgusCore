@@ -350,7 +350,7 @@ private:
     bool _boneSlice;
 };
 
-typedef boss_lord_marrowgar MarrowgarAI;
+using MarrowgarAI = boss_lord_marrowgar;
 
 struct npc_coldflame : public ScriptedAI
 {

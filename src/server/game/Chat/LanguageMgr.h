@@ -40,11 +40,11 @@ class TC_GAME_API LanguageMgr
     friend class World;
     friend class SpellMgr;
 
-    typedef std::pair<uint32, uint8> WordKey;
-    typedef std::vector<char const*> WordList;
-    typedef std::unordered_map<WordKey, WordList> WordsMap;
+    using WordKey = std::pair<uint32, uint8>;
+    using WordList = std::vector<char const*>;
+    using WordsMap = std::unordered_map<WordKey, WordList>;
 
-    typedef std::unordered_multimap<uint32, LanguageDesc> LanguagesMap;
+    using LanguagesMap = std::unordered_multimap<uint32, LanguageDesc>;
 
     // Constructors
     private:

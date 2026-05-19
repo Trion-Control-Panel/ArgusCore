@@ -95,7 +95,7 @@ class TC_DATABASE_API MySQLConnection
 
         virtual void DoPrepareStatements() = 0;
 
-        typedef std::vector<std::unique_ptr<MySQLPreparedStatement>> PreparedStatementContainer;
+        using PreparedStatementContainer = std::vector<std::unique_ptr<MySQLPreparedStatement>>;
 
         PreparedStatementContainer           m_stmts;         //!< PreparedStatements storage
         bool                                 m_reconnecting;  //!< Are we reconnecting?

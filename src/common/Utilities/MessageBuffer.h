@@ -24,7 +24,7 @@
 
 class MessageBuffer
 {
-    typedef std::vector<uint8>::size_type size_type;
+    using size_type = std::vector<uint8>::size_type;
 
 public:
     MessageBuffer() : _wpos(0), _rpos(0), _storage()

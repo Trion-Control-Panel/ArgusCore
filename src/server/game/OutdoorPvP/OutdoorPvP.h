@@ -140,8 +140,8 @@ class TC_GAME_API OutdoorPvP : public ZoneScript
         // dtor
         virtual ~OutdoorPvP();
 
-        typedef std::map<ObjectGuid::LowType/*spawnId*/, std::unique_ptr<OPvPCapturePoint>> OPvPCapturePointMap;
-        typedef std::unordered_map<uint32 /*control zone entry*/, std::unique_ptr<OutdoorPvPControlZoneHandler>> ControlZoneHandlerMap;
+        using OPvPCapturePointMap = std::map<ObjectGuid::LowType/*spawnId*/, std::unique_ptr<OPvPCapturePoint>>;
+        using ControlZoneHandlerMap = std::unordered_map<uint32 /*control zone entry*/, std::unique_ptr<OutdoorPvPControlZoneHandler>>;
 
         // called when a player triggers an areatrigger
         virtual bool HandleAreaTrigger(Player* /*player*/, uint32 /*trigger*/, bool /*entered*/) { return false; }

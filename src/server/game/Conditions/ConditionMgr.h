@@ -290,9 +290,9 @@ struct TC_GAME_API Condition
     std::string ToString(bool ext = false) const; /// For logging purpose
 };
 
-typedef std::vector<Condition> ConditionContainer;
-typedef std::unordered_map<ConditionId, std::shared_ptr<ConditionContainer>> ConditionsByEntryMap; // stored as shared_ptr to give out weak_ptrs to hold by other code (ownership not shared)
-typedef std::array<ConditionsByEntryMap, CONDITION_SOURCE_TYPE_MAX> ConditionEntriesByTypeArray;
+using ConditionContainer = std::vector<Condition>;
+using ConditionsByEntryMap = std::unordered_map<ConditionId, std::shared_ptr<ConditionContainer>>; // stored as shared_ptr to give out weak_ptrs to hold by other code (ownership not shared)
+using ConditionEntriesByTypeArray = std::array<ConditionsByEntryMap, CONDITION_SOURCE_TYPE_MAX>;
 
 class TC_GAME_API ConditionMgr
 {

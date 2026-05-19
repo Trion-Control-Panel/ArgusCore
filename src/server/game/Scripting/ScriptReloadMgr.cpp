@@ -102,9 +102,9 @@ static char const* GetSharedLibraryExtension()
 }
 
 #if TRINITY_PLATFORM == TRINITY_PLATFORM_WINDOWS
-typedef HMODULE HandleType;
+using HandleType = HMODULE;
 #else // Posix
-typedef void* HandleType;
+using HandleType = void*;
 #endif
 
 static fs::path GetDirectoryOfExecutable()
@@ -165,12 +165,12 @@ private:
     Optional<fs::path> const cache_path_;
 };
 
-typedef std::unique_ptr<typename std::remove_pointer<HandleType>::type, SharedLibraryUnloader> HandleHolder;
+using HandleHolder = std::unique_ptr<typename std::remove_pointer<HandleType>::type, SharedLibraryUnloader>;
 
-typedef char const* (*GetScriptModuleRevisionHashType)();
-typedef void (*AddScriptsType)();
-typedef char const* (*GetScriptModuleType)();
-typedef char const* (*GetBuildDirectiveType)();
+using GetScriptModuleRevisionHashType = char const*(*)();
+using AddScriptsType = void(*)();
+using GetScriptModuleType = char const*(*)();
+using GetBuildDirectiveType = char const*(*)();
 
 class ScriptModule
     : public ModuleReference

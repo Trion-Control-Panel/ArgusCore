@@ -54,7 +54,7 @@ namespace Movement
         friend class WorldPackets::Movement::MonsterMove;
 
     public:
-        typedef Spline<int32> MySpline;
+        using MySpline = Spline<int32>;
 
         enum UpdateResult
         {

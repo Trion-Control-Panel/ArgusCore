@@ -45,8 +45,8 @@ class TC_GAME_API PlayerAI : public UnitAI
             TargetedSpell(Spell* first, Unit* second) : pair<Spell*, Unit*>(first, second) { }
             explicit operator bool() { return !!first; }
         };
-        typedef std::pair<TargetedSpell, uint32> PossibleSpell;
-        typedef std::vector<PossibleSpell> PossibleSpellVector;
+        using PossibleSpell = std::pair<TargetedSpell, uint32>;
+        using PossibleSpellVector = std::vector<PossibleSpell>;
 
         Player* const me;
         void SetIsRangedAttacker(bool state) { _isSelfRangedAttacker = state; } // this allows overriding of the default ranged attacker detection

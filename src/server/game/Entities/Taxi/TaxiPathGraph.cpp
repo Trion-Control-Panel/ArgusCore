@@ -53,11 +53,11 @@ struct EdgeCost
     }
 };
 
-typedef boost::adjacency_list<boost::vecS, boost::vecS, boost::directedS, boost::property<boost::vertex_index_t, uint32>, boost::property<boost::edge_weight_t, EdgeCost>> Graph;
-typedef boost::property_map<Graph, boost::edge_weight_t>::type WeightMap;
-typedef Graph::vertex_descriptor vertex_descriptor;
-typedef Graph::edge_descriptor edge_descriptor;
-typedef std::pair<vertex_descriptor, vertex_descriptor> edge;
+using Graph = boost::adjacency_list<boost::vecS, boost::vecS, boost::directedS, boost::property<boost::vertex_index_t, uint32>, boost::property<boost::edge_weight_t, EdgeCost>>;
+using WeightMap = boost::property_map<Graph, boost::edge_weight_t>::type;
+using vertex_descriptor = Graph::vertex_descriptor;
+using edge_descriptor = Graph::edge_descriptor;
+using edge = std::pair<vertex_descriptor, vertex_descriptor>;
 
 Graph m_graph;
 std::vector<TaxiNodesEntry const*> m_nodesByVertex;

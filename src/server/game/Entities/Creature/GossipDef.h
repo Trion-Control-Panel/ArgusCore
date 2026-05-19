@@ -93,7 +93,7 @@ struct GossipMenuItem
 };
 
 // need an ordered container
-typedef std::vector<GossipMenuItem> GossipMenuItemContainer;
+using GossipMenuItemContainer = std::vector<GossipMenuItem>;
 
 struct QuestMenuItem
 {
@@ -101,7 +101,7 @@ struct QuestMenuItem
     uint8   QuestIcon;
 };
 
-typedef std::vector<QuestMenuItem> QuestMenuItemList;
+using QuestMenuItemList = std::vector<QuestMenuItem>;
 
 class TC_GAME_API GossipMenu
 {

@@ -63,7 +63,7 @@ private:
     ObjectGuid _guildguid;
 };
 
-typedef std::vector<WhoListPlayerInfo> WhoListInfoVector;
+using WhoListInfoVector = std::vector<WhoListPlayerInfo>;
 
 class TC_GAME_API WhoListStorageMgr
 {

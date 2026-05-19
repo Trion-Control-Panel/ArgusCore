@@ -65,10 +65,10 @@ struct TC_GAME_API LootStoreItem
     bool IsValid(LootStore const& store, uint32 entry) const; // Checks correctness of values
 };
 
-typedef std::vector<std::unique_ptr<LootStoreItem>> LootStoreItemList;
-typedef std::unordered_map<uint32, std::unique_ptr<LootTemplate>> LootTemplateMap;
+using LootStoreItemList = std::vector<std::unique_ptr<LootStoreItem>>;
+using LootTemplateMap = std::unordered_map<uint32, std::unique_ptr<LootTemplate>>;
 
-typedef std::set<uint32> LootIdSet;
+using LootIdSet = std::set<uint32>;
 
 class TC_GAME_API LootStore
 {
@@ -113,7 +113,7 @@ class TC_GAME_API LootStore
 class TC_GAME_API LootTemplate
 {
     class LootGroup;                                       // A set of loot definitions for items (refs are not allowed inside)
-    typedef std::vector<std::unique_ptr<LootGroup>> LootGroups;
+    using LootGroups = std::vector<std::unique_ptr<LootGroup>>;
 
     public:
         LootTemplate();

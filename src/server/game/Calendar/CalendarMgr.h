@@ -275,9 +275,9 @@ struct TC_GAME_API CalendarEvent
         std::string _description;
         time_t _lockDate;
 };
-typedef std::vector<CalendarInvite*> CalendarInviteStore;
-typedef std::set<CalendarEvent*> CalendarEventStore;
-typedef std::map<uint64 /* eventID */, CalendarInviteStore > CalendarEventInviteStore;
+using CalendarInviteStore = std::vector<CalendarInvite*>;
+using CalendarEventStore = std::set<CalendarEvent*>;
+using CalendarEventInviteStore = std::map<uint64 /* eventID */, CalendarInviteStore >;
 
 class TC_GAME_API CalendarMgr
 {

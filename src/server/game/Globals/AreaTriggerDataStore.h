@@ -28,7 +28,7 @@ enum Difficulty : uint8;
 struct AreaTriggerId;
 struct AreaTriggerSpawn;
 
-typedef AreaTriggerId AreaTriggerCreatePropertiesId;
+using AreaTriggerCreatePropertiesId = AreaTriggerId;
 
 class TC_GAME_API AreaTriggerDataStore
 {

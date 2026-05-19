@@ -293,10 +293,10 @@ private:
     std::unique_ptr<ImmunityInfo> _immunityInfo;
 };
 
-typedef std::vector<SpellXSpellVisualEntry const*> SpellVisualVector;
-typedef std::unordered_map<uint32, SpellVisualVector> SpellVisualMap;
+using SpellVisualVector = std::vector<SpellXSpellVisualEntry const*>;
+using SpellVisualMap = std::unordered_map<uint32, SpellVisualVector>;
 
-typedef std::vector<AuraEffect*> AuraEffectVector;
+using AuraEffectVector = std::vector<AuraEffect*>;
 
 struct SpellInfoLoadHelper;
 

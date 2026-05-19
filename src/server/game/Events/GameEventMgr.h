@@ -55,7 +55,7 @@ struct GameEventQuestToEventConditionNum
     float num;
 };
 
-typedef std::map<uint32 /*condition id*/, GameEventFinishCondition> GameEventConditionMap;
+using GameEventConditionMap = std::map<uint32 /*condition id*/, GameEventFinishCondition>;
 
 struct GameEventData
 {
@@ -104,8 +104,8 @@ class TC_GAME_API GameEventMgr
 
         static GameEventMgr* instance();
 
-        typedef std::set<uint16> ActiveEvents;
-        typedef std::vector<GameEventData> GameEventDataMap;
+        using ActiveEvents = std::set<uint16>;
+        using GameEventDataMap = std::vector<GameEventData>;
         ActiveEvents const& GetActiveEventList() const { return m_ActiveEvents; }
         GameEventDataMap const& GetEventMap() const { return mGameEvent; }
         bool CheckOneGameEvent(uint16 entry) const;
@@ -145,22 +145,22 @@ class TC_GAME_API GameEventMgr
         void SetHolidayEventTime(GameEventData& event);
         time_t GetLastStartTime(uint16 event_id) const;
 
-        typedef std::list<ObjectGuid::LowType> GuidList;
-        typedef std::list<uint32> IdList;
-        typedef std::vector<GuidList> GameEventGuidMap;
-        typedef std::vector<IdList> GameEventIdMap;
-        typedef std::pair<ObjectGuid::LowType, ModelEquip> ModelEquipPair;
-        typedef std::list<ModelEquipPair> ModelEquipList;
-        typedef std::vector<ModelEquipList> GameEventModelEquipMap;
-        typedef std::pair<uint32, uint32> QuestRelation;
-        typedef std::list<QuestRelation> QuestRelList;
-        typedef std::vector<QuestRelList> GameEventQuestMap;
-        typedef std::unordered_map<uint32, std::vector<VendorItem>> NPCVendorMap;
-        typedef std::vector<NPCVendorMap> GameEventNPCVendorMap;
-        typedef std::map<uint32 /*quest id*/, GameEventQuestToEventConditionNum> QuestIdToEventConditionMap;
-        typedef std::pair<ObjectGuid::LowType /*guid*/, uint64 /*npcflag*/> GuidNPCFlagPair;
-        typedef std::list<GuidNPCFlagPair> NPCFlagList;
-        typedef std::vector<NPCFlagList> GameEventNPCFlagMap;
+        using GuidList = std::list<ObjectGuid::LowType>;
+        using IdList = std::list<uint32>;
+        using GameEventGuidMap = std::vector<GuidList>;
+        using GameEventIdMap = std::vector<IdList>;
+        using ModelEquipPair = std::pair<ObjectGuid::LowType, ModelEquip>;
+        using ModelEquipList = std::list<ModelEquipPair>;
+        using GameEventModelEquipMap = std::vector<ModelEquipList>;
+        using QuestRelation = std::pair<uint32, uint32>;
+        using QuestRelList = std::list<QuestRelation>;
+        using GameEventQuestMap = std::vector<QuestRelList>;
+        using NPCVendorMap = std::unordered_map<uint32, std::vector<VendorItem>>;
+        using GameEventNPCVendorMap = std::vector<NPCVendorMap>;
+        using QuestIdToEventConditionMap = std::map<uint32 /*quest id*/, GameEventQuestToEventConditionNum>;
+        using GuidNPCFlagPair = std::pair<ObjectGuid::LowType /*guid*/, uint64 /*npcflag*/>;
+        using NPCFlagList = std::list<GuidNPCFlagPair>;
+        using GameEventNPCFlagMap = std::vector<NPCFlagList>;
         GameEventQuestMap mGameEventCreatureQuests;
         GameEventQuestMap mGameEventGameObjectQuests;
         GameEventNPCVendorMap mGameEventVendors;

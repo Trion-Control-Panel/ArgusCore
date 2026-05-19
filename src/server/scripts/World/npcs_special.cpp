@@ -2163,7 +2163,7 @@ enum BountifulTable
     SPELL_SWEET_POTATOES_SERVER             = 61797
 };
 
-typedef std::unordered_map<uint32 /*Entry*/, uint32 /*Spell*/> ChairSpells;
+using ChairSpells = std::unordered_map<uint32 /*Entry*/, uint32 /*Spell*/>;
 ChairSpells const _chairSpells =
 {
     { NPC_THE_CRANBERRY_CHAIR, SPELL_CRANBERRY_SERVER },

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -1036,7 +1036,7 @@ class TC_GAME_API ScriptMgr
 
         uint32 GetScriptCount() const { return _scriptCount; }
 
-        typedef void(*ScriptLoaderCallbackType)();
+        using ScriptLoaderCallbackType = void(*)();
 
         /// Sets the script loader callback which is invoked to load scripts
         /// (Workaround for circular dependency game <-> scripts)

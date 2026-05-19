@@ -84,7 +84,7 @@ struct AreaTriggerId
     friend bool operator==(AreaTriggerId const& left, AreaTriggerId const& right) = default;
 };
 
-typedef AreaTriggerId AreaTriggerCreatePropertiesId;
+using AreaTriggerCreatePropertiesId = AreaTriggerId;
 
 struct AreaTriggerAction
 {

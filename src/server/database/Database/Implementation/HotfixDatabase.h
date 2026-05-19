@@ -958,7 +958,7 @@ uint32 constexpr HOTFIX_LOCALE_STMT_OFFSET = 2;
 class TC_DATABASE_API HotfixDatabaseConnection : public MySQLConnection
 {
 public:
-    typedef HotfixDatabaseStatements Statements;
+    using Statements = HotfixDatabaseStatements;
 
     HotfixDatabaseConnection(MySQLConnectionInfo& connInfo, ConnectionFlags connectionFlags);
     ~HotfixDatabaseConnection();

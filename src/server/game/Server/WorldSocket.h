@@ -35,7 +35,7 @@ namespace JSON::RealmList
 class RealmJoinTicket;
 }
 
-typedef struct z_stream_s z_stream;
+using z_stream = struct z_stream_s;
 class EncryptablePacket;
 class WorldPacket;
 class WorldSession;

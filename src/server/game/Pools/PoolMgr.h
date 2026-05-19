@@ -48,8 +48,8 @@ class Pool                                                  // for Pool of Pool 
 {
 };
 
-typedef std::set<uint64> SpawnedPoolObjects;
-typedef std::map<uint64, uint32> SpawnedPoolPools;
+using SpawnedPoolObjects = std::set<uint64>;
+using SpawnedPoolPools = std::map<uint64, uint32>;
 
 class TC_GAME_API SpawnedPoolData
 {
@@ -86,7 +86,7 @@ class TC_GAME_API SpawnedPoolData
 template <class T>
 class TC_GAME_API PoolGroup
 {
-    typedef std::vector<PoolObject> PoolObjectList;
+    using PoolObjectList = std::vector<PoolObject>;
     public:
         explicit PoolGroup();
         ~PoolGroup();
@@ -159,12 +159,12 @@ class TC_GAME_API PoolMgr
         template<typename T>
         void SpawnPool(SpawnedPoolData& spawnedPoolData, uint32 pool_id, uint64 db_guid_or_pool_id);
 
-        typedef std::unordered_map<uint32, PoolTemplateData>      PoolTemplateDataMap;
-        typedef std::unordered_map<uint32, PoolGroup<Creature>>   PoolGroupCreatureMap;
-        typedef std::unordered_map<uint32, PoolGroup<GameObject>> PoolGroupGameObjectMap;
-        typedef std::unordered_map<uint32, PoolGroup<Pool>>       PoolGroupPoolMap;
-        typedef std::pair<uint64, uint32> SearchPair;
-        typedef std::map<uint64, uint32> SearchMap;
+        using PoolTemplateDataMap = std::unordered_map<uint32, PoolTemplateData>;
+        using PoolGroupCreatureMap = std::unordered_map<uint32, PoolGroup<Creature>>;
+        using PoolGroupGameObjectMap = std::unordered_map<uint32, PoolGroup<GameObject>>;
+        using PoolGroupPoolMap = std::unordered_map<uint32, PoolGroup<Pool>>;
+        using SearchPair = std::pair<uint64, uint32>;
+        using SearchMap = std::map<uint64, uint32>;
 
         PoolTemplateDataMap    mPoolTemplate;
         PoolGroupCreatureMap   mPoolCreatureGroups;

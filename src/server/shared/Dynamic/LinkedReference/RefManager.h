@@ -25,8 +25,8 @@ template <class ReferenceType>
 class RefManager : public LinkedListHead
 {
 public:
-    typedef LinkedListHead::Iterator<ReferenceType> iterator;
-    typedef LinkedListHead::Iterator<ReferenceType const> const_iterator;
+    using iterator = LinkedListHead::Iterator<ReferenceType>;
+    using const_iterator = LinkedListHead::Iterator<ReferenceType const>;
     RefManager() { }
 
     ReferenceType* front() { return front_impl<ReferenceType>(); }

@@ -766,7 +766,7 @@ enum RBACCommandResult
     RBAC_ID_DOES_NOT_EXISTS
 };
 
-typedef std::set<uint32> RBACPermissionContainer;
+using RBACPermissionContainer = std::set<uint32>;
 
 class TC_GAME_API RBACPermission
 {

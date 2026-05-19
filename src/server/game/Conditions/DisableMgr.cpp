@@ -51,7 +51,7 @@ namespace
     };
 
     // single disables here with optional data
-    typedef std::unordered_map<uint32, DisableData> DisableTypeMap;
+    using DisableTypeMap = std::unordered_map<uint32, DisableData>;
 
     std::array<DisableTypeMap, MAX_DISABLE_TYPES> m_DisableMap;
 }

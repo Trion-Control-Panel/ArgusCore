@@ -4598,7 +4598,7 @@ void ObjectMgr::LoadQuests()
 
     struct QuestLoaderHelper
     {
-        typedef void(Quest::* QuestLoaderFunction)(Field* fields);
+        using QuestLoaderFunction = void(Quest::*)(Field* fields);
 
         char const* QueryFields;
         char const* TableName;

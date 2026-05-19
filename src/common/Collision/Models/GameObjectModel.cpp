@@ -39,7 +39,7 @@ struct GameobjectModelData
     std::string name;
 };
 
-typedef std::unordered_map<uint32, GameobjectModelData> ModelList;
+using ModelList = std::unordered_map<uint32, GameobjectModelData>;
 ModelList model_list;
 
 bool LoadGameObjectModelList(std::string const& dataPath)

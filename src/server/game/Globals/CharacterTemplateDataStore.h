@@ -42,7 +42,7 @@ struct CharacterTemplate
     uint8 Level;
 };
 
-typedef std::unordered_map<uint32, CharacterTemplate> CharacterTemplateContainer;
+using CharacterTemplateContainer = std::unordered_map<uint32, CharacterTemplate>;
 
 class TC_GAME_API CharacterTemplateDataStore
 {

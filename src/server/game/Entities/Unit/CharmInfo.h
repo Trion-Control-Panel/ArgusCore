@@ -73,7 +73,7 @@ enum CharmType : uint8
     CHARM_TYPE_CONVERT
 };
 
-typedef UnitActionBarEntry CharmSpellInfo;
+using CharmSpellInfo = UnitActionBarEntry;
 
 enum ActionBarIndex
 {

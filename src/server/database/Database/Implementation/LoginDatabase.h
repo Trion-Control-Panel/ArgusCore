@@ -181,7 +181,7 @@ enum LoginDatabaseStatements : uint32
 class TC_DATABASE_API LoginDatabaseConnection : public MySQLConnection
 {
 public:
-    typedef LoginDatabaseStatements Statements;
+    using Statements = LoginDatabaseStatements;
 
     LoginDatabaseConnection(MySQLConnectionInfo& connInfo, ConnectionFlags connectionFlags);
     ~LoginDatabaseConnection();

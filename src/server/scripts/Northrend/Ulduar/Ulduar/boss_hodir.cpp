@@ -1030,7 +1030,7 @@ class spell_biting_cold : public SpellScriptLoader
             }
 
         private:
-            typedef std::list<std::pair<ObjectGuid, uint8>> TargetList;
+            using TargetList = std::list<std::pair<ObjectGuid, uint8>>;
             TargetList listOfTargets;
         };
 

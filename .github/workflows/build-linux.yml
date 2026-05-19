@@ -21,6 +21,19 @@ jobs:
           fetch-depth: 0
 
       # -------------------------------------------------------------------
+      # Free up disk space — ubuntu-24.04 runners ship ~14 GB free; a full
+      # Debug build with static archives needs more. Removing large pre-installed
+      # tool chains that we do not use reclaims ~8 GB before compilation starts.
+      # -------------------------------------------------------------------
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet \
+                      /usr/local/lib/android \
+                      /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL
+          df -h
+
+      # -------------------------------------------------------------------
       # System packages
       # Ubuntu 24.04 provides cmake 3.28+, gcc-13, libboost-all-dev 1.83,
       # libssl-dev 3.x, and libmysqlclient-dev 8.0.x — all sufficient to

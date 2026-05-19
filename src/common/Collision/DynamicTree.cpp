@@ -54,12 +54,12 @@ static bool operator==(GameObjectModel const& mdl, GameObjectModel const& mdl2){
 }
 */
 
-typedef RegularGrid2D<GameObjectModel, BIHWrap<GameObjectModel> > ParentTree;
+using ParentTree = RegularGrid2D<GameObjectModel, BIHWrap<GameObjectModel> >;
 
 struct DynTreeImpl : public ParentTree/*, public Intersectable*/
 {
-    typedef GameObjectModel Model;
-    typedef ParentTree base;
+    using Model = GameObjectModel;
+    using base = ParentTree;
 
     DynTreeImpl() :
         rebalance_timer(CHECK_TREE_PERIOD),

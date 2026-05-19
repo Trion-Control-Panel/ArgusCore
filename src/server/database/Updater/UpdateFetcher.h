@@ -49,7 +49,7 @@ struct TC_DATABASE_API UpdateResult
 
 class TC_DATABASE_API UpdateFetcher
 {
-    typedef boost::filesystem::path Path;
+    using Path = boost::filesystem::path;
 
 public:
     UpdateFetcher(Path const& updateDirectory,
@@ -105,7 +105,7 @@ private:
 
     struct DirectoryEntry;
 
-    typedef std::pair<Path, State> LocaleFileEntry;
+    using LocaleFileEntry = std::pair<Path, State>;
 
     struct PathCompare
     {
@@ -121,10 +121,10 @@ private:
         using is_transparent = int;
     };
 
-    typedef std::set<LocaleFileEntry, PathCompare> LocaleFileStorage;
-    typedef std::unordered_map<std::string, std::string> HashToFileNameStorage;
-    typedef std::unordered_map<std::string, AppliedFileEntry> AppliedFileStorage;
-    typedef std::vector<UpdateFetcher::DirectoryEntry> DirectoryStorage;
+    using LocaleFileStorage = std::set<LocaleFileEntry, PathCompare>;
+    using HashToFileNameStorage = std::unordered_map<std::string, std::string>;
+    using AppliedFileStorage = std::unordered_map<std::string, AppliedFileEntry>;
+    using DirectoryStorage = std::vector<UpdateFetcher::DirectoryEntry>;
 
     LocaleFileStorage GetFileList() const;
     void FillFileListRecursively(Path const& path, LocaleFileStorage& storage,

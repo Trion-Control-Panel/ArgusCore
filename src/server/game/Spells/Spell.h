@@ -252,7 +252,7 @@ enum SpellEffectHandleMode
     SPELL_EFFECT_HANDLE_HIT_TARGET
 };
 
-typedef std::vector<std::pair<uint32, ObjectGuid>> DispelList;
+using DispelList = std::vector<std::pair<uint32, ObjectGuid>>;
 
 static const uint32 SPELL_INTERRUPT_NONPLAYER = 32747;
 
@@ -425,7 +425,7 @@ class TC_GAME_API Spell
         void EffectLearnTransmogSet();
         void EffectTeleportGraveyard();
 
-        typedef std::unordered_set<Aura*> UsedSpellMods;
+        using UsedSpellMods = std::unordered_set<Aura*>;
 
         Spell(WorldObject* caster, SpellInfo const* info, TriggerCastFlags triggerFlags, ObjectGuid originalCasterGUID = ObjectGuid::Empty, ObjectGuid originalCastId = ObjectGuid::Empty);
         ~Spell();
@@ -911,7 +911,7 @@ class TC_GAME_API Spell
 
         bool CanExecuteTriggersOnHit(Unit* unit, SpellInfo const* triggeredByAura = nullptr) const;
         void PrepareTriggersExecutedOnHit();
-        typedef std::vector<HitTriggerSpell> HitTriggerSpellList;
+        using HitTriggerSpellList = std::vector<HitTriggerSpell>;
         HitTriggerSpellList m_hitTriggerSpells;
 
         // effect helpers

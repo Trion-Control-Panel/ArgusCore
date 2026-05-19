@@ -46,8 +46,8 @@ enum PasswordChangeSecurity
 
 namespace rbac
 {
-typedef std::map<uint32, rbac::RBACPermission*> RBACPermissionsContainer;
-typedef std::map<uint8, rbac::RBACPermissionContainer> RBACDefaultPermissionsContainer;
+using RBACPermissionsContainer = std::map<uint32, rbac::RBACPermission*>;
+using RBACDefaultPermissionsContainer = std::map<uint8, rbac::RBACPermissionContainer>;
 }
 
 class TC_GAME_API AccountMgr

@@ -100,7 +100,7 @@ Position const JedogaControllerPositions[3] =
     { 375.4977f, -707.3635f, -16.0964f, 2.426008f }
 };
 
-typedef std::pair<Position, Position> JedogaVolunteerPositionPair;
+using JedogaVolunteerPositionPair = std::pair<Position, Position>;
 std::vector<JedogaVolunteerPositionPair> const JedogaVolunteerSpotPositions =
 {
     { { 400.7701f, -784.8928f, -31.60143f }, { 365.9514f, -719.1235f, -16.17974f } },

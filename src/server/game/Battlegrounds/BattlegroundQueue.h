@@ -24,7 +24,7 @@
 #include "EventProcessor.h"
 
 //this container can't be deque, because deque doesn't like removing the last element - if you remove it, it invalidates next iterator and crash appears
-typedef std::list<Battleground*> BGFreeSlotQueueContainer;
+using BGFreeSlotQueueContainer = std::list<Battleground*>;
 
 #define COUNT_OF_PLAYERS_TO_AVERAGE_WAIT_TIME 10
 
@@ -85,11 +85,11 @@ class TC_GAME_API BattlegroundQueue
         void PlayerInvitedToBGUpdateAverageWaitTime(GroupQueueInfo* ginfo, BattlegroundBracketId bracket_id);
         uint32 GetAverageQueueWaitTime(GroupQueueInfo* ginfo, BattlegroundBracketId bracket_id) const;
 
-        typedef std::map<ObjectGuid, PlayerQueueInfo> QueuedPlayersMap;
+        using QueuedPlayersMap = std::map<ObjectGuid, PlayerQueueInfo>;
         QueuedPlayersMap m_QueuedPlayers;
 
         //do NOT use deque because deque.erase() invalidates ALL iterators
-        typedef std::list<GroupQueueInfo*> GroupsQueueType;
+        using GroupsQueueType = std::list<GroupQueueInfo*>;
 
         /*
         This two dimensional array is used to store All queued groups

@@ -29,8 +29,8 @@ struct AreaTableEntry;
 
 class TC_GAME_API ChannelMgr
 {
-    typedef std::unordered_map<std::wstring, Channel*> CustomChannelContainer; // custom channels only differ in name
-    typedef std::unordered_map<std::pair<uint32 /*channelId*/, uint32 /*zoneId*/>, Channel*> BuiltinChannelContainer; // identify builtin (DBC) channels by zoneId instead, since name changes by client locale
+    using CustomChannelContainer = std::unordered_map<std::wstring, Channel*>; // custom channels only differ in name
+    using BuiltinChannelContainer = std::unordered_map<std::pair<uint32 /*channelId*/, uint32 /*zoneId*/>, Channel*>; // identify builtin (DBC) channels by zoneId instead, since name changes by client locale
 
     protected:
         explicit ChannelMgr(Team team);

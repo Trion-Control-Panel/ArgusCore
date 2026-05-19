@@ -73,11 +73,11 @@ struct CreatureTextId
     uint32 textId;
 };
 
-typedef std::vector<CreatureTextEntry> CreatureTextGroup;                   // texts in a group
-typedef std::unordered_map<uint8, CreatureTextGroup> CreatureTextHolder;    // groups for a creature by groupid
-typedef std::unordered_map<uint32, CreatureTextHolder> CreatureTextMap;     // all creatures by entry
+using CreatureTextGroup = std::vector<CreatureTextEntry>;                   // texts in a group
+using CreatureTextHolder = std::unordered_map<uint8, CreatureTextGroup>;    // groups for a creature by groupid
+using CreatureTextMap = std::unordered_map<uint32, CreatureTextHolder>;     // all creatures by entry
 
-typedef std::map<CreatureTextId, CreatureTextLocale> LocaleCreatureTextMap;
+using LocaleCreatureTextMap = std::map<CreatureTextId, CreatureTextLocale>;
 
 class TC_GAME_API CreatureTextMgr
 {

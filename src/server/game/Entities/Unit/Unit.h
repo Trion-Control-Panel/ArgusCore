@@ -118,7 +118,7 @@ namespace Vignettes
 struct VignetteData;
 }
 
-typedef std::list<Unit*> UnitList;
+using UnitList = std::list<Unit*>;
 
 class TC_GAME_API DispelableAura
 {
@@ -145,9 +145,9 @@ class TC_GAME_API DispelableAura
         int32 _chance;
         uint8 _charges;
 };
-typedef std::vector<DispelableAura> DispelChargesList;
+using DispelChargesList = std::vector<DispelableAura>;
 
-typedef std::unordered_multimap<uint32 /*type*/, uint32 /*spellId*/> SpellImmuneContainer;
+using SpellImmuneContainer = std::unordered_multimap<uint32 /*type*/, uint32 /*spellId*/>;
 
 enum UnitModifierFlatType
 {
@@ -587,7 +587,7 @@ enum CurrentSpellTypes : uint8
 #define CURRENT_FIRST_NON_MELEE_SPELL 1
 #define CURRENT_MAX_SPELL             4
 
-typedef std::list<Player*> SharedVisionList;
+using SharedVisionList = std::list<Player*>;
 
 // for clearing special attacks
 #define REACTIVE_TIMER_START 4000
@@ -618,30 +618,30 @@ struct PositionUpdateInfo
 class TC_GAME_API Unit : public WorldObject
 {
     public:
-        typedef std::set<Unit*> AttackerSet;
-        typedef std::set<Unit*> ControlList;
-        typedef std::vector<Unit*> UnitVector;
+        using AttackerSet = std::set<Unit*>;
+        using ControlList = std::set<Unit*>;
+        using UnitVector = std::vector<Unit*>;
 
-        typedef std::multimap<uint32, Aura*> AuraMap;
-        typedef std::pair<AuraMap::const_iterator, AuraMap::const_iterator> AuraMapBounds;
-        typedef std::pair<AuraMap::iterator, AuraMap::iterator> AuraMapBoundsNonConst;
+        using AuraMap = std::multimap<uint32, Aura*>;
+        using AuraMapBounds = std::pair<AuraMap::const_iterator, AuraMap::const_iterator>;
+        using AuraMapBoundsNonConst = std::pair<AuraMap::iterator, AuraMap::iterator>;
 
-        typedef std::multimap<uint32,  AuraApplication*> AuraApplicationMap;
-        typedef std::pair<AuraApplicationMap::const_iterator, AuraApplicationMap::const_iterator> AuraApplicationMapBounds;
-        typedef std::pair<AuraApplicationMap::iterator, AuraApplicationMap::iterator> AuraApplicationMapBoundsNonConst;
+        using AuraApplicationMap = std::multimap<uint32,  AuraApplication*>;
+        using AuraApplicationMapBounds = std::pair<AuraApplicationMap::const_iterator, AuraApplicationMap::const_iterator>;
+        using AuraApplicationMapBoundsNonConst = std::pair<AuraApplicationMap::iterator, AuraApplicationMap::iterator>;
 
-        typedef std::multimap<AuraStateType,  AuraApplication*> AuraStateAurasMap;
-        typedef std::pair<AuraStateAurasMap::const_iterator, AuraStateAurasMap::const_iterator> AuraStateAurasMapBounds;
+        using AuraStateAurasMap = std::multimap<AuraStateType,  AuraApplication*>;
+        using AuraStateAurasMapBounds = std::pair<AuraStateAurasMap::const_iterator, AuraStateAurasMap::const_iterator>;
 
-        typedef std::forward_list<AuraEffect*> AuraEffectList;
-        typedef std::forward_list<Aura*> AuraList;
-        typedef std::forward_list<AuraApplication*> AuraApplicationList;
-        typedef std::array<DiminishingReturn, DIMINISHING_MAX> Diminishing;
+        using AuraEffectList = std::forward_list<AuraEffect*>;
+        using AuraList = std::forward_list<Aura*>;
+        using AuraApplicationList = std::forward_list<AuraApplication*>;
+        using Diminishing = std::array<DiminishingReturn, DIMINISHING_MAX>;
 
-        typedef std::vector<std::pair<uint32 /*procEffectMask*/, AuraApplication*>> AuraApplicationProcContainer;
+        using AuraApplicationProcContainer = std::vector<std::pair<uint32 /*procEffectMask*/, AuraApplication*>>;
 
         struct VisibleAuraSlotCompare { bool operator()(AuraApplication* left, AuraApplication* right) const; };
-        typedef std::set<AuraApplication*, VisibleAuraSlotCompare> VisibleAuraContainer;
+        using VisibleAuraContainer = std::set<AuraApplication*, VisibleAuraSlotCompare>;
 
         static std::vector<AuraEffect*> CopyAuraEffectList(AuraEffectList const& list);
 
@@ -1814,13 +1814,13 @@ class TC_GAME_API Unit : public WorldObject
         int32 m_procDeep;               // tracked for proc system correctness (what spells should proc what)
         int32 m_procChainLength;        // tracked to protect against infinite proc loops (hard limit, will disallow procs even if they should happen)
 
-        typedef std::vector<DynamicObject*> DynObjectList;
+        using DynObjectList = std::vector<DynamicObject*>;
         DynObjectList m_dynObj;
 
-        typedef std::list<GameObject*> GameObjectList;
+        using GameObjectList = std::list<GameObject*>;
         GameObjectList m_gameObj;
 
-        typedef std::vector<AreaTrigger*> AreaTriggerList;
+        using AreaTriggerList = std::vector<AreaTrigger*>;
         AreaTriggerList m_areaTrigger;
 
         uint32 m_transformSpell;
@@ -1924,7 +1924,7 @@ class TC_GAME_API Unit : public WorldObject
 
         void UpdateCharmAI();
         void RestoreDisabledAI();
-        typedef std::stack<std::shared_ptr<UnitAI>> UnitAIStack;
+        using UnitAIStack = std::stack<std::shared_ptr<UnitAI>>;
         UnitAIStack i_AIs;
         std::shared_ptr<UnitAI> i_AI;
         bool m_aiLocked;

@@ -157,7 +157,7 @@ struct LFGuildSettings : public LFGuildPlayer
         TeamId _team;
 };
 
-typedef std::unordered_map<ObjectGuid /* guildGuid */, LFGuildSettings> LFGuildStore;
+using LFGuildStore = std::unordered_map<ObjectGuid /* guildGuid */, LFGuildSettings>;
 
 class GuildFinderMgr
 {

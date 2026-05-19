@@ -128,7 +128,7 @@ class TC_GAME_API Vehicle final : public TransportBase
         uint32 _creatureEntry;                              ///< Can be different than the entry of _me in case of players
         Status _status;                                     ///< Internal variable for sanity checks
 
-        typedef std::list<VehicleJoinEvent*> PendingJoinEventContainer;
+        using PendingJoinEventContainer = std::list<VehicleJoinEvent*>;
         PendingJoinEventContainer _pendingJoinEvents;       ///< Collection of delayed join events for prospective passengers
 };
 

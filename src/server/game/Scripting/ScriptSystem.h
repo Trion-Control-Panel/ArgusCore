@@ -44,7 +44,7 @@ class TC_GAME_API SystemMgr
         std::vector<SplineChainLink> const* GetSplineChain(Creature const* who, uint16 id) const;
 
     private:
-        typedef std::pair<uint32, uint16> ChainKeyType; // creature entry + chain ID
+        using ChainKeyType = std::pair<uint32, uint16>; // creature entry + chain ID
 
         SystemMgr();
         ~SystemMgr();

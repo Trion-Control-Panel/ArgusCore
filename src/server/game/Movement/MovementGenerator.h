@@ -123,7 +123,7 @@ class MovementGeneratorMedium : public MovementGenerator
         }
 };
 
-typedef FactoryHolder<MovementGenerator, Unit, MovementGeneratorType> MovementGeneratorCreator;
+using MovementGeneratorCreator = FactoryHolder<MovementGenerator, Unit, MovementGeneratorType>;
 
 struct IdleMovementFactory : public MovementGeneratorCreator
 {
@@ -146,7 +146,7 @@ struct WaypointMovementFactory : public MovementGeneratorCreator
     MovementGenerator* Create(Unit* object) const override;
 };
 
-typedef MovementGeneratorCreator::FactoryHolderRegistry MovementGeneratorRegistry;
+using MovementGeneratorRegistry = MovementGeneratorCreator::FactoryHolderRegistry;
 
 #define sMovementGeneratorRegistry MovementGeneratorRegistry::instance()
 

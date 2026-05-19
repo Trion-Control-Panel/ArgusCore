@@ -29,7 +29,7 @@ namespace Battlenet
     {
         class Authentication : public Service<authentication::v1::AuthenticationService>
         {
-            typedef Service<authentication::v1::AuthenticationService> AuthenticationService;
+            using AuthenticationService = Service<authentication::v1::AuthenticationService>;
 
         public:
             Authentication(Session* session);

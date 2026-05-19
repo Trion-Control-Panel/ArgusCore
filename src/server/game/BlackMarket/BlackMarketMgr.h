@@ -131,8 +131,8 @@ class TC_GAME_API BlackMarketMgr
 
     static BlackMarketMgr* Instance();
 
-    typedef std::unordered_map<int32, BlackMarketEntry*> BlackMarketEntryMap;
-    typedef std::unordered_map<int32, BlackMarketTemplate const*> BlackMarketTemplateMap;
+    using BlackMarketEntryMap = std::unordered_map<int32, BlackMarketEntry*>;
+    using BlackMarketTemplateMap = std::unordered_map<int32, BlackMarketTemplate const*>;
 
     // Load templates first
     void LoadTemplates();

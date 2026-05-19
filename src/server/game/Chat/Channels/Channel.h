@@ -250,8 +250,8 @@ class TC_GAME_API Channel
         void SetModerator(ObjectGuid const& guid, bool set);
         void SetMute(ObjectGuid const& guid, bool set);
 
-        typedef std::map<ObjectGuid, PlayerInfo> PlayerContainer;
-        typedef GuidUnorderedSet BannedContainer;
+        using PlayerContainer = std::map<ObjectGuid, PlayerInfo>;
+        using BannedContainer = GuidUnorderedSet;
 
         bool _isDirty; // whether the channel needs to be saved to DB
         time_t _nextActivityUpdateTime;

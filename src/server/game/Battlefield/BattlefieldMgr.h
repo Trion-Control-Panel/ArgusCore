@@ -65,8 +65,8 @@ class TC_GAME_API BattlefieldMgr
         BattlefieldMgr();
         ~BattlefieldMgr();
 
-        typedef std::unordered_map<Map const*, std::vector<std::unique_ptr<Battlefield>>> BattlefieldsMapByMap;
-        typedef std::unordered_map<std::pair<Map const*, uint32 /*zoneid*/>, Battlefield*> BattlefieldMapByZone;
+        using BattlefieldsMapByMap = std::unordered_map<Map const*, std::vector<std::unique_ptr<Battlefield>>>;
+        using BattlefieldMapByZone = std::unordered_map<std::pair<Map const*, uint32 /*zoneid*/>, Battlefield*>;
         // contains all initiated battlefield events
         // used when initing / cleaning up
         BattlefieldsMapByMap _battlefieldsByMap;

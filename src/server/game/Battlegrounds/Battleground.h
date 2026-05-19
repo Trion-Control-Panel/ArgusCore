@@ -320,11 +320,11 @@ class TC_GAME_API Battleground
         bool isBattleground() const;
         bool isRated() const        { return m_IsRated; }
 
-        typedef std::map<ObjectGuid, BattlegroundPlayer> BattlegroundPlayerMap;
+        using BattlegroundPlayerMap = std::map<ObjectGuid, BattlegroundPlayer>;
         BattlegroundPlayerMap const& GetPlayers() const { return m_Players; }
         uint32 GetPlayersSize() const { return uint32(m_Players.size()); }
 
-        typedef std::map<ObjectGuid, BattlegroundScore*> BattlegroundScoreMap;
+        using BattlegroundScoreMap = std::map<ObjectGuid, BattlegroundScore*>;
         uint32 GetPlayerScoresSize() const { return uint32(PlayerScores.size()); }
 
         void StartBattleground();

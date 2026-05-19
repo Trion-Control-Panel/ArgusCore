@@ -1,4 +1,4 @@
-﻿/*
+/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -54,7 +54,7 @@ struct FileCloser
             fclose(f);
     }
 };
-typedef std::unique_ptr<FILE, FileCloser> FileHandle;
+using FileHandle = std::unique_ptr<FILE, FileCloser>;
 
 inline FileHandle GetFileHandle(char const* path, char const* mode)
 {

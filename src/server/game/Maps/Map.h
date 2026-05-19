@@ -1,4 +1,4 @@
-﻿/*
+/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -217,7 +217,7 @@ struct MapStoredObjectsUnorderedMap
 };
 
 extern template struct TypeListContainer<MapStoredObjectsUnorderedMap, Creature, GameObject, DynamicObject, Pet, Corpse, AreaTrigger, SceneObject, Conversation>;
-typedef TypeListContainer<MapStoredObjectsUnorderedMap, Creature, GameObject, DynamicObject, Pet, Corpse, AreaTrigger, SceneObject, Conversation> MapStoredObjectTypesContainer;
+using MapStoredObjectTypesContainer = TypeListContainer<MapStoredObjectsUnorderedMap, Creature, GameObject, DynamicObject, Pet, Corpse, AreaTrigger, SceneObject, Conversation>;
 
 class TC_GAME_API Map : public GridRefManager<NGridType>
 {
@@ -397,7 +397,7 @@ class TC_GAME_API Map : public GridRefManager<NGridType>
 
         void SendToPlayers(WorldPacket const* data) const;
 
-        typedef MapRefManager PlayerList;
+        using PlayerList = MapRefManager;
         PlayerList const& GetPlayers() const { return m_mapRefManager; }
 
         template <typename T>
@@ -455,15 +455,15 @@ class TC_GAME_API Map : public GridRefManager<NGridType>
 
         MapStoredObjectTypesContainer& GetObjectsStore() { return _objectsStore; }
 
-        typedef std::unordered_multimap<ObjectGuid::LowType, Creature*> CreatureBySpawnIdContainer;
+        using CreatureBySpawnIdContainer = std::unordered_multimap<ObjectGuid::LowType, Creature*>;
         CreatureBySpawnIdContainer& GetCreatureBySpawnIdStore() { return _creatureBySpawnIdStore; }
         CreatureBySpawnIdContainer const& GetCreatureBySpawnIdStore() const { return _creatureBySpawnIdStore; }
 
-        typedef std::unordered_multimap<ObjectGuid::LowType, GameObject*> GameObjectBySpawnIdContainer;
+        using GameObjectBySpawnIdContainer = std::unordered_multimap<ObjectGuid::LowType, GameObject*>;
         GameObjectBySpawnIdContainer& GetGameObjectBySpawnIdStore() { return _gameobjectBySpawnIdStore; }
         GameObjectBySpawnIdContainer const& GetGameObjectBySpawnIdStore() const { return _gameobjectBySpawnIdStore; }
 
-        typedef std::unordered_multimap<ObjectGuid::LowType, AreaTrigger*> AreaTriggerBySpawnIdContainer;
+        using AreaTriggerBySpawnIdContainer = std::unordered_multimap<ObjectGuid::LowType, AreaTrigger*>;
         AreaTriggerBySpawnIdContainer& GetAreaTriggerBySpawnIdStore() { return _areaTriggerBySpawnIdStore; }
         AreaTriggerBySpawnIdContainer const& GetAreaTriggerBySpawnIdStore() const { return _areaTriggerBySpawnIdStore; }
 
@@ -653,12 +653,12 @@ class TC_GAME_API Map : public GridRefManager<NGridType>
 
         int32 m_VisibilityNotifyPeriod;
 
-        typedef std::set<WorldObject*> ActiveNonPlayers;
+        using ActiveNonPlayers = std::set<WorldObject*>;
         ActiveNonPlayers m_activeNonPlayers;
         ActiveNonPlayers::iterator m_activeNonPlayersIter;
 
         // Objects that must update even in inactive grids without activating them
-        typedef std::set<Transport*> TransportsContainer;
+        using TransportsContainer = std::set<Transport*>;
         TransportsContainer _transports;
         TransportsContainer::iterator _transportsUpdateIter;
 
@@ -691,7 +691,7 @@ class TC_GAME_API Map : public GridRefManager<NGridType>
         std::map<WorldObject*, bool> i_objectsToSwitch;
         std::set<WorldObject*> i_worldObjects;
 
-        typedef std::multimap<time_t, ScriptAction> ScriptScheduleMap;
+        using ScriptScheduleMap = std::multimap<time_t, ScriptAction>;
         ScriptScheduleMap m_scriptSchedule;
 
     public:
@@ -749,7 +749,7 @@ class TC_GAME_API Map : public GridRefManager<NGridType>
         SpawnedPoolData& GetPoolData() { return *_poolData; }
         SpawnedPoolData const& GetPoolData() const { return *_poolData; }
 
-        typedef std::function<void(Map*)> FarSpellCallback;
+        using FarSpellCallback = std::function<void(Map*)>;
         void AddFarSpellCallback(FarSpellCallback&& callback);
 
         void InitSpawnGroupState();

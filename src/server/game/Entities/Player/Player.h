@@ -126,7 +126,7 @@ namespace WorldPackets
 TC_GAME_API uint32 GetBagSize(Bag const* bag);
 TC_GAME_API Item* GetItemInBag(Bag const* bag, uint8 slot);
 
-typedef std::deque<Mail*> PlayerMails;
+using PlayerMails = std::deque<Mail*>;
 
 enum PlayerSkillsConstants
 {
@@ -293,12 +293,12 @@ struct PlayerCurrency
     CurrencyDbFlags Flags;
 };
 
-typedef std::unordered_map<uint32, PlayerSpellState> PlayerTalentMap;
-typedef std::unordered_map<uint32, PlayerSpell> PlayerSpellMap;
-typedef Trinity::Containers::FlatSet<SpellModifier*, SpellModifierCompare> SpellModContainer;
-typedef std::unordered_map<uint32, PlayerCurrency> PlayerCurrenciesMap;
+using PlayerTalentMap = std::unordered_map<uint32, PlayerSpellState>;
+using PlayerSpellMap = std::unordered_map<uint32, PlayerSpell>;
+using SpellModContainer = Trinity::Containers::FlatSet<SpellModifier*, SpellModifierCompare>;
+using PlayerCurrenciesMap = std::unordered_map<uint32, PlayerCurrency>;
 
-typedef std::unordered_map<uint32 /*instanceId*/, time_t/*releaseTime*/> InstanceTimeMap;
+using InstanceTimeMap = std::unordered_map<uint32 /*instanceId*/, time_t/*releaseTime*/>;
 
 enum ActionButtonUpdateState
 {
@@ -360,7 +360,7 @@ struct ActionButton
 
 #define MAX_ACTION_BUTTONS 132
 
-typedef std::map<uint8, ActionButton> ActionButtonList;
+using ActionButtonList = std::map<uint8, ActionButton>;
 
 struct PvPInfo
 {
@@ -430,8 +430,8 @@ struct EnchantDuration
     uint32 leftduration;
 };
 
-typedef std::list<EnchantDuration> EnchantDurationList;
-typedef std::list<Item*> ItemDurationList;
+using EnchantDurationList = std::list<EnchantDuration>;
+using ItemDurationList = std::list<Item*>;
 
 enum DrunkenState
 {
@@ -619,7 +619,7 @@ enum AtLoginFlags
     AT_LOGIN_RESURRECT         = 0x100,
 };
 
-typedef std::map<uint32, QuestStatusData> QuestStatusMap;
+using QuestStatusMap = std::map<uint32, QuestStatusData>;
 
 struct QuestObjectiveStatusData
 {
@@ -629,7 +629,7 @@ struct QuestObjectiveStatusData
 
 using QuestObjectiveStatusMap = std::unordered_multimap<std::pair<QuestObjectiveType, int32>, QuestObjectiveStatusData>;
 
-typedef std::set<uint32> RewardedQuestSet;
+using RewardedQuestSet = std::set<uint32>;
 
 enum QuestSaveType
 {
@@ -639,7 +639,7 @@ enum QuestSaveType
 };
 
 //               quest
-typedef std::map<uint32, QuestSaveType> QuestStatusSaveMap;
+using QuestStatusSaveMap = std::map<uint32, QuestSaveType>;
 
 // Size of client completed quests bit map
 enum PlayerQuestCompletedConstants
@@ -686,7 +686,7 @@ struct SkillStatusData
     SkillUpdateState uState;
 };
 
-typedef std::unordered_map<uint32, SkillStatusData> SkillStatusMap;
+using SkillStatusMap = std::unordered_map<uint32, SkillStatusData>;
 
 class Quest;
 class Spell;
@@ -783,7 +783,7 @@ struct ItemPosCount
     uint16 pos;
     uint32 count;
 };
-typedef std::vector<ItemPosCount> ItemPosCountVec;
+using ItemPosCountVec = std::vector<ItemPosCount>;
 
 enum class ItemSearchLocation
 {
@@ -1849,7 +1849,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         uint8 unReadMails;
         time_t m_nextMailDelivereTime;
 
-        typedef std::unordered_map<ObjectGuid::LowType, Item*> ItemMap;
+        using ItemMap = std::unordered_map<ObjectGuid::LowType, Item*>;
 
         ItemMap mMitems;                                    //template defined in objectmgr.cpp
 
@@ -2220,7 +2220,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void UpdateLocalChannels(uint32 newZone);
         void LeaveLFGChannel();
 
-        typedef std::list<Channel*> JoinedChannelsList;
+        using JoinedChannelsList = std::list<Channel*>;
         JoinedChannelsList const& GetJoinedChannels() const { return m_channels; }
 
         void SetSkill(uint32 id, uint16 step, uint16 newVal, uint16 maxVal);
@@ -2565,7 +2565,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         bool isUsingLfg() const;
         bool inRandomLfgDungeon() const;
 
-        typedef std::set<uint32> DFQuestsDoneList;
+        using DFQuestsDoneList = std::set<uint32>;
         DFQuestsDoneList m_DFQuests;
 
         // Temporarily removed pet cache
@@ -2897,9 +2897,9 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void PushQuests();
 
         //We allow only one timed quest active at the same time. Below can then be simple value instead of set.
-        typedef std::set<uint32> QuestSet;
-        typedef std::unordered_map<uint32, time_t> SeasonalQuestMapByQuest;
-        typedef std::unordered_map<uint32, SeasonalQuestMapByQuest> SeasonalQuestMapByEvent;
+        using QuestSet = std::set<uint32>;
+        using SeasonalQuestMapByQuest = std::unordered_map<uint32, time_t>;
+        using SeasonalQuestMapByEvent = std::unordered_map<uint32, SeasonalQuestMapByQuest>;
         QuestSet m_timedquests;
         QuestSet m_weeklyquests;
         QuestSet m_monthlyquests;

@@ -28,10 +28,10 @@
 class Battleground;
 struct BattlemasterListEntry;
 
-typedef std::map<uint32, Trinity::unique_trackable_ptr<Battleground>> BattlegroundContainer;
-typedef std::set<uint32> BattlegroundClientIdsContainer;
+using BattlegroundContainer = std::map<uint32, Trinity::unique_trackable_ptr<Battleground>>;
+using BattlegroundClientIdsContainer = std::set<uint32>;
 
-typedef std::unordered_map<uint32, BattlegroundTypeId> BattleMastersMap;
+using BattleMastersMap = std::unordered_map<uint32, BattlegroundTypeId>;
 
 enum BattlegroundMisc
 {
@@ -166,7 +166,7 @@ class TC_GAME_API BattlegroundMgr
         static bool IsArenaType(BattlegroundTypeId bgTypeId);
         BattlegroundTypeId GetRandomBG(BattlegroundTypeId id);
 
-        typedef std::map<BattlegroundTypeId, BattlegroundData> BattlegroundDataContainer;
+        using BattlegroundDataContainer = std::map<BattlegroundTypeId, BattlegroundData>;
         BattlegroundDataContainer bgDataStore;
 
         std::map<BattlegroundQueueTypeId, BattlegroundQueue> m_BattlegroundQueues;
@@ -196,8 +196,8 @@ class TC_GAME_API BattlegroundMgr
             return nullptr;
         }
 
-        typedef std::map<BattlegroundTypeId, BattlegroundTemplate> BattlegroundTemplateMap;
-        typedef std::map<uint32 /*mapId*/, BattlegroundTemplate*> BattlegroundMapTemplateContainer;
+        using BattlegroundTemplateMap = std::map<BattlegroundTypeId, BattlegroundTemplate>;
+        using BattlegroundMapTemplateContainer = std::map<uint32 /*mapId*/, BattlegroundTemplate*>;
         BattlegroundTemplateMap _battlegroundTemplates;
         BattlegroundMapTemplateContainer _battlegroundMapTemplates;
 

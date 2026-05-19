@@ -50,8 +50,8 @@ struct ScenarioDBData
     uint32 Scenario_H;
 };
 
-typedef std::unordered_map<std::pair<uint32, uint8>, ScenarioDBData> ScenarioDBDataContainer;
-typedef std::map<uint32, ScenarioData> ScenarioDataContainer;
+using ScenarioDBDataContainer = std::unordered_map<std::pair<uint32, uint8>, ScenarioDBData>;
+using ScenarioDataContainer = std::map<uint32, ScenarioData>;
 
 enum ScenarioType
 {
@@ -92,8 +92,8 @@ struct ScenarioPOI
     ScenarioPOI(ScenarioPOI&& scenarioPOI) = default;
 };
 
-typedef std::vector<ScenarioPOI> ScenarioPOIVector;
-typedef std::unordered_map<uint32, ScenarioPOIVector> ScenarioPOIContainer;
+using ScenarioPOIVector = std::vector<ScenarioPOI>;
+using ScenarioPOIContainer = std::unordered_map<uint32, ScenarioPOIVector>;
 
 class TC_GAME_API ScenarioMgr
 {

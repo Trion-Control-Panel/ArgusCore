@@ -132,7 +132,7 @@ class TC_GAME_API PlayerSocial
     private:
         bool _HasContact(ObjectGuid const& guid, SocialFlag flags);
 
-        typedef std::map<ObjectGuid, FriendInfo> PlayerSocialMap;
+        using PlayerSocialMap = std::map<ObjectGuid, FriendInfo>;
         PlayerSocialMap _playerSocialMap;
 
         ObjectGuid _playerGUID;
@@ -165,7 +165,7 @@ class SocialMgr
         PlayerSocial* LoadFromDB(PreparedQueryResult result, ObjectGuid const& guid);
 
     private:
-        typedef std::map<ObjectGuid, PlayerSocial> SocialMap;
+        using SocialMap = std::map<ObjectGuid, PlayerSocial>;
         SocialMap _socialMap;
 };
 

@@ -154,7 +154,7 @@ namespace Battlenet
 
         uint32 VerifyWebCredentials(std::string const& webCredentials, std::function<void(ServiceBase*, uint32, ::google::protobuf::Message const*)>& continuation);
 
-        typedef uint32(Session::*ClientRequestHandler)(std::unordered_map<std::string, Variant const*> const&, game_utilities::v1::ClientResponse*);
+        using ClientRequestHandler = uint32(Session::*)(std::unordered_map<std::string, Variant const*> const&, game_utilities::v1::ClientResponse*);
         static std::unordered_map<std::string, ClientRequestHandler> const ClientRequestHandlers;
 
         uint32 GetRealmListTicket(std::unordered_map<std::string, Variant const*> const& params, game_utilities::v1::ClientResponse* response);

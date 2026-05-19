@@ -25,7 +25,7 @@ class WorldSocket;
 /// Manages all sockets connected to peers and network threads
 class TC_GAME_API WorldSocketMgr : public Trinity::Net::SocketMgr<WorldSocket>
 {
-    typedef SocketMgr<WorldSocket> BaseSocketMgr;
+    using BaseSocketMgr = SocketMgr<WorldSocket>;
 
 public:
     ~WorldSocketMgr();

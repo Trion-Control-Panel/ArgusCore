@@ -37,8 +37,8 @@ public:
 
     static GroupMgr* instance();
 
-    typedef std::map<ObjectGuid::LowType, Group*> GroupContainer;
-    typedef std::vector<Group*>      GroupDbContainer;
+    using GroupContainer = std::map<ObjectGuid::LowType, Group*>;
+    using GroupDbContainer = std::vector<Group*>;
 
     Group* GetGroupByGUID(ObjectGuid const& guid) const;
 

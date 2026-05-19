@@ -41,8 +41,8 @@ struct std::hash<AreaTriggerId>
 
 namespace
 {
-    typedef std::unordered_map<uint32/*cell_id*/, std::set<ObjectGuid::LowType>> AtCellObjectGuidsMap;
-    typedef std::unordered_map<std::pair<uint32 /*mapId*/, Difficulty>, AtCellObjectGuidsMap> AtMapObjectGuids;
+    using AtCellObjectGuidsMap = std::unordered_map<uint32/*cell_id*/, std::set<ObjectGuid::LowType>>;
+    using AtMapObjectGuids = std::unordered_map<std::pair<uint32 /*mapId*/, Difficulty>, AtCellObjectGuidsMap>;
 
     AtMapObjectGuids _areaTriggerSpawnsByLocation;
     std::unordered_map<ObjectGuid::LowType, AreaTriggerSpawn> _areaTriggerSpawnsBySpawnId;

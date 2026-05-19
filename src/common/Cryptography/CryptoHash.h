@@ -33,7 +33,7 @@ namespace Trinity::Impl
 {
     struct GenericHashImpl
     {
-        typedef EVP_MD const* (*HashCreator)();
+        using HashCreator = EVP_MD const*(*)();
 
         static EVP_MD_CTX* MakeCTX() noexcept { return EVP_MD_CTX_new(); }
         static void DestroyCTX(EVP_MD_CTX* ctx) { EVP_MD_CTX_free(ctx); }

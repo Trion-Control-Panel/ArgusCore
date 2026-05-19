@@ -93,7 +93,7 @@ enum Misc
     DATA_BLIZZARD_TARGET
 };
 
-typedef std::map<ObjectGuid, ObjectGuid> IceBlockMap;
+using IceBlockMap = std::map<ObjectGuid, ObjectGuid>;
 
 class BlizzardTargetSelector
 {

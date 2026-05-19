@@ -220,9 +220,9 @@ struct NotNormalLootItem
         : LootListId(_index), is_looted(_islooted) { }
 };
 
-typedef std::vector<NotNormalLootItem> NotNormalLootItemList;
-typedef std::vector<LootItem> LootItemList;
-typedef std::unordered_map<ObjectGuid, std::unique_ptr<NotNormalLootItemList>> NotNormalLootItemMap;
+using NotNormalLootItemList = std::vector<NotNormalLootItem>;
+using LootItemList = std::vector<LootItem>;
+using NotNormalLootItemMap = std::unordered_map<ObjectGuid, std::unique_ptr<NotNormalLootItemList>>;
 
 //=====================================================
 
@@ -360,7 +360,7 @@ public:
         uint32 dungeonEncounterId;
     };
 
-    typedef std::vector<ResultValue> OrderedStorage;
+    using OrderedStorage = std::vector<ResultValue>;
 
     void Add(Item* item, uint8 count, LootType lootType, uint32 dungeonEncounterId);
 

@@ -27,7 +27,7 @@ namespace Battlenet
     {
         class GameUtilitiesService : public WorldserverService<game_utilities::v1::GameUtilitiesService>
         {
-            typedef WorldserverService<game_utilities::v1::GameUtilitiesService> BaseService;
+            using BaseService = WorldserverService<game_utilities::v1::GameUtilitiesService>;
 
         public:
             GameUtilitiesService(WorldSession* session);

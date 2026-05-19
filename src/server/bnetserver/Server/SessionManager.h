@@ -25,7 +25,7 @@ namespace Battlenet
 {
     class SessionManager : public Trinity::Net::SocketMgr<Session>
     {
-        typedef SocketMgr<Session> BaseSocketMgr;
+        using BaseSocketMgr = SocketMgr<Session>;
 
     public:
         static SessionManager& Instance();

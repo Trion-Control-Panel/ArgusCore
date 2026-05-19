@@ -128,11 +128,11 @@ struct TC_GAME_API LfgLockInfoData
     float currentItemLevel;
 };
 
-typedef std::set<uint32> LfgDungeonSet;
-typedef std::map<uint32, LfgLockInfoData> LfgLockMap;
-typedef std::map<ObjectGuid, LfgLockMap> LfgLockPartyMap;
-typedef std::map<ObjectGuid, uint8> LfgRolesMap;
-typedef std::map<ObjectGuid, ObjectGuid> LfgGroupsMap;
+using LfgDungeonSet = std::set<uint32>;
+using LfgLockMap = std::map<uint32, LfgLockInfoData>;
+using LfgLockPartyMap = std::map<ObjectGuid, LfgLockMap>;
+using LfgRolesMap = std::map<ObjectGuid, uint8>;
+using LfgGroupsMap = std::map<ObjectGuid, ObjectGuid>;
 
 TC_GAME_API std::string ConcatenateDungeons(LfgDungeonSet const& dungeons);
 TC_GAME_API std::string GetRolesString(uint8 roles);

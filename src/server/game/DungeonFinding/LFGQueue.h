@@ -75,9 +75,9 @@ struct LfgWaitTime
     uint32 number;                                         ///< Number of people used to get that wait time
 };
 
-typedef std::map<uint32, LfgWaitTime> LfgWaitTimesContainer;
-typedef std::map<std::string, LfgCompatibilityData> LfgCompatibleContainer;
-typedef std::map<ObjectGuid, LfgQueueData> LfgQueueDataContainer;
+using LfgWaitTimesContainer = std::map<uint32, LfgWaitTime>;
+using LfgCompatibleContainer = std::map<std::string, LfgCompatibilityData>;
+using LfgQueueDataContainer = std::map<ObjectGuid, LfgQueueData>;
 
 /**
     Stores all data related to queue

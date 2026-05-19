@@ -331,7 +331,7 @@ private:
     bool _complete;
 };
 
-typedef npc_troll_volunteer VolunteerAI;
+using VolunteerAI = npc_troll_volunteer;
 
 // 75420 - Mounting Check
 class spell_mount_check : public AuraScript

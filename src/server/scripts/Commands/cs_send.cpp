@@ -131,8 +131,8 @@ public:
         std::string text    = msgText;
 
         // extract items
-        typedef std::pair<uint32, uint32> ItemPair;
-        typedef std::list< ItemPair > ItemPairs;
+        using ItemPair = std::pair<uint32, uint32>;
+        using ItemPairs = std::list< ItemPair >;
         ItemPairs items;
 
         // get all tail string

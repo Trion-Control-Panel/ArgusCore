@@ -30,8 +30,8 @@ struct StaticWintergraspTowerInfo;
 struct StaticWintergraspWorkshopInfo;
 struct WintergraspObjectPositionData;
 
-typedef std::vector<BfWGGameObjectBuilding*> GameObjectBuildingVect;
-typedef std::vector<WintergraspWorkshop*> WorkshopVect;
+using GameObjectBuildingVect = std::vector<BfWGGameObjectBuilding*>;
+using WorkshopVect = std::vector<WintergraspWorkshop*>;
 
 enum WintergraspSpells
 {

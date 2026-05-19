@@ -24,7 +24,7 @@
 class Creature;
 class Spell;
 
-typedef std::vector<std::pair<Unit*, Spell*>> TargetSpellList;
+using TargetSpellList = std::vector<std::pair<Unit*, Spell*>>;
 
 class TC_GAME_API PetAI : public CreatureAI
 {

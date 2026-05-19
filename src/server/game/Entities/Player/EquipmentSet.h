@@ -63,6 +63,6 @@ struct EquipmentSetInfo
 
 #define MAX_EQUIPMENT_SET_INDEX 20                          // client limit
 
-typedef std::map<uint64, EquipmentSetInfo> EquipmentSetContainer;
+using EquipmentSetContainer = std::map<uint64, EquipmentSetInfo>;
 
 #endif // TRINITYCORE_EQUIPMENT_SET_H

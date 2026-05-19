@@ -57,7 +57,7 @@ namespace Battlenet
             Service(session).CallServerMethod(token, methodId, std::move(buffer));
         }
 
-        typedef void(*ServiceMethod)(WorldSession*, uint32, uint32, MessageBuffer);
+        using ServiceMethod = void(*)(WorldSession*, uint32, uint32, MessageBuffer);
         std::unordered_map<uint32, ServiceMethod> _dispatchers;
     };
 }

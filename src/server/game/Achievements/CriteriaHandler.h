@@ -60,8 +60,8 @@ struct Criteria
     uint32 FlagsCu = 0;
 };
 
-typedef std::vector<Criteria const*> CriteriaList;
-typedef std::unordered_map<uint32, CriteriaList> CriteriaListByAsset;
+using CriteriaList = std::vector<Criteria const*>;
+using CriteriaListByAsset = std::unordered_map<uint32, CriteriaList>;
 
 struct CriteriaTree
 {
@@ -74,7 +74,7 @@ struct CriteriaTree
     std::vector<CriteriaTree const*> Children;
 };
 
-typedef std::vector<CriteriaTree const*> CriteriaTreeList;
+using CriteriaTreeList = std::vector<CriteriaTree const*>;
 
 struct CriteriaProgress
 {
@@ -252,7 +252,7 @@ private:
     std::vector<CriteriaData> _storage;
 };
 
-typedef std::unordered_map<uint32, CriteriaProgress> CriteriaProgressMap;
+using CriteriaProgressMap = std::unordered_map<uint32, CriteriaProgress>;
 
 enum ProgressType
 {

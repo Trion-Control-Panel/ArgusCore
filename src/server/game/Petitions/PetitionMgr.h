@@ -40,8 +40,8 @@ enum PetitionSigns
     PETITION_SIGN_NOT_SERVER = 4
 };
 
-typedef std::pair<uint32, ObjectGuid> Signature;
-typedef std::vector<Signature> SignaturesVector;
+using Signature = std::pair<uint32, ObjectGuid>;
+using SignaturesVector = std::vector<Signature>;
 
 struct Petition
 {

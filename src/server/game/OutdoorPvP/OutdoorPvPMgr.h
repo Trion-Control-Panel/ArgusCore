@@ -88,8 +88,8 @@ class TC_GAME_API OutdoorPvPMgr
         std::string GetDefenseMessage(uint32 zoneId, uint32 id, LocaleConstant locale) const;
 
     private:
-        typedef std::unordered_map<std::pair<Map*, uint32 /*zoneid*/>, OutdoorPvP*> OutdoorPvPMap;
-        typedef std::array<uint32, MAX_OUTDOORPVP_TYPES> OutdoorPvPScriptIds;
+        using OutdoorPvPMap = std::unordered_map<std::pair<Map*, uint32 /*zoneid*/>, OutdoorPvP*>;
+        using OutdoorPvPScriptIds = std::array<uint32, MAX_OUTDOORPVP_TYPES>;
 
         // contains all initiated outdoor pvp events
         // used when initing / cleaning up

@@ -29,7 +29,7 @@ namespace Battlenet
     {
         class Connection : public Service<connection::v1::ConnectionService>
         {
-            typedef Service<connection::v1::ConnectionService> ConnectionService;
+            using ConnectionService = Service<connection::v1::ConnectionService>;
 
         public:
             Connection(Session* session);

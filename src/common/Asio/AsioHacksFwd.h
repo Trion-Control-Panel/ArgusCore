@@ -49,7 +49,7 @@ namespace boost
             template <typename InternetProtocol>
             class basic_endpoint;
 
-            typedef basic_endpoint<tcp> tcp_endpoint;
+            using tcp_endpoint = basic_endpoint<tcp>;
         }
     }
 }

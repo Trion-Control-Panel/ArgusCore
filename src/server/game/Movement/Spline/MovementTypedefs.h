@@ -77,7 +77,7 @@ namespace Movement
         T m_counter;
     };
 
-    typedef counter<uint32, 0xFFFFFFFF> UInt32Counter;
+    using UInt32Counter = counter<uint32, 0xFFFFFFFF>;
 
     float constexpr gravity = static_cast<float>(19.29110527038574);
     TC_GAME_API extern UInt32Counter splineIdGen;

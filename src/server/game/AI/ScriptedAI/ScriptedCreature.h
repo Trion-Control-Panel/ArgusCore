@@ -31,11 +31,11 @@ enum SelectEffect : uint8;
 class TC_GAME_API SummonList
 {
 public:
-    typedef GuidList StorageType;
-    typedef StorageType::iterator iterator;
-    typedef StorageType::const_iterator const_iterator;
-    typedef StorageType::size_type size_type;
-    typedef StorageType::value_type value_type;
+    using StorageType = GuidList;
+    using iterator = StorageType::iterator;
+    using const_iterator = StorageType::const_iterator;
+    using size_type = StorageType::size_type;
+    using value_type = StorageType::value_type;
 
     explicit SummonList(Creature* creature) : _me(creature) { }
 

@@ -55,7 +55,7 @@ struct StoredLootItem
 class StoredLootContainer
 {
     public:
-        typedef std::unordered_multimap<uint32 /*itemId*/, StoredLootItem> StoredLootItemContainer;
+        using StoredLootItemContainer = std::unordered_multimap<uint32 /*itemId*/, StoredLootItem>;
 
         explicit StoredLootContainer(uint64 containerId) : _containerId(containerId), _money(0) { }
 

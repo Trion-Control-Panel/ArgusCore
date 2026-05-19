@@ -40,7 +40,7 @@ namespace Trinity
 
 #define LOGGER_ROOT "root"
 
-typedef Appender*(*AppenderCreatorFn)(uint8 id, std::string name, LogLevel level, AppenderFlags flags, std::vector<std::string_view> const& extraArgs);
+using AppenderCreatorFn = Appender*(*)(uint8 id, std::string name, LogLevel level, AppenderFlags flags, std::vector<std::string_view> const& extraArgs);
 
 template <class AppenderImpl>
 Appender* CreateAppender(uint8 id, std::string name, LogLevel level, AppenderFlags flags, std::vector<std::string_view> const& extraArgs)

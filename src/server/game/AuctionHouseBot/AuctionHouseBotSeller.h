@@ -29,8 +29,8 @@ struct ItemToSell
     uint32 Itemclass;
 };
 
-typedef std::vector<ItemToSell> ItemsToSellArray;
-typedef std::array<std::array<uint32, MAX_ITEM_CLASS>, MAX_ITEM_QUALITY> AllItemsArray;
+using ItemsToSellArray = std::vector<ItemToSell>;
+using AllItemsArray = std::array<std::array<uint32, MAX_ITEM_CLASS>, MAX_ITEM_QUALITY>;
 
 struct SellerItemInfo
 {
@@ -119,7 +119,7 @@ private:
 class TC_GAME_API AuctionBotSeller : public AuctionBotAgent
 {
 public:
-    typedef std::vector<uint32> ItemPool;
+    using ItemPool = std::vector<uint32>;
 
     AuctionBotSeller(std::unordered_map<ObjectGuid::LowType, uint64> const& marketData);
     ~AuctionBotSeller();
