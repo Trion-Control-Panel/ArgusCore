@@ -147,6 +147,64 @@ jobs:
           ctest --output-on-failure --parallel $(nproc)
 
   # -----------------------------------------------------------------
+  # Profiling build — RelWithDebInfo + -fno-omit-frame-pointer so that
+  # developers can run the resulting binary under perf/valgrind/gprof
+  # and get accurate call graphs. Verifies the profiling config compiles
+  # and links cleanly; actual profiling is done offline.
+  # -----------------------------------------------------------------
+  profile:
+    name: Ubuntu 24.04 - GCC 13 - Profile
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet \
+                      /usr/local/lib/android \
+                      /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL
+          df -h
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            gcc-13 \
+            g++-13 \
+            ninja-build \
+            libboost-all-dev \
+            libssl-dev \
+            libmysqlclient-dev \
+            libreadline-dev \
+            zlib1g-dev
+
+      # RelWithDebInfo keeps optimizations (-O2) while retaining debug
+      # symbols. -fno-omit-frame-pointer is required for perf to unwind
+      # call stacks accurately.
+      - name: Configure (Profile)
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER=gcc-13 \
+            -DCMAKE_CXX_COMPILER=g++-13 \
+            -DSCRIPTS=static \
+            -DTOOLS=OFF \
+            -DSERVERS=ON \
+            -DBUILD_TESTING=OFF \
+            -DWITH_WARNINGS=ON \
+            "-DCMAKE_C_FLAGS=-fno-omit-frame-pointer" \
+            "-DCMAKE_CXX_FLAGS=-fno-omit-frame-pointer"
+
+      - name: Build (Profile)
+        run: cmake --build build --parallel $(nproc)
+
+  # -----------------------------------------------------------------
   # UndefinedBehaviorSanitizer — catches signed overflow, null pointer
   # dereference, misaligned access, out-of-bounds array indexing,
   # invalid enum values, and other UB.

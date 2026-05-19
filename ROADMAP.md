@@ -47,7 +47,7 @@ Modernize an old Legion-based TrinityCore source into a modern, stable, maintain
 | 3 | [Build System Cleanup](#phase-3--build-system-cleanup) | **Validated** |
 | 4 | [Dependency Updates](#phase-4--dependency-updates) | **Validated** |
 | 5 | [Code Modernization](#phase-5--code-modernization) | **Complete** |
-| 6 | [CI, Testing, and Profiling](#phase-6--ci-testing-and-profiling) | **In Progress** |
+| 6 | [CI, Testing, and Profiling](#phase-6--ci-testing-and-profiling) | **Complete** |
 | 7 | [Modular System](#phase-7--modular-system) | **Complete** |
 | 8 | [Safe Async Systems](#phase-8--safe-async-systems) | Not started |
 | 9 | [Map Threading Research](#phase-9--map-threading-research) | Not started |
@@ -253,8 +253,8 @@ reading the code and removes the implicit "these are second-class citizens" sign
 - [x] Replace `appveyor.yml` and `.circleci/config.yml` (obsolete, TrinityCore-branded)
 - [x] Add ASAN build job to linux workflow
 - [x] Add UBSAN build job to linux workflow
-- [ ] Add profiling tools
-- [ ] Add basic performance metrics collection
+- [x] Add profiling tools — profile CI job (RelWithDebInfo + -fno-omit-frame-pointer) for offline perf/valgrind use
+- [x] Add basic performance metrics collection — DB latency (adhoc_read, adhoc_write, prepared_write) wired into MySQLConnection; map/world/session metrics were already in place
 
 ### Metrics to Track
 

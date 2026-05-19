@@ -19,6 +19,7 @@
 #include "Common.h"
 #include "IoContext.h"
 #include "Log.h"
+#include "Metric.h"
 #include "MySQLHacks.h"
 #include "MySQLPreparedStatement.h"
 #include "PreparedStatement.h"
@@ -207,7 +208,11 @@ bool MySQLConnection::Execute(char const* sql)
             return false;
         }
         else
-            TC_LOG_DEBUG("sql.sql", "[{} ms] SQL: {}", getMSTimeDiff(_s, getMSTime()), sql);
+        {
+            uint32 _ms = getMSTimeDiff(_s, getMSTime());
+            TC_LOG_DEBUG("sql.sql", "[{} ms] SQL: {}", _ms, sql);
+            TC_METRIC_VALUE("db_query_time_ms", _ms, TC_METRIC_TAG("type", "adhoc_write"));
+        }
     }
 
     return true;
@@ -254,7 +259,9 @@ bool MySQLConnection::Execute(PreparedStatementBase* stmt)
         return false;
     }
 
-    TC_LOG_DEBUG("sql.sql", "[{} ms] SQL(p): {}", getMSTimeDiff(_s, getMSTime()), m_mStmt->getQueryString());
+    uint32 _ms = getMSTimeDiff(_s, getMSTime());
+    TC_LOG_DEBUG("sql.sql", "[{} ms] SQL(p): {}", _ms, m_mStmt->getQueryString());
+    TC_METRIC_VALUE("db_query_time_ms", _ms, TC_METRIC_TAG("type", "prepared_write"));
 
     m_mStmt->ClearParameters();
     return true;
@@ -350,7 +357,11 @@ bool MySQLConnection::_Query(const char* sql, MySQLResult** pResult, MySQLField*
             return false;
         }
         else
-            TC_LOG_DEBUG("sql.sql", "[{} ms] SQL: {}", getMSTimeDiff(_s, getMSTime()), sql);
+        {
+            uint32 _ms = getMSTimeDiff(_s, getMSTime());
+            TC_LOG_DEBUG("sql.sql", "[{} ms] SQL: {}", _ms, sql);
+            TC_METRIC_VALUE("db_query_time_ms", _ms, TC_METRIC_TAG("type", "adhoc_read"));
+        }
 
         *pResult = reinterpret_cast<MySQLResult*>(mysql_store_result(m_Mysql));
         *pRowCount = mysql_affected_rows(m_Mysql);
