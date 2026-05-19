@@ -1,0 +1,87 @@
+name: Linux Build (GCC)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Ubuntu 24.04 — GCC — Debug
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # -------------------------------------------------------------------
+      # System packages
+      # Ubuntu 24.04 provides: cmake 3.28+, gcc-13, libboost-all-dev 1.83,
+      # libssl-dev 3.x. We add the MySQL APT config to get libmysqlclient-dev
+      # 8.4 so it matches the minimum version we enforce in CMake.
+      # -------------------------------------------------------------------
+      - name: Add MySQL 8.4 APT repository
+        run: |
+          wget -q https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb
+          sudo DEBIAN_FRONTEND=noninteractive dpkg -i mysql-apt-config_0.8.33-1_all.deb
+          sudo apt-get update -q
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            gcc-13 \
+            g++-13 \
+            ninja-build \
+            libboost-all-dev \
+            libssl-dev \
+            libmysqlclient-dev \
+            libreadline-dev \
+            zlib1g-dev \
+            clang-format
+
+      # -------------------------------------------------------------------
+      # Configure
+      # -------------------------------------------------------------------
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=gcc-13 \
+            -DCMAKE_CXX_COMPILER=g++-13 \
+            -DSCRIPTS=static \
+            -DTOOLS=ON \
+            -DSERVERS=ON \
+            -DBUILD_TESTING=ON \
+            -DWITH_WARNINGS=ON \
+            -DCMAKE_INSTALL_PREFIX=install
+
+      # -------------------------------------------------------------------
+      # Build
+      # -------------------------------------------------------------------
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+
+      # -------------------------------------------------------------------
+      # Unit tests
+      # -------------------------------------------------------------------
+      - name: Run unit tests
+        run: |
+          cd build
+          ctest --output-on-failure --parallel $(nproc)
+
+      # -------------------------------------------------------------------
+      # Smoke test — verify binaries start and exit cleanly
+      # -------------------------------------------------------------------
+      - name: Check executables
+        run: |
+          cmake --install build
+          ./install/bin/worldserver --version
+          ./install/bin/bnetserver --version

@@ -1,0 +1,158 @@
+name: Windows Build (MSVC)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BOOST_VERSION: "1.91.0"
+  MYSQL_VERSION: "8.4.4"
+
+jobs:
+  build:
+    name: Windows 2022 — MSVC 2022 — RelWithDebInfo
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # -------------------------------------------------------------------
+      # OpenSSL — pre-installed on windows-2022 runner
+      # -------------------------------------------------------------------
+      - name: Locate OpenSSL
+        id: openssl
+        run: |
+          $path = "C:\Program Files\OpenSSL-Win64"
+          if (Test-Path $path) {
+            echo "OPENSSL_ROOT_DIR=$path" >> $env:GITHUB_ENV
+            Write-Host "OpenSSL found at $path"
+          } else {
+            choco install openssl --no-progress -y
+            echo "OPENSSL_ROOT_DIR=C:\Program Files\OpenSSL-Win64" >> $env:GITHUB_ENV
+          }
+
+      # -------------------------------------------------------------------
+      # Boost — download pre-built MSVC binaries and cache them.
+      # The installer places libraries under:
+      #   C:\local\boost_1_91_0\lib64-msvc-14.3\
+      # -------------------------------------------------------------------
+      - name: Cache Boost ${{ env.BOOST_VERSION }}
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: C:\local\boost_${{ env.BOOST_VERSION_FLAT }}
+          key: boost-${{ env.BOOST_VERSION }}-msvc143-x64
+
+      - name: Compute flat Boost version string
+        run: |
+          $flat = "${{ env.BOOST_VERSION }}" -replace '\.','_'
+          echo "BOOST_VERSION_FLAT=$flat" >> $env:GITHUB_ENV
+
+      - name: Download and install Boost ${{ env.BOOST_VERSION }}
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          $flat = "${{ env.BOOST_VERSION }}" -replace '\.','_'
+          $installer = "boost_${flat}-msvc-14.3-64.exe"
+          $url = "https://sourceforge.net/projects/boost/files/boost-binaries/${{ env.BOOST_VERSION }}/${installer}/download"
+          Write-Host "Downloading Boost from $url"
+          Invoke-WebRequest -Uri $url -OutFile $installer -TimeoutSec 300
+          Start-Process -FilePath ".\$installer" -ArgumentList "/SILENT","/SP-","/DIR=C:\local\boost_${flat}" -Wait
+
+      - name: Set BOOST_ROOT
+        run: |
+          $flat = "${{ env.BOOST_VERSION }}" -replace '\.','_'
+          echo "BOOST_ROOT=C:\local\boost_${flat}" >> $env:GITHUB_ENV
+
+      # -------------------------------------------------------------------
+      # MySQL 8.4 connector — download the server ZIP which contains the
+      # client headers and libmysql.dll needed to build against.
+      # -------------------------------------------------------------------
+      - name: Cache MySQL ${{ env.MYSQL_VERSION }} connector
+        id: cache-mysql
+        uses: actions/cache@v4
+        with:
+          path: C:\mysql
+          key: mysql-${{ env.MYSQL_VERSION }}-winx64
+
+      - name: Download MySQL ${{ env.MYSQL_VERSION }}
+        if: steps.cache-mysql.outputs.cache-hit != 'true'
+        run: |
+          $url = "https://dev.mysql.com/get/Downloads/MySQL-8.4/mysql-${{ env.MYSQL_VERSION }}-winx64.zip"
+          Write-Host "Downloading MySQL from $url"
+          Invoke-WebRequest -Uri $url -OutFile mysql.zip -TimeoutSec 300
+          Expand-Archive mysql.zip -DestinationPath C:\mysql-tmp
+          Move-Item "C:\mysql-tmp\mysql-${{ env.MYSQL_VERSION }}-winx64" "C:\mysql"
+
+      # -------------------------------------------------------------------
+      # Configure
+      # -------------------------------------------------------------------
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -G "Visual Studio 17 2022"
+          -A x64
+          -DSCRIPTS=static
+          -DTOOLS=ON
+          -DSERVERS=ON
+          -DWITH_WARNINGS=ON
+          -DMYSQL_ROOT_DIR="C:\mysql"
+        env:
+          BOOST_ROOT: ${{ env.BOOST_ROOT }}
+          OPENSSL_ROOT_DIR: ${{ env.OPENSSL_ROOT_DIR }}
+
+      # -------------------------------------------------------------------
+      # Build
+      # -------------------------------------------------------------------
+      - name: Build
+        run: cmake --build build --config RelWithDebInfo --parallel 2
+
+      # -------------------------------------------------------------------
+      # Package — collect binaries, configs, and required runtime DLLs
+      # -------------------------------------------------------------------
+      - name: Package artifacts
+        run: |
+          $out = "dist"
+          New-Item -ItemType Directory -Force $out | Out-Null
+
+          # Binaries
+          Copy-Item "build\bin\RelWithDebInfo\*.exe" $out
+          Copy-Item "build\bin\RelWithDebInfo\*.dll" $out -ErrorAction SilentlyContinue
+
+          # Configs
+          if (Test-Path "build\bin\RelWithDebInfo\configs") {
+            Copy-Item "build\bin\RelWithDebInfo\configs" "$out\configs" -Recurse
+          }
+
+          # MySQL runtime
+          Copy-Item "C:\mysql\lib\libmysql.dll" $out
+
+          # OpenSSL runtime
+          $ssl = $env:OPENSSL_ROOT_DIR
+          Get-ChildItem "$ssl\bin\*.dll" | Copy-Item -Destination $out
+
+          # Zip — one with symbols, one without
+          Compress-Archive "$out\*" "ArgusCore-Win64-${{ github.sha }}.zip"
+          Get-ChildItem $out -Filter *.pdb -Recurse | Remove-Item -Force
+          Compress-Archive "$out\*" "ArgusCore-Win64-${{ github.sha }}-NoSymbols.zip"
+
+      - name: Upload artifact (with symbols)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArgusCore-Win64-${{ github.sha }}
+          path: ArgusCore-Win64-${{ github.sha }}.zip
+          retention-days: 30
+
+      - name: Upload artifact (no symbols)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArgusCore-Win64-${{ github.sha }}-NoSymbols
+          path: ArgusCore-Win64-${{ github.sha }}-NoSymbols.zip
+          retention-days: 30

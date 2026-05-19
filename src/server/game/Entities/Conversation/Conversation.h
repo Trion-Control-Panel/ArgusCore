@@ -1,0 +1,116 @@
+/*
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#ifndef TRINITYCORE_CONVERSATION_H
+#define TRINITYCORE_CONVERSATION_H
+
+#include "Object.h"
+#include "GridObject.h"
+
+class ConversationAI;
+class Unit;
+class SpellInfo;
+enum class ConversationActorType : uint32;
+
+#pragma pack(push, 1)
+struct ConversationDynamicFieldActor
+{
+    ConversationDynamicFieldActor() : Type(0), Padding(0)
+    {
+        memset(Raw.Data, 0, sizeof(Raw.Data));
+    }
+
+    bool IsEmpty() const
+    {
+        return ActorGuid.IsEmpty(); // this one is good enough
+    }
+
+    enum class ActorType : uint32
+    {
+        WorldObjectActor = 0,
+        CreatureActor = 1
+    };
+
+    union
+    {
+        ObjectGuid ActorGuid;
+        struct
+        {
+            uint32 Id;
+            uint32 CreatureId;
+            uint32 CreatureModelId;
+        } ActorTemplate;
+
+        struct
+        {
+            uint32 Data[4];
+        } Raw;
+    };
+
+    uint32 Type;
+    uint32 Padding;
+};
+#pragma pack(pop)
+
+class TC_GAME_API Conversation final : public WorldObject, public GridObject<Conversation>
+{
+    public:
+        Conversation();
+        ~Conversation();
+
+        void AddToWorld() override;
+        void RemoveFromWorld() override;
+
+        void Update(uint32 diff) override;
+        void Remove();
+        Milliseconds GetDuration() const { return _duration; }
+
+        static Conversation* CreateConversation(uint32 conversationEntry, Unit* creator, Position const& pos, ObjectGuid privateObjectOwner, SpellInfo const* spellInfo = nullptr, bool autoStart = true);
+        void Create(ObjectGuid::LowType lowGuid, uint32 conversationEntry, Map* map, Unit* creator, Position const& pos, ObjectGuid privateObjectOwner, SpellInfo const* spellInfo = nullptr);
+        bool Start();
+        void AddActor(int32 actorId, uint32 actorIdx, ObjectGuid const& actorGuid);
+        void AddActor(int32 actorId, uint32 actorIdx, ConversationActorType type, uint32 creatureId, uint32 creatureDisplayInfoId);
+
+        ObjectGuid GetCreatorGUID() const override { return _creatorGuid; }
+        ObjectGuid GetOwnerGUID() const override { return GetCreatorGUID(); }
+        uint32 GetFaction() const override { return 0; }
+
+        Position const& GetStationaryPosition() const override { return _stationaryPosition; }
+        void RelocateStationaryPosition(Position const& pos) { _stationaryPosition.Relocate(pos); }
+
+        Milliseconds GetLastLineEndTime(LocaleConstant locale) const;
+
+        LocaleConstant GetPrivateObjectOwnerLocale() const;
+        Unit* GetActorUnit(uint32 actorIdx) const;
+        Creature* GetActorCreature(uint32 actorIdx) const;
+
+        void AI_Initialize();
+        void AI_Destroy();
+
+        ConversationAI* AI() { return _ai.get(); }
+        uint32 GetScriptId() const;
+
+    private:
+        Position _stationaryPosition;
+        ObjectGuid _creatorGuid;
+        Milliseconds _duration;
+        std::set<uint16> _actorIndices;
+
+        std::unique_ptr<ConversationAI> _ai;
+};
+
+#endif // TRINITYCORE_CONVERSATION_H
