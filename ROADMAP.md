@@ -251,8 +251,8 @@ reading the code and removes the implicit "these are second-class citizens" sign
 - [x] Create `.github/workflows/build-linux.yml` — Ubuntu 24.04, GCC 13, Debug, unit tests, smoke test
 - [x] Create `.github/workflows/build-windows.yml` — Windows 2022, MSVC, RelWithDebInfo, artifact upload
 - [x] Replace `appveyor.yml` and `.circleci/config.yml` (obsolete, TrinityCore-branded)
-- [ ] Add ASAN build job to linux workflow
-- [ ] Add UBSAN build job to linux workflow
+- [x] Add ASAN build job to linux workflow
+- [x] Add UBSAN build job to linux workflow
 - [ ] Add profiling tools
 - [ ] Add basic performance metrics collection
 
