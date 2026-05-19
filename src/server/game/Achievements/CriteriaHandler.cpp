@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -471,7 +471,7 @@ void CriteriaHandler::UpdateCriteria(CriteriaType type, uint64 miscValue1 /*= 0*
 
     if (!referencePlayer)
     {
-        TC_LOG_DEBUG("criteria", "CriteriaHandler::UpdateCriteria: Player is NULL! Cant update criteria");
+        TC_LOG_DEBUG("criteria", "CriteriaHandler::UpdateCriteria: Player is nullptr! Cant update criteria");
         return;
     }
 

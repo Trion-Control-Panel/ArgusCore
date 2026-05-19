@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -87,7 +87,7 @@ std::string_view ByteBuffer::ReadString(uint32 length, bool requireValidUtf8 /*=
 
 void ByteBuffer::append(uint8 const* src, size_t cnt)
 {
-    ASSERT(src, "Attempted to put a NULL-pointer in ByteBuffer (pos: " SZFMTD " size: " SZFMTD ")", _wpos, size());
+    ASSERT(src, "Attempted to put a nullptr-pointer in ByteBuffer (pos: " SZFMTD " size: " SZFMTD ")", _wpos, size());
     ASSERT(cnt, "Attempted to put a zero-sized value in ByteBuffer (pos: " SZFMTD " size: " SZFMTD ")", _wpos, size());
     ASSERT((size() + cnt) < 100000000);
 
@@ -115,7 +115,7 @@ void ByteBuffer::append(uint8 const* src, size_t cnt)
 void ByteBuffer::put(size_t pos, uint8 const* src, size_t cnt)
 {
     ASSERT(pos + cnt <= size(), "Attempted to put value with size: " SZFMTD " in ByteBuffer (pos: " SZFMTD " size: " SZFMTD ")", cnt, pos, size());
-    ASSERT(src, "Attempted to put a NULL-pointer in ByteBuffer (pos: " SZFMTD " size: " SZFMTD ")", pos, size());
+    ASSERT(src, "Attempted to put a nullptr-pointer in ByteBuffer (pos: " SZFMTD " size: " SZFMTD ")", pos, size());
     ASSERT(cnt, "Attempted to put a zero-sized value in ByteBuffer (pos: " SZFMTD " size: " SZFMTD ")", pos, size());
 
     std::memcpy(&_storage[pos], src, cnt);

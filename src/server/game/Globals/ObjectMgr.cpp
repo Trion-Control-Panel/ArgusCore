@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -1542,7 +1542,7 @@ void ObjectMgr::LoadCreatureMovementOverrides()
 
     _creatureMovementOverrides.clear();
 
-    // Load the data from creature_movement_override and if NULL fallback to creature_template_movement
+    // Load the data from creature_movement_override and if nullptr fallback to creature_template_movement
     QueryResult result = WorldDatabase.Query(
         "SELECT cmo.SpawnId,"
         "COALESCE(cmo.HoverInitiallyEnabled, ctm.HoverInitiallyEnabled),"

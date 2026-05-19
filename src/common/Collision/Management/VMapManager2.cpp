@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -67,7 +67,7 @@ namespace VMAP
 
     InstanceTreeMap::const_iterator VMapManager2::GetMapTree(uint32 mapId) const
     {
-        // return the iterator if found or end() if not found/NULL
+        // return the iterator if found or end() if not found/nullptr
         auto itr = iInstanceMapTrees.find(mapId);
         if (itr != iInstanceMapTrees.cend() && !itr->second)
             itr = iInstanceMapTrees.cend();

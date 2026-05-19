@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -615,7 +615,7 @@ public:
         if (!pField)
             return false;
 
-        char* pBit = strtok(NULL, " ");
+        char* pBit = strtok(nullptr, " ");
         if (!pBit)
             return false;
 

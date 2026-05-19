@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -87,7 +87,7 @@ private:
 
     void LoadBuyerValues(BuyerConfiguration& config);
 
-    // ahInfo can be NULL
+    // ahInfo can be nullptr
     bool RollBuyChance(BuyerItemInfo const* ahInfo, AuctionPosting const* auction);
     bool RollBidChance(BuyerItemInfo const* ahInfo, AuctionPosting const* auction, uint32 bidPrice);
     void PlaceBidToEntry(AuctionPosting* auction, AuctionHouseObject* auctionHouse, uint32 bidPrice);

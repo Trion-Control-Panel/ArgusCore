@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -46,7 +46,7 @@ template <class TO, class FROM, class Derived> class Reference : public LinkedLi
         // Create new link
         void link(TO* toObj, FROM* fromObj)
         {
-            ASSERT(fromObj);                                // fromObj MUST not be NULL
+            ASSERT(fromObj);                                // fromObj MUST not be nullptr
             if (isValid())
                 unlink();
             if (toObj != nullptr)

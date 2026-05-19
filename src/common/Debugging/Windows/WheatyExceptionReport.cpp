@@ -1,4 +1,4 @@
-//==========================================
+﻿//==========================================
 // Matt Pietrek
 // MSDN Magazine, 2002
 // FILE: WheatyExceptionReport.CPP
@@ -507,9 +507,9 @@ BOOL WheatyExceptionReport::_GetWindowsVersionFromWMI(TCHAR* szVersion, DWORD cn
         IWbemServices* tmp = nullptr;
         HRESULT hres = loc->ConnectServer(
             bstr_t(L"ROOT\\CIMV2"),         // Object path of WMI namespace
-            nullptr,                        // User name. NULL = current user
-            nullptr,                        // User password. NULL = current
-            nullptr,                        // Locale. NULL indicates current
+            nullptr,                        // User name. nullptr = current user
+            nullptr,                        // User password. nullptr = current
+            nullptr,                        // Locale. nullptr indicates current
             WBEM_FLAG_CONNECT_USE_MAX_WAIT, // Security flags.
             nullptr,                        // Authority (for example, Kerberos)
             nullptr,                        // Context object

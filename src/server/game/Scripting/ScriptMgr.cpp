@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -1663,7 +1663,7 @@ BattlegroundScript* ScriptMgr::CreateBattlegroundData(BattlegroundMap* map)
 {
     ASSERT(map);
 
-    GET_SCRIPT_RET(BattlegroundMapScript, map->GetScriptId(), tmpscript, NULL);
+    GET_SCRIPT_RET(BattlegroundMapScript, map->GetScriptId(), tmpscript, nullptr);
     return tmpscript->GetBattlegroundScript(map);
 }
 
@@ -1987,7 +1987,7 @@ void ScriptMgr::OnAchievementCompleted(Player* player, AchievementEntry const* a
 bool ScriptMgr::OnCriteriaCheck(uint32 scriptId, Player* source, Unit* target)
 {
     ASSERT(source);
-    // target can be NULL.
+    // target can be nullptr.
 
     GET_SCRIPT_RET(AchievementCriteriaScript, scriptId, tmpscript, false);
     return tmpscript->OnCheck(source, target);

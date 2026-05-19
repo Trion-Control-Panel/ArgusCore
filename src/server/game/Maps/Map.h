@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -701,7 +701,7 @@ class TC_GAME_API Map : public GridRefManager<NGridType>
     private:
         // if return value is true, we can respawn
         // if return value is false, reschedule the respawn to new value of info->respawnTime iff nonzero, delete otherwise
-        // if return value is false and info->respawnTime is nonzero, it is guaranteed to be greater than time(NULL)
+        // if return value is false and info->respawnTime is nonzero, it is guaranteed to be greater than time(nullptr)
         bool CheckRespawn(RespawnInfo* info);
         void DoRespawn(SpawnObjectType type, ObjectGuid::LowType spawnId, uint32 gridId);
         bool AddRespawnInfo(RespawnInfo const& info);

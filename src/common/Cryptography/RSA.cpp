@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -164,10 +164,10 @@ struct HMAC_SHA256_MD
     {
         static constexpr OSSL_PARAM Params[] =
         {
-            OSSL_PARAM_size_t(OSSL_DIGEST_PARAM_BLOCK_SIZE, NULL),
-            OSSL_PARAM_size_t(OSSL_DIGEST_PARAM_SIZE, NULL),
-            OSSL_PARAM_int(OSSL_DIGEST_PARAM_XOF, NULL),
-            OSSL_PARAM_int(OSSL_DIGEST_PARAM_ALGID_ABSENT, NULL),
+            OSSL_PARAM_size_t(OSSL_DIGEST_PARAM_BLOCK_SIZE, nullptr),
+            OSSL_PARAM_size_t(OSSL_DIGEST_PARAM_SIZE, nullptr),
+            OSSL_PARAM_int(OSSL_DIGEST_PARAM_XOF, nullptr),
+            OSSL_PARAM_int(OSSL_DIGEST_PARAM_ALGID_ABSENT, nullptr),
             OSSL_PARAM_END
         };
 

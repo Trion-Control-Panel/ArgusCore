@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -328,7 +328,7 @@ class TC_GAME_API MapScript
         MapScript& operator=(MapScript const& right) = delete;
         MapScript& operator=(MapScript&& right) = delete;
 
-        // Gets the MapEntry structure associated with this script. Can return NULL.
+        // Gets the MapEntry structure associated with this script. Can return nullptr.
         MapEntry const* GetEntry() const;
 
         // Called when the map is created.

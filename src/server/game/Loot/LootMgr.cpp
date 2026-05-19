@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -106,7 +106,7 @@ class LootTemplate::LootGroup                               // A set of loot def
         LootStoreItemList ExplicitlyChanced;                // Entries with chances defined in DB
         LootStoreItemList EqualChanced;                     // Zero chances - every entry takes the same chance
 
-        // Rolls an item from the group, returns NULL if all miss their chances
+        // Rolls an item from the group, returns nullptr if all miss their chances
         LootStoreItem const* Roll(uint16 lootMode, Player const* personalLooter = nullptr) const;
 };
 
@@ -433,7 +433,7 @@ void LootTemplate::LootGroup::AddEntry(LootStoreItem* item)
         EqualChanced.emplace_back(item);
 }
 
-// Rolls an item from the group, returns NULL if all miss their chances
+// Rolls an item from the group, returns nullptr if all miss their chances
 LootStoreItem const* LootTemplate::LootGroup::Roll(uint16 lootMode, Player const* personalLooter /*= nullptr*/) const
 {
     auto getValidLoot = [](LootStoreItemList const& items, uint16 lootMode, Player const* personalLooter)

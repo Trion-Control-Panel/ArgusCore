@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -102,7 +102,7 @@ inline Player* Map::_GetScriptPlayerSourceOrTarget(Object* source, Object* targe
 {
     Player* player = nullptr;
     if (!source && !target)
-        TC_LOG_ERROR("scripts", "{} source and target objects are NULL.", scriptInfo->GetDebugInfo());
+        TC_LOG_ERROR("scripts", "{} source and target objects are nullptr.", scriptInfo->GetDebugInfo());
     else
     {
         // Check target first, then source.
@@ -124,7 +124,7 @@ inline Creature* Map::_GetScriptCreatureSourceOrTarget(Object* source, Object* t
 {
     Creature* creature = nullptr;
     if (!source && !target)
-        TC_LOG_ERROR("scripts", "{} source and target objects are NULL.", scriptInfo->GetDebugInfo());
+        TC_LOG_ERROR("scripts", "{} source and target objects are nullptr.", scriptInfo->GetDebugInfo());
     else
     {
         if (bReverse)
@@ -157,7 +157,7 @@ inline GameObject* Map::_GetScriptGameObjectSourceOrTarget(Object* source, Objec
 {
     GameObject* gameobject = nullptr;
     if (!source && !target)
-        TC_LOG_ERROR("scripts", "{} source and target objects are NULL.", scriptInfo->GetDebugInfo());
+        TC_LOG_ERROR("scripts", "{} source and target objects are nullptr.", scriptInfo->GetDebugInfo());
     else
     {
         if (bReverse)
@@ -190,7 +190,7 @@ inline Unit* Map::_GetScriptUnit(Object* obj, bool isSource, ScriptInfo const* s
 {
     Unit* unit = nullptr;
     if (!obj)
-        TC_LOG_ERROR("scripts", "{} {} object is NULL.", scriptInfo->GetDebugInfo(), isSource ? "source" : "target");
+        TC_LOG_ERROR("scripts", "{} {} object is nullptr.", scriptInfo->GetDebugInfo(), isSource ? "source" : "target");
     else if (!obj->IsUnit())
         TC_LOG_ERROR("scripts", "{} {} object is not unit {}, skipping.",
             scriptInfo->GetDebugInfo(), isSource ? "source" : "target", obj->GetGUID().ToString());
@@ -208,7 +208,7 @@ inline Player* Map::_GetScriptPlayer(Object* obj, bool isSource, ScriptInfo cons
 {
     Player* player = nullptr;
     if (!obj)
-        TC_LOG_ERROR("scripts", "{} {} object is NULL.", scriptInfo->GetDebugInfo(), isSource ? "source" : "target");
+        TC_LOG_ERROR("scripts", "{} {} object is nullptr.", scriptInfo->GetDebugInfo(), isSource ? "source" : "target");
     else
     {
         player = obj->ToPlayer();
@@ -223,7 +223,7 @@ inline Creature* Map::_GetScriptCreature(Object* obj, bool isSource, ScriptInfo 
 {
     Creature* creature = nullptr;
     if (!obj)
-        TC_LOG_ERROR("scripts", "{} {} object is NULL.", scriptInfo->GetDebugInfo(), isSource ? "source" : "target");
+        TC_LOG_ERROR("scripts", "{} {} object is nullptr.", scriptInfo->GetDebugInfo(), isSource ? "source" : "target");
     else
     {
         creature = obj->ToCreature();
@@ -238,7 +238,7 @@ inline WorldObject* Map::_GetScriptWorldObject(Object* obj, bool isSource, Scrip
 {
     WorldObject* pWorldObject = nullptr;
     if (!obj)
-        TC_LOG_ERROR("scripts", "{} {} object is NULL.",
+        TC_LOG_ERROR("scripts", "{} {} object is nullptr.",
             scriptInfo->GetDebugInfo(), isSource ? "source" : "target");
     else
     {
@@ -266,7 +266,7 @@ inline void Map::_ScriptProcessDoor(Object* source, Object* target, ScriptInfo c
     if (!guid)
         TC_LOG_ERROR("scripts", "{} door guid is not specified.", scriptInfo->GetDebugInfo());
     else if (!source)
-        TC_LOG_ERROR("scripts", "{} source object is NULL.", scriptInfo->GetDebugInfo());
+        TC_LOG_ERROR("scripts", "{} source object is nullptr.", scriptInfo->GetDebugInfo());
     else if (!source->IsUnit())
         TC_LOG_ERROR("scripts", "{} source object is not unit {}, skipping.", scriptInfo->GetDebugInfo(),
             source->GetGUID().ToString());
@@ -526,12 +526,12 @@ void Map::ScriptsProcess()
             {
                 if (!source)
                 {
-                    TC_LOG_ERROR("scripts", "{} source object is NULL.", step.script->GetDebugInfo());
+                    TC_LOG_ERROR("scripts", "{} source object is nullptr.", step.script->GetDebugInfo());
                     break;
                 }
                 if (!target)
                 {
-                    TC_LOG_ERROR("scripts", "{} target object is NULL.", step.script->GetDebugInfo());
+                    TC_LOG_ERROR("scripts", "{} target object is nullptr.", step.script->GetDebugInfo());
                     break;
                 }
 
@@ -665,7 +665,7 @@ void Map::ScriptsProcess()
                     // Target must be GameObject.
                     if (!target)
                     {
-                        TC_LOG_ERROR("scripts", "{} target object is NULL.", step.script->GetDebugInfo());
+                        TC_LOG_ERROR("scripts", "{} target object is nullptr.", step.script->GetDebugInfo());
                         break;
                     }
 
@@ -694,7 +694,7 @@ void Map::ScriptsProcess()
             {
                 if (!source && !target)
                 {
-                    TC_LOG_ERROR("scripts", "{} source and target objects are NULL.", step.script->GetDebugInfo());
+                    TC_LOG_ERROR("scripts", "{} source and target objects are nullptr.", step.script->GetDebugInfo());
                     break;
                 }
 

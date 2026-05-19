@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (C) 2012-2014 Arctium Emulation <http://arctium.org>
  * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
  *
@@ -171,7 +171,7 @@ int main(int argc, char** argv)
 
 #if TRINITY_PLATFORM == TRINITY_PLATFORM_WINDOWS
         wchar_t* tempPath(nullptr);
-        SHGetKnownFolderPath(FOLDERID_ProgramData, 0, NULL, &tempPath);
+        SHGetKnownFolderPath(FOLDERID_ProgramData, 0, nullptr, &tempPath);
         appDataPath = std::wstring(tempPath);
         CoTaskMemFree(tempPath);
 #elif TRINITY_PLATFORM == TRINITY_PLATFORM_UNIX

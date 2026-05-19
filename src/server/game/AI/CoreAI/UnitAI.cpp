@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -396,6 +396,6 @@ std::string UnitAI::GetDebugInfo() const
 {
     std::stringstream sstr;
     sstr << std::boolalpha
-         << "Me: " << (me ? me->GetDebugInfo() : "NULL");
+         << "Me: " << (me ? me->GetDebugInfo() : "nullptr");
     return sstr.str();
 }

@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -652,7 +652,7 @@ bool SmartAIMgr::NotNULL(SmartScriptHolder const& e, uint32 data)
 {
     if (!data)
     {
-        TC_LOG_ERROR("sql.sql", "SmartAIMgr: Entry {} SourceType {} Event {} Action {} Parameter can not be NULL, skipped.", e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType());
+        TC_LOG_ERROR("sql.sql", "SmartAIMgr: Entry {} SourceType {} Event {} Action {} Parameter can not be nullptr, skipped.", e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType());
         return false;
     }
     return true;
@@ -882,7 +882,7 @@ bool SmartAIMgr::CheckUnusedEventParams(SmartScriptHolder const& e)
 
     if (!eventUsesStringParam && !e.event.param_string.empty())
     {
-        TC_LOG_WARN("sql.sql", "SmartAIMgr: Entry {} SourceType {} Event {} Action {} has unused event_param_string with value {}, it should be NULL.",
+        TC_LOG_WARN("sql.sql", "SmartAIMgr: Entry {} SourceType {} Event {} Action {} has unused event_param_string with value {}, it should be nullptr.",
             e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType(), e.event.param_string);
     }
 
@@ -1068,7 +1068,7 @@ bool SmartAIMgr::CheckUnusedActionParams(SmartScriptHolder const& e)
 
     if (!actionUsesStringParam && !e.action.param_string.empty())
     {
-        TC_LOG_WARN("sql.sql", "SmartAIMgr: Entry {} SourceType {} Event {} Action {} has unused action_param_string with value {}, it should be NULL.",
+        TC_LOG_WARN("sql.sql", "SmartAIMgr: Entry {} SourceType {} Event {} Action {} has unused action_param_string with value {}, it should be nullptr.",
             e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType(), e.action.param_string);
     }
 
@@ -1153,7 +1153,7 @@ bool SmartAIMgr::CheckUnusedTargetParams(SmartScriptHolder const& e)
 
     if (!targetUsesStringParam && !e.target.param_string.empty())
     {
-        TC_LOG_WARN("sql.sql", "SmartAIMgr: Entry {} SourceType {} Event {} Action {} has unused target_param_string with value {}, it should be NULL.",
+        TC_LOG_WARN("sql.sql", "SmartAIMgr: Entry {} SourceType {} Event {} Action {} has unused target_param_string with value {}, it should be nullptr.",
             e.entryOrGuid, e.GetScriptType(), e.event_id, e.GetActionType(), e.target.param_string);
     }
 

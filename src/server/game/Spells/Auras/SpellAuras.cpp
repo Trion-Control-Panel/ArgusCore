@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -311,8 +311,8 @@ void AuraApplication::ClientUpdate(bool remove)
 std::string AuraApplication::GetDebugInfo() const
 {
     std::stringstream sstr;
-    sstr << "Base: " << (GetBase() ? GetBase()->GetDebugInfo() : "NULL")
-        << "\nTarget: " << (GetTarget() ? GetTarget()->GetDebugInfo() : "NULL");
+    sstr << "Base: " << (GetBase() ? GetBase()->GetDebugInfo() : "nullptr")
+        << "\nTarget: " << (GetTarget() ? GetTarget()->GetDebugInfo() : "nullptr");
     return sstr.str();
 }
 
@@ -2480,7 +2480,7 @@ std::string Aura::GetDebugInfo() const
     std::stringstream sstr;
     sstr << std::boolalpha
         << "Id: " << GetId() << " Name: '" << (*GetSpellInfo()->SpellName)[sWorld->GetDefaultDbcLocale()] << "' Caster: " << GetCasterGUID().ToString()
-        << "\nOwner: " << (GetOwner() ? GetOwner()->GetDebugInfo() : "NULL");
+        << "\nOwner: " << (GetOwner() ? GetOwner()->GetDebugInfo() : "nullptr");
     return sstr.str();
 }
 

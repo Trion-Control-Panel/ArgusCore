@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -33,9 +33,9 @@
  *
  * DATABASE
  * character_instance_lock
- *   `guid` bigint(20) unsigned NOT NULL,
- *   `mapId` int(10) unsigned NOT NULL,
- *   `lockId` int(10) unsigned NOT NULL,
+ *   `guid` bigint(20) unsigned NOT nullptr,
+ *   `mapId` int(10) unsigned NOT nullptr,
+ *   `lockId` int(10) unsigned NOT nullptr,
  *   `instanceId` int(10) unsigned,                 REFERENCES instance for instanceId based locks
  *   `difficulty` tinyint(3) unsigned,
  *   `data` text,                                   ALWAYS FILLED (also might not match instance data for instanceId based locks)
@@ -46,7 +46,7 @@
  *   PRIMARY KEY (`guid`,`mapId`,`lockId`),
  *
  * instance
- *   `instanceId` int(10) unsigned NOT NULL,
+ *   `instanceId` int(10) unsigned NOT nullptr,
  *   `data` text,                                   FILLED ONLY FOR ID BASED LOCKS
  *   `completedEncountersMask` int(10) unsigned,    FILLED ONLY FOR ID BASED LOCKS
  *   `entranceWorldSafeLocId` int(10) unsigned,     FILLED ONLY FOR ID BASED LOCKS

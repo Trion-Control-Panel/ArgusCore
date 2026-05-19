@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -191,7 +191,7 @@ char const* Warden::ApplyPenalty(WardenCheck const* check)
             std::string accountName;
             AccountMgr::GetName(_session->GetAccountId(), accountName);
             std::string banReason = "Warden Anticheat Violation";
-            // Check can be NULL, for example if the client sent a wrong signature in the warden packet (CHECKSUM FAIL)
+            // Check can be nullptr, for example if the client sent a wrong signature in the warden packet (CHECKSUM FAIL)
             if (check)
                 banReason += Trinity::StringFormat(": {} (CheckId: {}", check->Comment, check->CheckId);
 

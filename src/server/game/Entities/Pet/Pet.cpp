@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -1216,7 +1216,7 @@ void Pet::_LoadAuras(PreparedQueryResult auraResult, PreparedQueryResult effectR
         do
         {
             Field* fields = auraResult->Fetch();
-            // NULL guid stored - pet is the caster of the spell - see Pet::_SaveAuras
+            // nullptr guid stored - pet is the caster of the spell - see Pet::_SaveAuras
             std::span<uint8 const> rawGuidBytes = fields[0].GetBinaryView();
             if (rawGuidBytes.size() != ObjectGuid::BytesSize)
                 continue;

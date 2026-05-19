@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -289,7 +289,7 @@ void PetAI::OwnerAttacked(Unit* target)
     // Called when owner attacks something. Allows defensive pets to know
     //  that they need to assist
 
-    // Target might be NULL if called from spell with invalid cast targets
+    // Target might be nullptr if called from spell with invalid cast targets
     if (!target || !me->IsAlive())
         return;
 
@@ -360,7 +360,7 @@ void PetAI::HandleReturnMovement()
 
     if (!me->GetCharmInfo())
     {
-        TC_LOG_WARN("scripts.ai.petai", "me->GetCharmInfo() is NULL in PetAI::HandleReturnMovement(). Debug info: {}", GetDebugInfo());
+        TC_LOG_WARN("scripts.ai.petai", "me->GetCharmInfo() is nullptr in PetAI::HandleReturnMovement(). Debug info: {}", GetDebugInfo());
         return;
     }
 
@@ -490,7 +490,7 @@ bool PetAI::CanAttack(Unit* target)
 
     if (!me->GetCharmInfo())
     {
-        TC_LOG_WARN("scripts.ai.petai", "me->GetCharmInfo() is NULL in PetAI::CanAttack(). Debug info: {}", GetDebugInfo());
+        TC_LOG_WARN("scripts.ai.petai", "me->GetCharmInfo() is nullptr in PetAI::CanAttack(). Debug info: {}", GetDebugInfo());
         return false;
     }
 

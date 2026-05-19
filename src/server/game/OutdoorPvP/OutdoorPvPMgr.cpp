@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -103,7 +103,7 @@ void OutdoorPvPMgr::CreateOutdoorPvPForMap(Map* map)
         OutdoorPvP* pvp = sScriptMgr->CreateOutdoorPvP(m_OutdoorPvPDatas[i], map);
         if (!pvp)
         {
-            TC_LOG_ERROR("outdoorpvp", "Could not initialize OutdoorPvP object for type ID {}; got NULL pointer from script.", uint32(i));
+            TC_LOG_ERROR("outdoorpvp", "Could not initialize OutdoorPvP object for type ID {}; got nullptr pointer from script.", uint32(i));
             continue;
         }
 

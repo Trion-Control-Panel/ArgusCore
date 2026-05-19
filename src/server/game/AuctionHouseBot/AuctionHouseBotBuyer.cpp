@@ -1,4 +1,4 @@
-/*
+﻿/*
  * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -157,7 +157,7 @@ uint32 AuctionBotBuyer::GetItemInformation(BuyerConfiguration& config)
     return count;
 }
 
-// ahInfo can be NULL
+// ahInfo can be nullptr
 bool AuctionBotBuyer::RollBuyChance(BuyerItemInfo const* ahInfo, AuctionPosting const* auction)
 {
     if (!auction->BuyoutPrice)
@@ -206,7 +206,7 @@ bool AuctionBotBuyer::RollBuyChance(BuyerItemInfo const* ahInfo, AuctionPosting 
     return win;
 }
 
-// ahInfo can be NULL
+// ahInfo can be nullptr
 bool AuctionBotBuyer::RollBidChance(BuyerItemInfo const* ahInfo, AuctionPosting const* auction, uint32 bidPrice)
 {
     if (!auction->MinBid)
