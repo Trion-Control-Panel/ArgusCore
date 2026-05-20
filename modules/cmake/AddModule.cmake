@@ -53,4 +53,29 @@ function(add_argus_module)
     # Register for worldserver linking and script loader generation.
     set_property(GLOBAL APPEND PROPERTY ARGUS_MODULE_LIBRARIES ${_target})
     set_property(GLOBAL APPEND PROPERTY ARGUS_MODULE_NAMES "${ARG_NAME}")
+
+    # Copy conf/*.conf.dist files to configs/modules/ next to the server binary.
+    # Gated on COPY_CONF (the same option that controls worldserver.conf.dist copying).
+    if(COPY_CONF)
+        file(GLOB _conf_files "${CMAKE_CURRENT_SOURCE_DIR}/conf/*.conf.dist")
+        if(_conf_files)
+            # Post-build: drop files into the build output folder so the server
+            # can be started from the build tree without running cmake --install.
+            add_custom_command(TARGET worldserver POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "$<TARGET_FILE_DIR:worldserver>/configs/modules"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${_conf_files}
+                    "$<TARGET_FILE_DIR:worldserver>/configs/modules"
+                COMMENT "Copying ${ARG_NAME} config files to build output"
+            )
+
+            # Install: land alongside the server's own conf files.
+            if(UNIX)
+                install(FILES ${_conf_files} DESTINATION "${CONF_DIR}/modules")
+            else()
+                install(FILES ${_conf_files} DESTINATION "${CMAKE_INSTALL_PREFIX}/configs/modules")
+            endif()
+        endif()
+    endif()
 endfunction()

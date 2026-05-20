@@ -22,29 +22,6 @@
 
 #include <mutex>
 
-class MapUpdateRequest
-{
-    private:
-
-        Map& m_map;
-        MapUpdater& m_updater;
-        uint32 m_diff;
-
-    public:
-
-        MapUpdateRequest(Map& m, MapUpdater& u, uint32 d)
-            : m_map(m), m_updater(u), m_diff(d)
-        {
-        }
-
-        void call()
-        {
-            TC_METRIC_TIMER("map_update_time_diff", TC_METRIC_TAG("map_id", std::to_string(m_map.GetId())));
-            m_map.Update (m_diff);
-            m_updater.update_finished();
-        }
-};
-
 void MapUpdater::activate(size_t num_threads)
 {
     for (size_t i = 0; i < num_threads; ++i)
@@ -80,10 +57,29 @@ void MapUpdater::wait()
 void MapUpdater::schedule_update(Map& map, uint32 diff)
 {
     std::lock_guard<std::mutex> lock(_lock);
-
     ++pending_requests;
+    _queue.Push([this, &map, diff]()
+    {
+        TC_METRIC_TIMER("map_update_time_diff",
+            TC_METRIC_TAG("map_id", std::to_string(map.GetId())),
+            TC_METRIC_TAG("map_type", map.GetMapTypeName()));
+        map.Update(diff);
+        update_finished();
+    });
+}
 
-    _queue.Push(new MapUpdateRequest(map, *this, diff));
+void MapUpdater::schedule_delayed_update(Map& map, uint32 diff)
+{
+    std::lock_guard<std::mutex> lock(_lock);
+    ++pending_requests;
+    _queue.Push([this, &map, diff]()
+    {
+        TC_METRIC_TIMER("map_delayed_update_time_diff",
+            TC_METRIC_TAG("map_id", std::to_string(map.GetId())),
+            TC_METRIC_TAG("map_type", map.GetMapTypeName()));
+        map.DelayedUpdate(diff);
+        update_finished();
+    });
 }
 
 bool MapUpdater::activated()
@@ -107,17 +103,16 @@ void MapUpdater::WorkerThread()
     WorldDatabase.WarnAboutSyncQueries(true);
     HotfixDatabase.WarnAboutSyncQueries(true);
 
-    while (1)
+    while (true)
     {
-        MapUpdateRequest* request = nullptr;
+        std::function<void()> request;
 
         _queue.WaitAndPop(request);
 
         if (_cancelationToken)
             return;
 
-        request->call();
-
-        delete request;
+        if (request)
+            request();
     }
 }

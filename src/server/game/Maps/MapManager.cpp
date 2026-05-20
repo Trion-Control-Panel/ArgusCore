@@ -351,7 +351,14 @@ void MapManager::Update(uint32 diff)
         m_updater.wait();
 
     for (iter = i_maps.begin(); iter != i_maps.end(); ++iter)
-        iter->second->DelayedUpdate(uint32(i_timer.GetCurrent()));
+    {
+        if (m_updater.activated())
+            m_updater.schedule_delayed_update(*iter->second, uint32(i_timer.GetCurrent()));
+        else
+            iter->second->DelayedUpdate(uint32(i_timer.GetCurrent()));
+    }
+    if (m_updater.activated())
+        m_updater.wait();
 
     i_timer.SetCurrent(0);
 }

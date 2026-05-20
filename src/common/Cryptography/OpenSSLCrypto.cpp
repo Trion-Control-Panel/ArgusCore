@@ -16,6 +16,7 @@
  */
 
 #include "OpenSSLCrypto.h"
+#include "Errors.h"
 #include <openssl/crypto.h>
 #include <openssl/provider.h>
 #include <cstdlib>
@@ -33,6 +34,9 @@ void OpenSSLCrypto::threadsSetup([[maybe_unused]] boost::filesystem::path const&
         OSSL_PROVIDER_set_default_search_path(nullptr, providerModulePath.string().c_str());
 #endif
     LegacyProvider = OSSL_PROVIDER_try_load(nullptr, "legacy", 1);
+    ASSERT(LegacyProvider, "OpenSSL legacy provider failed to load. "
+        "Copy legacy.dll from your OpenSSL installation into the same directory as worldserver.exe. "
+        "It is required for RC4 packet encryption.");
 }
 
 void OpenSSLCrypto::threadsCleanup()

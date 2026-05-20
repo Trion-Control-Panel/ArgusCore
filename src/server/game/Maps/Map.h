@@ -378,6 +378,16 @@ class TC_GAME_API Map : public GridRefManager<NGridType>
         bool IsGarrison() const;
         // Currently, this means that every entity added to this map will be marked as active
         bool IsAlwaysActive() const;
+
+        // Returns a short stable string for use in metric tags — never allocates.
+        char const* GetMapTypeName() const
+        {
+            if (IsRaid())               return "raid";
+            if (IsBattlegroundOrArena()) return "bg";
+            if (IsScenario())           return "scenario";
+            if (IsDungeon())            return "dungeon";
+            return "world";
+        }
         bool GetEntrancePos(int32& mapid, float& x, float& y);
 
         void AddObjectToRemoveList(WorldObject* obj);

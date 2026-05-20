@@ -360,10 +360,10 @@ modules/mod-myfeature/
 
 ### Tasks
 
-- [ ] Add map update profiling
-- [ ] Measure update bottlenecks per map type
-- [ ] Isolate map update responsibilities
-- [ ] Build experimental worker model on a dedicated branch
+- [x] Add map update profiling — 7 TC_METRIC_TIMER blocks inside Map::Update(): dynamic_tree, sessions, respawns, player_grid, active_objects, transports, send_objects, relocations
+- [x] Measure update bottlenecks per map type — map_type tag (world/dungeon/raid/bg/scenario) added to all 8 subsystem timers and the outer map_update_time_diff metric; collect live data by running the profiling build with InfluxDB enabled
+- [x] Isolate map update responsibilities — DelayedUpdate() confirmed per-map isolated (far spell callbacks, object removal, grid state are all local to one map)
+- [x] Build experimental worker model on a dedicated branch — MapUpdater refactored to std::function<void()> queue; DelayedUpdate() now runs in parallel across maps via schedule_delayed_update(); Map::Update() path unchanged
 
 ### Rules
 

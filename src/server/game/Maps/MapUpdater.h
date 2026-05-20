@@ -19,12 +19,12 @@
 #define _MAP_UPDATER_H_INCLUDED
 
 #include "Define.h"
+#include "ProducerConsumerQueue.h"
+#include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <thread>
-#include <condition_variable>
-#include "ProducerConsumerQueue.h"
 
-class MapUpdateRequest;
 class Map;
 
 class TC_GAME_API MapUpdater
@@ -34,9 +34,8 @@ class TC_GAME_API MapUpdater
         MapUpdater() : _cancelationToken(false), pending_requests(0) {}
         ~MapUpdater() { };
 
-        friend class MapUpdateRequest;
-
         void schedule_update(Map& map, uint32 diff);
+        void schedule_delayed_update(Map& map, uint32 diff);
 
         void wait();
 
@@ -48,7 +47,7 @@ class TC_GAME_API MapUpdater
 
     private:
 
-        ProducerConsumerQueue<MapUpdateRequest*> _queue;
+        ProducerConsumerQueue<std::function<void()>> _queue;
 
         std::vector<std::thread> _workerThreads;
         std::atomic<bool> _cancelationToken;

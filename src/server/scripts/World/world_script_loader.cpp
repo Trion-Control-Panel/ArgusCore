@@ -32,7 +32,6 @@ void AddSC_action_ip_logger();
 void AddSC_scene_scripts();
 void AddSC_xp_boost();
 // player
-void AddSC_chat_log();
 void AddSC_duel_reset();
 // solo LFG and SoloCraft moved to modules/mod-solo-lfg and modules/mod-solocraft
 
@@ -49,7 +48,6 @@ void AddWorldScripts()
     AddSC_npc_professions();
     AddSC_npcs_special();
     AddSC_achievement_scripts();
-    AddSC_chat_log(); // location: scripts\World\chat_log.cpp
     AddSC_scene_scripts();
 
     // FIXME: This should be moved in a script validation hook.

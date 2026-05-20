@@ -28,51 +28,50 @@ function(copy_runtime_dependencies target)
         return()
     endif()
 
-    # --- OpenSSL ---
-    # Three common layouts depending on how OpenSSL was installed:
-    #   Standard Win64 installer : <root>/bin/libssl-3-x64.dll
-    #   AppVeyor / some repacks  : <root>/libssl-3-x64.dll (DLLs at root level)
-    # We build a candidate list from all available OpenSSL hints and try each
-    # candidate directory until we find the DLL.
+    # --- Derive OpenSSL major version from the installed headers ---
+    # OPENSSL_INCLUDE_DIR is a cache variable set by FindOpenSSL and is always
+    # a single plain path, so it is safe to read here even though this function
+    # definition is processed before find_package(OpenSSL) runs — the function
+    # body is only evaluated at call time, which is after dep/ is processed.
+    set(_ossl_major "3")  # safe fallback
+    if(DEFINED OPENSSL_INCLUDE_DIR AND EXISTS "${OPENSSL_INCLUDE_DIR}/openssl/opensslv.h")
+        file(STRINGS "${OPENSSL_INCLUDE_DIR}/openssl/opensslv.h" _ossl_ver_line
+            REGEX "^#[ \t]*define[ \t]+OPENSSL_VERSION_STR[ \t]+\"[0-9]")
+        if(_ossl_ver_line)
+            string(REGEX REPLACE ".*\"([0-9]+)\\.[0-9]+.*" "\\1" _ossl_major "${_ossl_ver_line}")
+        endif()
+    endif()
 
+    # --- Build the list of directories to search for OpenSSL DLLs ---
     set(_ssl_dirs "")
 
-    # Hint 1: OPENSSL_ROOT_DIR — the most explicit, set by the developer or CI.
     if(DEFINED OPENSSL_ROOT_DIR AND NOT OPENSSL_ROOT_DIR STREQUAL "")
         file(TO_CMAKE_PATH "${OPENSSL_ROOT_DIR}" _ossl_root)
         list(APPEND _ssl_dirs "${_ossl_root}/bin" "${_ossl_root}")
     endif()
 
-    # Hint 2: OPENSSL_INCLUDE_DIR — always a plain path like <root>/include.
-    # This is the most reliable hint because FindOpenSSL.cmake always sets it
-    # to a single directory (never a generator expression or multi-config list).
-    # Go up one level from include/ to reach the install root, then check bin/.
     if(DEFINED OPENSSL_INCLUDE_DIR AND NOT OPENSSL_INCLUDE_DIR STREQUAL "")
         get_filename_component(_ossl_root_from_include "${OPENSSL_INCLUDE_DIR}" DIRECTORY)
         list(APPEND _ssl_dirs "${_ossl_root_from_include}/bin" "${_ossl_root_from_include}")
     endif()
 
-    # Hint 3: OPENSSL_SSL_LIBRARY — may be a multi-config list like
-    # "optimized;C:/path/libssl.lib;debug;C:/path/libssld.lib" when both
-    # Debug and Release libs are present. We iterate the list and skip the
-    # CMake keywords ("optimized", "debug", "general") to find the real paths.
     if(DEFINED OPENSSL_SSL_LIBRARY AND NOT OPENSSL_SSL_LIBRARY STREQUAL "")
         foreach(_ossl_lib_entry IN LISTS OPENSSL_SSL_LIBRARY)
-            # Skip the CMake link-type keywords that appear in multi-config lists.
             if(_ossl_lib_entry STREQUAL "optimized" OR
                _ossl_lib_entry STREQUAL "debug"     OR
                _ossl_lib_entry STREQUAL "general")
                 continue()
             endif()
-            # This entry is an actual file path — go up one level to the lib/
-            # folder, then one more to the install root, and check bin/.
-            get_filename_component(_ossl_lib_dir "${_ossl_lib_entry}" DIRECTORY)
-            get_filename_component(_ossl_root_derived "${_ossl_lib_dir}" DIRECTORY)
-            list(APPEND _ssl_dirs "${_ossl_root_derived}/bin" "${_ossl_lib_dir}")
+            get_filename_component(_ossl_lib_dir    "${_ossl_lib_entry}" DIRECTORY)
+            get_filename_component(_ossl_root_from_lib "${_ossl_lib_dir}" DIRECTORY)
+            list(APPEND _ssl_dirs "${_ossl_root_from_lib}/bin" "${_ossl_lib_dir}")
         endforeach()
     endif()
 
-    foreach(_dll IN ITEMS libssl-3-x64.dll libcrypto-3-x64.dll)
+    # --- Copy libssl and libcrypto using the actual major version suffix ---
+    foreach(_dll IN ITEMS
+            "libssl-${_ossl_major}-x64.dll"
+            "libcrypto-${_ossl_major}-x64.dll")
         set(_found FALSE)
         foreach(_dir IN LISTS _ssl_dirs)
             if(EXISTS "${_dir}/${_dll}")
@@ -94,12 +93,33 @@ function(copy_runtime_dependencies target)
         endif()
     endforeach()
 
-    # --- MySQL / MariaDB ---
-    # MySQL Server puts libmysql.dll in its lib/ directory alongside the import lib.
-    # MariaDB puts libmariadb.dll in the same place.
-    # We try libmysql.dll first, then libmariadb.dll, and stop at the first one found
-    # because only one database client is needed at runtime.
+    # --- Copy legacy.dll (required for RC4/ARC4 packet encryption) ---
+    # The slproweb installer puts it in <root>/bin/ossl-modules/legacy.dll.
+    # OpenSSLCrypto::threadsSetup() sets the provider search path to the
+    # directory that contains worldserver.exe, so legacy.dll must land there
+    # (not in a subdirectory).
+    set(_legacy_found FALSE)
+    foreach(_dir IN LISTS _ssl_dirs)
+        set(_legacy_path "${_dir}/ossl-modules/legacy.dll")
+        if(EXISTS "${_legacy_path}")
+            add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_legacy_path}"
+                    "$<TARGET_FILE_DIR:${target}>/legacy.dll"
+                COMMENT "Copying legacy.dll (OpenSSL legacy provider for RC4)"
+                VERBATIM)
+            set(_legacy_found TRUE)
+            break()
+        endif()
+    endforeach()
+    if(NOT _legacy_found)
+        message(WARNING
+            "copy_runtime_dependencies: cannot find ossl-modules/legacy.dll for target '${target}'. "
+            "ARC4 packet encryption will crash at runtime. "
+            "Ensure the OpenSSL legacy provider is installed alongside your OpenSSL distribution.")
+    endif()
 
+    # --- MySQL / MariaDB ---
     set(_mysql_dirs "")
 
     if(DEFINED MYSQL_ROOT_DIR AND NOT MYSQL_ROOT_DIR STREQUAL "")
@@ -108,10 +128,9 @@ function(copy_runtime_dependencies target)
     endif()
 
     if(DEFINED MYSQL_LIBRARY AND NOT MYSQL_LIBRARY STREQUAL "")
-        # The .lib and .dll usually live in the same lib/ directory.
-        get_filename_component(_mysql_lib_dir "${MYSQL_LIBRARY}" DIRECTORY)
-        get_filename_component(_mysql_root_derived "${_mysql_lib_dir}" DIRECTORY)
-        list(APPEND _mysql_dirs "${_mysql_lib_dir}" "${_mysql_root_derived}/bin")
+        get_filename_component(_mysql_lib_dir    "${MYSQL_LIBRARY}" DIRECTORY)
+        get_filename_component(_mysql_root_from_lib "${_mysql_lib_dir}" DIRECTORY)
+        list(APPEND _mysql_dirs "${_mysql_lib_dir}" "${_mysql_root_from_lib}/bin")
     endif()
 
     set(_mysql_found FALSE)
