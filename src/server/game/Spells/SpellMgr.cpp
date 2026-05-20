@@ -3479,6 +3479,20 @@ void SpellMgr::LoadSpellInfoCorrections()
                 spellEffectInfo->ApplyAuraName = SPELL_AURA_PERIODIC_TRIGGER_SPELL;
             });
         });
+
+        // Metamorphosis (Havoc) - 7.3.5 DB2 has TriggerSpell=0 on the jump effect;
+        // retail fires 200166 (ground slam + stun) on landing via that field.
+        ApplySpellFix({ 191427 }, [](SpellInfo* spellInfo)
+        {
+            for (SpellEffectInfo& effect : const_cast<std::vector<SpellEffectInfo>&>(spellInfo->GetEffects()))
+            {
+                if ((effect.Effect == SPELL_EFFECT_JUMP_DEST || effect.Effect == SPELL_EFFECT_JUMP_DEST_2) && !effect.TriggerSpell)
+                {
+                    effect.TriggerSpell = 200166; // SPELL_DH_METAMORPHOSIS_IMPACT_DAMAGE
+                    break;
+                }
+            }
+        });
     }
 
     ApplySpellFix({
