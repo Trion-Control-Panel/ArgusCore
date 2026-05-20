@@ -1,0 +1,14 @@
+# Default owner for everything
+* @Trion-Control-Panel/ArgusCore
+
+# Core systems
+src/server/game/         @Trion-Control-Panel/ArgusCore
+src/common/              @Trion-Control-Panel/ArgusCore
+
+# Build system
+CMakeLists.txt           @Trion-Control-Panel/ArgusCore
+cmake/                   @Trion-Control-Panel/ArgusCore
+dep/                     @Trion-Control-Panel/ArgusCore
+
+# Database
+sql/                     @Trion-Control-Panel/ArgusCore

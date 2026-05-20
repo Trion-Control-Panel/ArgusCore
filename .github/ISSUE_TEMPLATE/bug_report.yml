@@ -1,0 +1,88 @@
+name: Bug Report
+description: Report a server crash, logic error, or broken mechanic
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before submitting, please check that no existing issue covers the same bug.
+        Make sure you are running the latest revision from the main branch.
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit hash
+      description: Run `git log -1 --format="%H %ai"` in the repo root
+      placeholder: "e.g. 25172cede457 2026-05-20 00:27:38"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - Linux
+        - macOS
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build_type
+    attributes:
+      label: Build type
+      description: Use Debug for crashes — Release strips symbol information
+      options:
+        - Debug
+        - RelWithDebInfo
+        - Release
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Clear description of what is broken
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Log in as a level X character
+        2. Go to zone / talk to NPC / cast spell
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or crash output
+      description: Paste server log output, stack trace, or DBErrors entries
+      render: text
+
+  - type: input
+    id: wowhead
+    attributes:
+      label: Wowhead / related IDs
+      description: Creature, quest, item, or spell ID and a link to the relevant Wowhead page
+      placeholder: "e.g. NPC 12345 https://www.wowhead.com/npc=12345"

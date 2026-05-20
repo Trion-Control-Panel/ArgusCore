@@ -1,0 +1,64 @@
+name: Database Bug Report
+description: Report incorrect or missing creature, quest, item, spell, or GO data
+labels: ["bug", "db"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for wrong NPC stats, missing spawns, broken quest chains,
+        incorrect loot, wrong display IDs, missing texts, etc.
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit hash
+      description: Run `git log -1 --format="%H %ai"` in the repo root
+      placeholder: "e.g. 25172cede457 2026-05-20 00:27:38"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Creature / NPC
+        - Quest
+        - Item
+        - Spell
+        - Game Object
+        - Loot
+        - Gossip / Text
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: entry_id
+    attributes:
+      label: Entry ID
+      placeholder: "e.g. 12345"
+    validations:
+      required: true
+
+  - type: input
+    id: wowhead
+    attributes:
+      label: Wowhead link
+      placeholder: "https://www.wowhead.com/npc=12345"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What is wrong
+      description: Describe the incorrect data and what the correct value should be
+    validations:
+      required: true
+
+  - type: textarea
+    id: source
+    attributes:
+      label: Source / reference
+      description: Where did you find the correct value? (Wowhead, Wowpedia, video, sniff, another emulator)
