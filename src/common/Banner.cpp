@@ -18,21 +18,66 @@
 #include "Banner.h"
 #include "GitRevision.h"
 #include "StringFormat.h"
+#include <cstdio>
+
+#if TRINITY_PLATFORM == TRINITY_PLATFORM_WINDOWS
+#  include <Windows.h>
+#else
+#  include <unistd.h>
+#endif
+
+namespace
+{
+bool EnableBannerColors()
+{
+#if TRINITY_PLATFORM == TRINITY_PLATFORM_WINDOWS
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut == INVALID_HANDLE_VALUE)
+        return false;
+    DWORD dwMode = 0;
+    if (!GetConsoleMode(hOut, &dwMode))
+        return false;
+    return SetConsoleMode(hOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0;
+#else
+    return isatty(STDOUT_FILENO) != 0;
+#endif
+}
+} // namespace
 
 void Trinity::Banner::Show(char const* applicationName, void(*log)(char const* text), void(*logExtraInfo)())
 {
     log(Trinity::StringFormat("{} ({})", GitRevision::GetFullVersion(), applicationName).c_str());
-    log(R"(<Ctrl-C> to stop.)" "\n");
+    log("<Ctrl-C> to stop.\n");
 
-    // ArgusCore startup banner — ASCII art spells out "ArgusCore" using the standard figlet font.
-    // Each log() call prints one row. Raw string literals R"(...)" let us write backslashes without escaping.
-    // The last row contains the g-descender bottom stroke on the left and the project label on the right.
-    log(R"(    _                          ____               )");
-    log(R"(   / \   _ __ __ _ _   _ ___ / ___|___  _ __ ___ )");
-    log(R"(  / _ \ | '__/ _` | | | / __| |   / _ \| '__/ _ \)");
-    log(R"( / ___ \| | | (_| | |_| \__ \ |__| (_) | | |  __/)");
-    log(R"(/_/   \_\_|  \__, |\__,_|___/ \____\___/|_|  \___|)");
-    log(R"(              |___/          A R G U S  C O R E   )" "\n");
+    // ASCII art printed directly to stdout so ANSI codes reach the terminal
+    // regardless of how the log callback is wired.
+    //
+    // Each row is split at column 29 — left side is "Argus" (green shades),
+    // right side is "Core" (blue shades). Rows shade from bright (top) to dim
+    // (bottom) to create a top-lit 3D look using only 2 hues.
+    bool colors = EnableBannerColors();
+
+    char const* g1    = colors ? "\033[92m"   : "";  // bright green — highlight (rows 1-2)
+    char const* g2    = colors ? "\033[32m"   : "";  // normal green — mid face  (row 3)
+    char const* g3    = colors ? "\033[2;32m" : "";  // dim green    — shadow    (rows 4-5)
+    char const* b1    = colors ? "\033[94m"   : "";  // bright blue  — highlight
+    char const* b2    = colors ? "\033[34m"   : "";  // normal blue  — mid face
+    char const* b3    = colors ? "\033[2;34m" : "";  // dim blue     — shadow
+    char const* reset = colors ? "\033[0m"    : "";
+
+    //  Row split verification (each argus part is exactly 29 chars):
+    //  row1: "    _                        " + "  ____               "
+    //  row2: "   / \   _ __ __ _ _   _ ___" + " / ___|___  _ __ ___ "
+    //  row3: "  / _ \ | '__/ _` | | | / __" + "| |   / _ \| '__/ _ \"
+    //  row4: " / ___ \| | | (_| | |_| \__ \" + " |__| (_) | | |  __/"
+    //  row5: "/_/   \_\_|  \__, |\__,_|___/" + " \____\___/|_|  \___|"
+
+    printf("%s    _                        %s  ____               %s\n",        g1, b1, reset);
+    printf("%s   / \\   _ __ __ _ _   _ ___%s / ___|___  _ __ ___ %s\n",        g1, b1, reset);
+    printf("%s  / _ \\ | '__/ _` | | | / __%s| |   / _ \\| '__/ _ \\%s\n",      g2, b2, reset);
+    printf("%s / ___ \\| | | (_| | |_| \\__ \\%s |__| (_) | | |  __/%s\n",       g3, b3, reset);
+    printf("%s/_/   \\_\\_|  \\__, |\\__,_|___/%s \\____\\___/|_|  \\___|%s\n",      g3, b3, reset);
+    printf("%s              |___/          %sA R G U S%s  %sC O R E%s   \n\n", g3, g1, reset, b1, reset);
 
     if (logExtraInfo)
         logExtraInfo();

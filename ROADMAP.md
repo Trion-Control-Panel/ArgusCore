@@ -51,6 +51,7 @@ Modernize an old Legion-based TrinityCore source into a modern, stable, maintain
 | 7 | [Modular System](#phase-7--modular-system) | **Complete** |
 | 8 | [Safe Async Systems](#phase-8--safe-async-systems) | **Complete** |
 | 9 | [Map Threading Research](#phase-9--map-threading-research) | **Complete** |
+| 10 | [World Layering](#phase-10--world-layering) | **Not started** |
 
 ---
 
@@ -394,6 +395,69 @@ modules/mod-myfeature/
 - [ ] No invisible entities
 - [ ] No combat corruption
 - [ ] No movement glitches
+
+---
+
+## Phase 10 — World Layering
+
+**Goals:** Split high-population open-world maps into parallel independent instances ("layers") so a single map tick never has to process thousands of players at once. Players on different layers cannot see each other. Layers are merged when population drops.
+
+**Prerequisites:** Phase 9 map threading must be stable and profiled before this begins.
+
+### Why
+
+The current model runs one `Map` object per open-world zone. At high population (Dalaran, Broken Isles, Argus) this becomes a single-threaded bottleneck. Layering distributes the load across N independent copies of the same map, each updated in its own worker slot.
+
+### How It Works
+
+1. `MapManager` can create multiple `Map*` instances for the same `mapId` — one per layer
+2. A `LayerManager` assigns incoming players to the least-populated layer
+3. Each layer runs its own spawn state, combat, and visibility — fully isolated
+4. When a layer's population falls below a threshold, players are migrated and the layer is destroyed
+5. Cross-layer systems (whisper, trade, group, guild) are unaffected — they are player-scoped, not map-scoped
+
+### Tasks
+
+- [ ] Research existing layering implementations (CMaNGOS, MaNGOS Zero)
+- [ ] Design `LayerManager` — assignment, rebalancing, merge/split thresholds
+- [ ] Extend `MapManager` to allow multiple `Map*` per `mapId` (open world only — dungeons/raids/BGs are already instanced)
+- [ ] Implement player layer assignment on zone entry
+- [ ] Implement layer migration (teleport-in-place with state handoff)
+- [ ] Persist last-known layer in `characters` DB (for reconnects)
+- [ ] Add layer ID to visibility system so cross-layer units are invisible
+- [ ] Enforce group co-location — on group join, migrate the joining player to the leader's layer; on leader change, migrate group to new leader's layer
+- [ ] Stress test with bot population before real players
+
+### Rules
+
+- **Experimental branch only** until fully proven stable
+- Open-world maps only — dungeons, raids, battlegrounds, and scenarios are already instanced
+- Never merge layers mid-combat
+- Layer migration must be invisible to the client (no loading screen)
+- Players in the same group are always assigned to the same layer — when a player joins a group, they are migrated to the group leader's layer immediately; when a group disbands, members remain on their current layer
+
+### Critical Systems Affected
+
+- `MapManager` — multi-instance per mapId
+- `Map::Update()` — each layer is an independent map update
+- `WorldSession` — must track which layer the player is on
+- `ObjectVisibility` — cross-layer units must be invisible to each other
+- `TransportMgr` — transports that cross zones need layer-aware routing
+
+### Do NOT
+
+- Layer dungeons, raids, battlegrounds, or scenarios — they are already instanced
+- Merge layers while players are in combat
+- Share mutable spawn or aura state between layers
+
+### Validation
+
+- [ ] No cross-layer visibility leaks
+- [ ] No position desyncs on layer migration
+- [ ] Spawn state fully isolated per layer
+- [ ] Layer merge produces no duplicate NPCs or items
+- [ ] Group members always visible to each other (always on same layer)
+- [ ] Stable at 500+ players per realm across multiple layers
 
 ---
 

@@ -1372,7 +1372,7 @@ uint32 GetInstalledLocalesMask()
     return 0;
 }
 
-static bool RetardCheck()
+static bool ValidateClientVersion()
 {
     try
     {
@@ -1415,7 +1415,7 @@ int main(int argc, char * arg[])
 
     HandleArgs(argc, arg);
 
-    if (!RetardCheck())
+    if (!ValidateClientVersion())
         return 1;
 
     uint32 installedLocalesMask = GetInstalledLocalesMask();

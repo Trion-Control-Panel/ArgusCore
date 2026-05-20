@@ -42,6 +42,9 @@ set_target_properties(mapextractor
     COMPILE_WARNING_AS_ERROR ${WITH_WARNINGS_AS_ERRORS}
     FOLDER "tools")
 
+include(CopyRuntimeDependencies)
+copy_runtime_dependencies(mapextractor)
+
 if(UNIX)
   install(TARGETS mapextractor DESTINATION bin)
 elseif(WIN32)

@@ -412,7 +412,7 @@ Updates.CleanDeadRefMaxCount = 3
 #                         Example:  536870912 (512 MB)
 #
 
-Appender.Console=1,2,0
+Appender.Console=1,2,0,9 1 8 13 11 7
 Appender.Bnet=2,2,0,Bnet.log,w
 
 #  Logger config values: Given a logger "name"

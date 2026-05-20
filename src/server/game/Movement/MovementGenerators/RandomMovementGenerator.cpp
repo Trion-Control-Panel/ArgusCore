@@ -163,6 +163,33 @@ void RandomMovementGenerator<Creature>::SetRandomLocation(Creature* owner)
         return;
     }
 
+    // MoveSplineInitArgs::_checkPathLengths() rejects paths where any consecutive
+    // segment is shorter than 0.1 units. The MMAP path generator can produce
+    // tightly packed intermediate points on short moves in rough terrain — those
+    // pass the total-length check above but then fail the per-segment check inside
+    // the spline system and spam the error log. Strip degenerate segments here
+    // before handing the path off so the spline never sees them.
+    Movement::PointsArray cleanPath;
+    {
+        Movement::PointsArray const& raw = _path->GetPath();
+        cleanPath.reserve(raw.size());
+        if (!raw.empty())
+        {
+            cleanPath.push_back(raw.front());
+            for (size_t i = 1; i < raw.size(); ++i)
+            {
+                if ((raw[i] - cleanPath.back()).length() >= 0.1f)
+                    cleanPath.push_back(raw[i]);
+            }
+        }
+    }
+
+    if (cleanPath.size() < 2)
+    {
+        _timer.Reset(500);
+        return;
+    }
+
     RemoveFlag(MOVEMENTGENERATOR_FLAG_TRANSITORY | MOVEMENTGENERATOR_FLAG_TIMED_PAUSED);
 
     owner->AddUnitState(UNIT_STATE_ROAMING_MOVE);
@@ -181,7 +208,7 @@ void RandomMovementGenerator<Creature>::SetRandomLocation(Creature* owner)
     }
 
     Movement::MoveSplineInit init(owner);
-    init.MovebyPath(_path->GetPath());
+    init.MovebyPath(cleanPath);
     init.SetWalk(walk);
     int32 splineDuration = init.Launch();
 

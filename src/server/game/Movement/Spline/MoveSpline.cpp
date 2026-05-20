@@ -254,7 +254,6 @@ bool MoveSplineInitArgs::Validate(Unit const* unit)
 #undef CHECK
 }
 
-// check path lengths - why are we even starting such short movement?
 bool MoveSplineInitArgs::_checkPathLengths()
 {
     constexpr float MIN_XY_OFFSET = -(1 << 11) / 4.0f;
@@ -269,12 +268,28 @@ bool MoveSplineInitArgs::_checkPathLengths()
 
     if (path.size() > 2)
     {
+        // Strip intermediate points that are too close together (< 0.1 units apart).
+        // The MMAP path generator can produce tightly-packed intermediate points on
+        // short moves in rough terrain. Rather than refusing the spline, remove the
+        // redundant intermediates while preserving the source (path[0]) and destination
+        // (path.back()) so movement still reaches the right spot.
+        PointsArray cleaned;
+        cleaned.reserve(path.size());
+        cleaned.push_back(path.front());
+        for (size_t i = 1; i + 1 < path.size(); ++i)
+            if ((path[i] - cleaned.back()).length() >= 0.1f)
+                cleaned.push_back(path[i]);
+        // If the destination ended up too close to the last kept intermediate, drop
+        // that intermediate rather than the destination.
+        while (cleaned.size() > 1 && (path.back() - cleaned.back()).length() < 0.1f)
+            cleaned.pop_back();
+        cleaned.push_back(path.back());
+        if (cleaned.size() >= 2)
+            path = std::move(cleaned);
+
         Vector3 middle = (path.front() + path.back()) / 2;
         for (uint32 i = 1; i < path.size() - 1; ++i)
         {
-            if ((path[i + 1] - path[i]).length() < 0.1f)
-                return false;
-
             // when compression is enabled, each point coord is packed into 11 bits (10 for Z)
             if (!flags.UncompressedPath)
                 if (!isValidPackedXYOffset(middle.x - path[i].x)

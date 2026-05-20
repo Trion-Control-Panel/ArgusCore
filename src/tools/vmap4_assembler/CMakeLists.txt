@@ -8,10 +8,9 @@
 # WITHOUT ANY WARRANTY, to the extent permitted by law; without even the
 # implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-set(PRIVATE_SOURCES
-  TileAssembler.cpp
-  TileAssembler.h
-  VMapAssembler.cpp)
+CollectSourceFiles(
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  PRIVATE_SOURCES)
 
 add_executable(vmap4assembler ${PRIVATE_SOURCES})
 
@@ -27,6 +26,9 @@ set_target_properties(vmap4assembler
   PROPERTIES
     COMPILE_WARNING_AS_ERROR ${WITH_WARNINGS_AS_ERRORS}
     FOLDER "tools")
+
+include(CopyRuntimeDependencies)
+copy_runtime_dependencies(vmap4assembler)
 
 if(UNIX)
   install(TARGETS vmap4assembler DESTINATION bin)

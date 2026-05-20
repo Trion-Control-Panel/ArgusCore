@@ -11,19 +11,30 @@
 # Prevent this file from being processed more than once per configure run.
 include_guard(GLOBAL)
 
-# copy_runtime_dependencies(target)
+# copy_runtime_dependencies(target [NEEDS_MYSQL] [NEEDS_LEGACY_PROVIDER])
 #
 # Adds a POST_BUILD step to the given target that copies the required Windows
-# runtime DLLs (OpenSSL and MySQL/MariaDB) next to the built executable.
+# runtime DLLs next to the built executable.
+#
+# Always copies: libssl and libcrypto (OpenSSL).
+#
+# Pass NEEDS_MYSQL for targets that load the database driver at runtime
+# (worldserver, bnetserver). Copies libmysql.dll or libmariadb.dll and warns
+# if neither is found.
+#
+# Pass NEEDS_LEGACY_PROVIDER for targets that use ARC4/RC4 packet encryption
+# (worldserver only). Copies legacy.dll from the OpenSSL ossl-modules
+# directory next to the executable and warns if it cannot be found.
 #
 # Why POST_BUILD and not install(): install() only runs when you do
 # cmake --install. POST_BUILD runs every time you hit Build in Visual Studio,
-# so the server is always runnable straight from the output folder without
+# so the target is always runnable straight from the output folder without
 # any manual DLL copying.
 #
 # Does nothing on Linux/macOS — shared libraries are found via rpath there.
 
 function(copy_runtime_dependencies target)
+    cmake_parse_arguments(ARG "NEEDS_MYSQL;NEEDS_LEGACY_PROVIDER" "" "" ${ARGN})
     if(NOT WIN32)
         return()
     endif()
@@ -93,70 +104,70 @@ function(copy_runtime_dependencies target)
         endif()
     endforeach()
 
-    # --- Copy legacy.dll (required for RC4/ARC4 packet encryption) ---
-    # The slproweb installer puts it in <root>/bin/ossl-modules/legacy.dll.
-    # OpenSSLCrypto::threadsSetup() sets the provider search path to the
-    # directory that contains worldserver.exe, so legacy.dll must land there
-    # (not in a subdirectory).
-    set(_legacy_found FALSE)
-    foreach(_dir IN LISTS _ssl_dirs)
-        set(_legacy_path "${_dir}/ossl-modules/legacy.dll")
-        if(EXISTS "${_legacy_path}")
-            add_custom_command(TARGET ${target} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${_legacy_path}"
-                    "$<TARGET_FILE_DIR:${target}>/legacy.dll"
-                COMMENT "Copying legacy.dll (OpenSSL legacy provider for RC4)"
-                VERBATIM)
-            set(_legacy_found TRUE)
-            break()
-        endif()
-    endforeach()
-    if(NOT _legacy_found)
-        message(WARNING
-            "copy_runtime_dependencies: cannot find ossl-modules/legacy.dll for target '${target}'. "
-            "ARC4 packet encryption will crash at runtime. "
-            "Ensure the OpenSSL legacy provider is installed alongside your OpenSSL distribution.")
-    endif()
-
-    # --- MySQL / MariaDB ---
-    set(_mysql_dirs "")
-
-    if(DEFINED MYSQL_ROOT_DIR AND NOT MYSQL_ROOT_DIR STREQUAL "")
-        file(TO_CMAKE_PATH "${MYSQL_ROOT_DIR}" _mysql_root)
-        list(APPEND _mysql_dirs "${_mysql_root}/lib" "${_mysql_root}/bin" "${_mysql_root}")
-    endif()
-
-    if(DEFINED MYSQL_LIBRARY AND NOT MYSQL_LIBRARY STREQUAL "")
-        get_filename_component(_mysql_lib_dir    "${MYSQL_LIBRARY}" DIRECTORY)
-        get_filename_component(_mysql_root_from_lib "${_mysql_lib_dir}" DIRECTORY)
-        list(APPEND _mysql_dirs "${_mysql_lib_dir}" "${_mysql_root_from_lib}/bin")
-    endif()
-
-    set(_mysql_found FALSE)
-    foreach(_dll IN ITEMS libmysql.dll libmariadb.dll)
-        if(_mysql_found)
-            break()
-        endif()
-        foreach(_dir IN LISTS _mysql_dirs)
-            if(EXISTS "${_dir}/${_dll}")
+    # --- Copy legacy.dll (required for RC4/ARC4 packet encryption, worldserver only) ---
+    if(ARG_NEEDS_LEGACY_PROVIDER)
+        set(_legacy_found FALSE)
+        foreach(_dir IN LISTS _ssl_dirs)
+            set(_legacy_path "${_dir}/ossl-modules/legacy.dll")
+            if(EXISTS "${_legacy_path}")
                 add_custom_command(TARGET ${target} POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        "${_dir}/${_dll}"
-                        "$<TARGET_FILE_DIR:${target}>/${_dll}"
-                    COMMENT "Copying ${_dll}"
+                        "${_legacy_path}"
+                        "$<TARGET_FILE_DIR:${target}>/legacy.dll"
+                    COMMENT "Copying legacy.dll (OpenSSL legacy provider for RC4)"
                     VERBATIM)
-                set(_mysql_found TRUE)
+                set(_legacy_found TRUE)
                 break()
             endif()
         endforeach()
-    endforeach()
-
-    if(NOT _mysql_found)
-        message(WARNING
-            "copy_runtime_dependencies: cannot find libmysql.dll or libmariadb.dll for target '${target}'. "
-            "The server may fail to start. "
-            "Set MYSQL_ROOT_DIR to your MySQL/MariaDB installation path and re-run CMake.")
+        if(NOT _legacy_found)
+            message(WARNING
+                "copy_runtime_dependencies: cannot find ossl-modules/legacy.dll for target '${target}'. "
+                "ARC4 packet encryption will crash at runtime. "
+                "Ensure the OpenSSL legacy provider is installed alongside your OpenSSL distribution.")
+        endif()
     endif()
+
+    # --- MySQL / MariaDB (opt-in: only targets that load the DB driver need this) ---
+    if(ARG_NEEDS_MYSQL)
+        set(_mysql_dirs "")
+
+        if(DEFINED MYSQL_ROOT_DIR AND NOT MYSQL_ROOT_DIR STREQUAL "")
+            file(TO_CMAKE_PATH "${MYSQL_ROOT_DIR}" _mysql_root)
+            list(APPEND _mysql_dirs "${_mysql_root}/lib" "${_mysql_root}/bin" "${_mysql_root}")
+        endif()
+
+        if(DEFINED MYSQL_LIBRARY AND NOT MYSQL_LIBRARY STREQUAL "")
+            get_filename_component(_mysql_lib_dir    "${MYSQL_LIBRARY}" DIRECTORY)
+            get_filename_component(_mysql_root_from_lib "${_mysql_lib_dir}" DIRECTORY)
+            list(APPEND _mysql_dirs "${_mysql_lib_dir}" "${_mysql_root_from_lib}/bin")
+        endif()
+
+        set(_mysql_found FALSE)
+        foreach(_dll IN ITEMS libmysql.dll libmariadb.dll)
+            if(_mysql_found)
+                break()
+            endif()
+            foreach(_dir IN LISTS _mysql_dirs)
+                if(EXISTS "${_dir}/${_dll}")
+                    add_custom_command(TARGET ${target} POST_BUILD
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            "${_dir}/${_dll}"
+                            "$<TARGET_FILE_DIR:${target}>/${_dll}"
+                        COMMENT "Copying ${_dll}"
+                        VERBATIM)
+                    set(_mysql_found TRUE)
+                    break()
+                endif()
+            endforeach()
+        endforeach()
+
+        if(NOT _mysql_found)
+            message(WARNING
+                "copy_runtime_dependencies: cannot find libmysql.dll or libmariadb.dll for target '${target}'. "
+                "The server may fail to start. "
+                "Set MYSQL_ROOT_DIR to your MySQL/MariaDB installation path and re-run CMake.")
+        endif()
+    endif() # ARG_NEEDS_MYSQL
 
 endfunction()

@@ -35,6 +35,9 @@ set_target_properties(vmap4extractor
     COMPILE_WARNING_AS_ERROR ${WITH_WARNINGS_AS_ERRORS}
     FOLDER "tools")
 
+include(CopyRuntimeDependencies)
+copy_runtime_dependencies(vmap4extractor)
+
 if(UNIX)
   install(TARGETS vmap4extractor DESTINATION bin)
 elseif(WIN32)

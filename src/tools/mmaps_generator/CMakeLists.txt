@@ -39,6 +39,9 @@ set_target_properties(mmaps_generator
     COMPILE_WARNING_AS_ERROR ${WITH_WARNINGS_AS_ERRORS}
     FOLDER "tools")
 
+include(CopyRuntimeDependencies)
+copy_runtime_dependencies(mmaps_generator)
+
 if(UNIX)
   install(TARGETS mmaps_generator DESTINATION bin)
 elseif(WIN32)

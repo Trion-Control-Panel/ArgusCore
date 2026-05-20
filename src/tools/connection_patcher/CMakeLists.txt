@@ -1,4 +1,4 @@
-# ArgusCore — originally Copyright (C) 2008-2018 TrinityCore
+# This file is part of the ArgusCore Project. See AUTHORS file for Copyright information
 #
 # This file is free software; as a special exception the author gives
 # unlimited permission to copy and/or distribute it, with or without
@@ -24,6 +24,9 @@ target_link_libraries(connection_patcher
   PUBLIC
     common
 )
+
+include(CopyRuntimeDependencies)
+copy_runtime_dependencies(connection_patcher)
 
 if (UNIX)
   install(TARGETS connection_patcher DESTINATION bin)

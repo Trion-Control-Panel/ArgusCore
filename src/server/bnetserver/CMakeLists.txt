@@ -113,7 +113,7 @@ endif()
 # folder without having to run cmake --install first.
 # The function is a no-op on Linux/macOS where rpath handles this.
 include(CopyRuntimeDependencies)
-copy_runtime_dependencies(bnetserver)
+copy_runtime_dependencies(bnetserver NEEDS_MYSQL)
 
 # Generate precompiled header
 if (USE_COREPCH)

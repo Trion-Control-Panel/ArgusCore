@@ -104,7 +104,7 @@ endif()
 # folder without having to run cmake --install first.
 # The function is a no-op on Linux/macOS where rpath handles this.
 include(CopyRuntimeDependencies)
-copy_runtime_dependencies(worldserver)
+copy_runtime_dependencies(worldserver NEEDS_MYSQL NEEDS_LEGACY_PROVIDER)
 
 # Generate precompiled header
 if(USE_COREPCH)
