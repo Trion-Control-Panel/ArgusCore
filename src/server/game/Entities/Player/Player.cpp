@@ -23877,7 +23877,6 @@ void Player::SendInitialPacketsBeforeAddToMap()
     toyUpdate.Toys = &GetSession()->GetCollectionMgr()->GetAccountToys();
     SendDirectMessage(toyUpdate.Write());
 
-    // SMSG_ACCOUNT_HEIRLOOM_UPDATE
     WorldPackets::Misc::AccountHeirloomUpdate heirloomUpdate;
     heirloomUpdate.IsFullUpdate = true;
     heirloomUpdate.Heirlooms = &GetSession()->GetCollectionMgr()->GetAccountHeirlooms();

@@ -907,6 +907,40 @@ class spell_dh_fel_flame_fortification : public AuraScript
     }
 };
 
+// 195072 - Fel Rush
+class spell_dh_fel_rush : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_FEL_RUSH_GROUND, SPELL_DH_FEL_RUSH_WATER_AIR });
+    }
+
+    void HandleDash()
+    {
+        Unit* caster = GetCaster();
+
+        // Pick the variant based on whether the caster is on the ground or in air/water.
+        // Both variants have SPELL_EFFECT_CHARGE_DEST, which requires an explicit destTarget.
+        // Without this script that dest is never set and the effect silently returns early.
+        uint32 spellId = (caster->IsInWater() || !caster->IsOnGround())
+            ? SPELL_DH_FEL_RUSH_WATER_AIR
+            : SPELL_DH_FEL_RUSH_GROUND;
+
+        // 15-yard dash straight forward, snapped to the first geometry collision point
+        Position dest = caster->GetFirstCollisionPosition(15.0f, 0.0f);
+
+        caster->CastSpell(dest, spellId, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = GetSpell()
+        });
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_dh_fel_rush::HandleDash);
+    }
+};
+
 // 232893 - Felblade
 class spell_dh_felblade : public SpellScript
 {
@@ -1682,6 +1716,7 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_feast_of_souls);
     RegisterSpellScript(spell_dh_fel_devastation);
     RegisterSpellScript(spell_dh_fel_flame_fortification);
+    RegisterSpellScript(spell_dh_fel_rush);
     RegisterSpellScript(spell_dh_felblade);
     RegisterSpellScript(spell_dh_felblade_charge);
     RegisterSpellScript(spell_dh_felblade_cooldown_reset_proc);
