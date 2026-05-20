@@ -50,7 +50,7 @@ Modernize an old Legion-based TrinityCore source into a modern, stable, maintain
 | 6 | [CI, Testing, and Profiling](#phase-6--ci-testing-and-profiling) | **Complete** |
 | 7 | [Modular System](#phase-7--modular-system) | **Complete** |
 | 8 | [Safe Async Systems](#phase-8--safe-async-systems) | **Complete** |
-| 9 | [Map Threading Research](#phase-9--map-threading-research) | Not started |
+| 9 | [Map Threading Research](#phase-9--map-threading-research) | **Complete** |
 
 ---
 
@@ -200,10 +200,10 @@ reading the code and removes the implicit "these are second-class citizens" sign
 
 ### Validation
 
-- [ ] Authentication works
-- [ ] Database queries work
-- [ ] Characters save/load correctly
-- [ ] Worldserver stability confirmed
+- [x] Authentication works
+- [x] Database queries work
+- [x] Characters save/load correctly
+- [x] Worldserver stability confirmed
 
 ---
 
@@ -268,11 +268,15 @@ reading the code and removes the implicit "these are second-class citizens" sign
 - Start multithreading yet
 - Optimize blindly
 
+### Outstanding
+
+- [ ] Investigate general server slowness — server is playable but noticeably slow; profile with InfluxDB metrics (map update times, DB latency, session update times) to identify the bottleneck before any optimization work begins
+
 ### Validation
 
-- [ ] Sanitizers clean
+- [x] Sanitizers clean
 - [ ] Stable long runtime testing (24h+)
-- [ ] No memory corruption
+- [x] No memory corruption
 
 ---
 
@@ -360,7 +364,7 @@ modules/mod-myfeature/
 
 ### Tasks
 
-- [x] Add map update profiling — 7 TC_METRIC_TIMER blocks inside Map::Update(): dynamic_tree, sessions, respawns, player_grid, active_objects, transports, send_objects, relocations
+- [x] Add map update profiling — 8 TC_METRIC_TIMER blocks inside Map::Update(): dynamic_tree, sessions, respawns, player_grid, active_objects, transports, send_objects, relocations
 - [x] Measure update bottlenecks per map type — map_type tag (world/dungeon/raid/bg/scenario) added to all 8 subsystem timers and the outer map_update_time_diff metric; collect live data by running the profiling build with InfluxDB enabled
 - [x] Isolate map update responsibilities — DelayedUpdate() confirmed per-map isolated (far spell callbacks, object removal, grid state are all local to one map)
 - [x] Build experimental worker model on a dedicated branch — MapUpdater refactored to std::function<void()> queue; DelayedUpdate() now runs in parallel across maps via schedule_delayed_update(); Map::Update() path unchanged

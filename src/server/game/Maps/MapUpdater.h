@@ -35,7 +35,6 @@ class TC_GAME_API MapUpdater
         ~MapUpdater() { };
 
         void schedule_update(Map& map, uint32 diff);
-        void schedule_delayed_update(Map& map, uint32 diff);
 
         void wait();
 

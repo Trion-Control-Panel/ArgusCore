@@ -68,19 +68,6 @@ void MapUpdater::schedule_update(Map& map, uint32 diff)
     });
 }
 
-void MapUpdater::schedule_delayed_update(Map& map, uint32 diff)
-{
-    std::lock_guard<std::mutex> lock(_lock);
-    ++pending_requests;
-    _queue.Push([this, &map, diff]()
-    {
-        TC_METRIC_TIMER("map_delayed_update_time_diff",
-            TC_METRIC_TAG("map_id", std::to_string(map.GetId())),
-            TC_METRIC_TAG("map_type", map.GetMapTypeName()));
-        map.DelayedUpdate(diff);
-        update_finished();
-    });
-}
 
 bool MapUpdater::activated()
 {

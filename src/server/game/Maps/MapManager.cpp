@@ -350,15 +350,11 @@ void MapManager::Update(uint32 diff)
     if (m_updater.activated())
         m_updater.wait();
 
+    // DelayedUpdate runs serially on the main thread after all Map::Update() calls complete.
+    // Parallel DelayedUpdate is unsafe — object removal, grid unloading, and transport
+    // cleanup touch shared map state that can produce race conditions across maps.
     for (iter = i_maps.begin(); iter != i_maps.end(); ++iter)
-    {
-        if (m_updater.activated())
-            m_updater.schedule_delayed_update(*iter->second, uint32(i_timer.GetCurrent()));
-        else
-            iter->second->DelayedUpdate(uint32(i_timer.GetCurrent()));
-    }
-    if (m_updater.activated())
-        m_updater.wait();
+        iter->second->DelayedUpdate(uint32(i_timer.GetCurrent()));
 
     i_timer.SetCurrent(0);
 }
