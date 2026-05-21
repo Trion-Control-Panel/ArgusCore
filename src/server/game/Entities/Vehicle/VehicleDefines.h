@@ -98,8 +98,8 @@ DEFINE_ENUM_FLAG(VehicleCustomFlags);
 struct PassengerInfo
 {
     ObjectGuid Guid;
-    bool IsUninteractible;
-    bool IsGravityDisabled;
+    bool IsUninteractible = false;
+    bool IsGravityDisabled = false;
 
     void Reset()
     {

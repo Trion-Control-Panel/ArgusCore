@@ -248,14 +248,14 @@ struct SpellFlatModifierByLabel : SpellModifier
 {
     SpellFlatModifierByLabel(Aura* _ownerAura) : SpellModifier(_ownerAura) { }
 
-    SpellModifierByLabelData value;
+    SpellModifierByLabelData value = {};
 };
 
 struct SpellPctModifierByLabel : SpellModifier
 {
     SpellPctModifierByLabel(Aura* _ownerAura) : SpellModifier(_ownerAura) { }
 
-    SpellModifierByLabelData value;
+    SpellModifierByLabelData value = {};
 };
 
 struct SpellModifierCompare
@@ -1066,7 +1066,7 @@ struct BGData
 
 struct VoidStorageItem
 {
-    VoidStorageItem() : ItemId(0), ItemEntry(0), ItemRandomPropertyId(), ItemSuffixFactor(0), ItemUpgradeId(0), FixedScalingLevel(0), ArtifactKnowledgeLevel(0) { }
+    VoidStorageItem() : ItemId(0), ItemEntry(0), ItemRandomPropertyId(), ItemSuffixFactor(0), ItemUpgradeId(0), FixedScalingLevel(0), ArtifactKnowledgeLevel(0), Context() { }
     VoidStorageItem(uint64 id, uint32 entry, ObjectGuid const& creator, ItemRandomEnchantmentId randomPropertyId, uint32 suffixFactor,
         uint32 upgradeId, uint32 fixedScalingLevel, uint32 artifactKnowledgeLevel, ItemContext context, std::vector<uint32> const& bonuses)
         : ItemId(id), ItemEntry(entry), CreatorGuid(creator), ItemRandomPropertyId(randomPropertyId),

@@ -207,7 +207,6 @@ void PointMovementGenerator::Finalize(Unit* owner, bool active, bool movementInf
             bool airborne = groundZ != INVALID_HEIGHT && (owner->GetPositionZ() - groundZ > 0.5f);
             if (airborne)
             {
-                owner->UpdateSplinePosition();
                 Movement::MoveSplineInit init(owner);
                 init.MoveTo(owner->GetPositionX(), owner->GetPositionY(), owner->GetPositionZ(), false);
                 init.SetVelocity(0.01f);
