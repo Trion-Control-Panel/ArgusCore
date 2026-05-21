@@ -29,6 +29,7 @@
 #include "Formulas.h"
 #include "GameEventMgr.h"
 #include "GameTime.h"
+#include "GridDefines.h"
 #include "GridNotifiersImpl.h"
 #include "Group.h"
 #include "ItemTemplate.h"
@@ -2950,6 +2951,14 @@ void Creature::UpdateMovementCapabilities()
     bool isInAir = (G3D::fuzzyGt(GetPositionZ(), ground + GetHoverOffset() + GROUND_HEIGHT_TOLERANCE) || G3D::fuzzyLt(GetPositionZ(), ground - GROUND_HEIGHT_TOLERANCE)); // Can be underground too, prevent the falling
     if (!isInAir)
         RemoveUnitMovementFlag(MOVEMENTFLAG_FALLING);
+    else if (ground > INVALID_HEIGHT
+             && G3D::fuzzyLt(GetPositionZ(), ground - GROUND_HEIGHT_TOLERANCE)
+             && !IsFlying() && !IsHovering() && !IsInWater()
+             && movespline->Finalized())
+    {
+        // Creature clipped below terrain; snap it back to ground level
+        NearTeleportTo(GetPositionX(), GetPositionY(), ground, GetOrientation());
+    }
 
     // Some Amphibious creatures toggle swimming while engaged
     if (IsAmphibious() && !HasUnitFlag(UNIT_FLAG_CANT_SWIM) && !HasUnitFlag(UNIT_FLAG_CAN_SWIM) && IsEngaged())

@@ -75,11 +75,35 @@ bool PathGenerator::CalculatePath(float srcX, float srcY, float srcZ, float dest
     // make sure navMesh works - we can run on map w/o mmap
     // check if the start and end point have a .mmtile loaded (can we pass via not loaded tile on the way?)
     Unit const* _sourceUnit = _source->ToUnit();
-    if (!_navMesh || !_navMeshQuery || (_sourceUnit && _sourceUnit->HasUnitState(UNIT_STATE_IGNORE_PATHFINDING)) ||
-        !HaveTile(start) || !HaveTile(dest))
+    if (!_navMesh || !_navMeshQuery || (_sourceUnit && _sourceUnit->HasUnitState(UNIT_STATE_IGNORE_PATHFINDING)))
     {
         BuildShortcut();
         _type = PathType(PATHFIND_NORMAL | PATHFIND_NOT_USING_PATH);
+        return true;
+    }
+
+    if (!HaveTile(start) || !HaveTile(dest))
+    {
+        // Flying and swimming units can legitimately move in a straight line when
+        // navmesh tiles are absent. Ground-bound units must not - they would clip
+        // through terrain. Return PATHFIND_NOPATH so callers stop the movement.
+        bool canIgnoreTerrain = _sourceUnit
+            && (_sourceUnit->CanFly()
+                || (_sourceUnit->IsInWater() && _sourceUnit->CanSwim()));
+
+        if (!_sourceUnit || canIgnoreTerrain)
+        {
+            BuildShortcut();
+            _type = PathType(PATHFIND_NORMAL | PATHFIND_NOT_USING_PATH);
+        }
+        else
+        {
+            Clear();
+            _pathPoints.resize(2);
+            _pathPoints[0] = GetStartPosition();
+            _pathPoints[1] = GetStartPosition();
+            _type = PATHFIND_NOPATH;
+        }
         return true;
     }
 

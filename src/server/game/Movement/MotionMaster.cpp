@@ -1031,9 +1031,15 @@ void MotionMaster::MoveFall(uint32 id /*= 0*/,
     float tz = _owner->GetMapHeight(_owner->GetPositionX(), _owner->GetPositionY(), _owner->GetPositionZ(), true, MAX_FALL_DISTANCE);
     if (tz <= INVALID_HEIGHT)
     {
-        TC_LOG_DEBUG("movement.motionmaster", "MotionMaster::MoveFall: '{}', unable to retrieve a proper height at map Id: {} (X: {}, Y: {}, Z: {})",
-            _owner->GetGUID(), _owner->GetMapId(), _owner->GetPositionX(), _owner->GetPositionY(), _owner->GetPositionZ());
-        return;
+        // vmap height lookup failed (missing data, complex geometry). Try grid height as
+        // a coarser fallback so the creature doesn't stay stuck underground permanently.
+        tz = _owner->GetMap()->GetGridHeight(_owner->GetPhaseShift(), _owner->GetPositionX(), _owner->GetPositionY());
+        if (tz <= INVALID_HEIGHT)
+        {
+            TC_LOG_DEBUG("movement.motionmaster", "MotionMaster::MoveFall: '{}', unable to retrieve a proper height at map Id: {} (X: {}, Y: {}, Z: {})",
+                _owner->GetGUID(), _owner->GetMapId(), _owner->GetPositionX(), _owner->GetPositionY(), _owner->GetPositionZ());
+            return;
+        }
     }
 
     // Abort too if the ground is very near
