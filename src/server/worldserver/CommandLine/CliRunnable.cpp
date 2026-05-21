@@ -33,7 +33,7 @@
 #include <Windows.h>
 #endif
 
-static constexpr char CLI_PREFIX[] = "TC> ";
+static constexpr char CLI_PREFIX[] = "AC> ";
 
 static inline void PrintCliPrefix()
 {

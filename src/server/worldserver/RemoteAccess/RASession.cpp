@@ -81,7 +81,7 @@ void RASession::Start()
     // Read commands
     for (;;)
     {
-        Send("TC>");
+        Send("AC>");
         std::string command = ReadString();
 
         if (ProcessCommand(command))

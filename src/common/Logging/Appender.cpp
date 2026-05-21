@@ -67,10 +67,8 @@ void Appender::write(LogMessage* message)
 
         if (flags & APPENDER_FLAGS_PREFIX_LOGLEVEL)
         {
-            std::string_view levelStr = getLogLevelString(message->level);
-            message->prefix.append(levelStr);
-            if (levelStr.length() < 5)
-                message->prefix.append(5 - levelStr.length(), ' ');
+            message->prefix.append(getLogLevelString(message->level));
+            message->prefix.append(1, ' ');
         }
 
         if (flags & APPENDER_FLAGS_PREFIX_LOGFILTERTYPE)
@@ -88,19 +86,12 @@ std::string_view Appender::getLogLevelString(LogLevel level)
 {
     switch (level)
     {
-        case LOG_LEVEL_FATAL:
-            return "FATAL"sv;
-        case LOG_LEVEL_ERROR:
-            return "ERROR"sv;
-        case LOG_LEVEL_WARN:
-            return "WARN"sv;
-        case LOG_LEVEL_INFO:
-            return "INFO"sv;
-        case LOG_LEVEL_DEBUG:
-            return "DEBUG"sv;
-        case LOG_LEVEL_TRACE:
-            return "TRACE"sv;
-        default:
-            return "DISABLED"sv;
+        case LOG_LEVEL_FATAL: return "[FATAL]"sv;
+        case LOG_LEVEL_ERROR: return "[ERROR]"sv;
+        case LOG_LEVEL_WARN:  return "[WARN] "sv;  // padded to align with 7-char tags
+        case LOG_LEVEL_INFO:  return "[INFO] "sv;
+        case LOG_LEVEL_DEBUG: return "[DEBUG]"sv;
+        case LOG_LEVEL_TRACE: return "[TRACE]"sv;
+        default:              return "[?????]"sv;
     }
 }
