@@ -19,11 +19,13 @@
 #include "Creature.h"
 #include "CreatureAI.h"
 #include "G3DPosition.hpp"
+#include "GridDefines.h"
 #include "MotionMaster.h"
 #include "MovementDefines.h"
 #include "MoveSpline.h"
 #include "MoveSplineInit.h"
 #include "PathGenerator.h"
+#include "Player.h"
 #include "World.h"
 
 //----- Point Movement Generator
@@ -191,6 +193,28 @@ void PointMovementGenerator::Finalize(Unit* owner, bool active, bool movementInf
     AddFlag(MOVEMENTGENERATOR_FLAG_FINALIZED);
     if (active)
         owner->ClearUnitState(UNIT_STATE_ROAMING_MOVE);
+
+    // When a charge (EVENT_CHARGE_PREPATH) ends naturally, MoveSplineInit::Stop() is a
+    // no-op because the spline is already Finalized(), so no stop packet is sent to the
+    // client. On the ground this is fine (terrain friction). In the air the client retains
+    // the charge's forward velocity as momentum. Fix: send a zero-distance spline to the
+    // confirmed position so the client resets its movement state.
+    if (_movementId == EVENT_CHARGE_PREPATH)
+    {
+        if (owner->ToPlayer())
+        {
+            float groundZ = owner->GetMapHeight(owner->GetPositionX(), owner->GetPositionY(), owner->GetPositionZ(), true, MAX_FALL_DISTANCE);
+            bool airborne = groundZ != INVALID_HEIGHT && (owner->GetPositionZ() - groundZ > 0.5f);
+            if (airborne)
+            {
+                owner->UpdateSplinePosition();
+                Movement::MoveSplineInit init(owner);
+                init.MoveTo(owner->GetPositionX(), owner->GetPositionY(), owner->GetPositionZ(), false);
+                init.SetVelocity(0.01f);
+                init.Launch();
+            }
+        }
+    }
 
     if (movementInform && HasFlag(MOVEMENTGENERATOR_FLAG_INFORM_ENABLED))
         MovementInform(owner);

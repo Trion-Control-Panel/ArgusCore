@@ -910,7 +910,7 @@ class spell_dh_fel_rush : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_DH_FEL_RUSH_GROUND, SPELL_DH_FEL_RUSH_WATER_AIR });
+        return ValidateSpellInfo({ SPELL_DH_FEL_RUSH_GROUND, SPELL_DH_FEL_RUSH_WATER_AIR, SPELL_DH_FEL_RUSH_DMG });
     }
 
     void HandleDash()
@@ -927,10 +927,19 @@ class spell_dh_fel_rush : public SpellScript
         // 15-yard dash straight forward, snapped to the first geometry collision point
         Position dest = caster->GetFirstCollisionPosition(15.0f, 0.0f);
 
-        caster->CastSpell(dest, spellId, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
+        CastSpellExtraArgs dashArgs;
+        dashArgs.TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR;
+        dashArgs.SetTriggeringSpell(GetSpell());
+
+        caster->CastSpell(dest, spellId, dashArgs);
+
+        // Deal damage at the landing point. The charge dest effect's TriggerSpell field
+        // is 0 in our world DB, so the damage spell must be cast explicitly here.
+        CastSpellExtraArgs dmgArgs;
+        dmgArgs.TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR;
+        dmgArgs.SetTriggeringSpell(GetSpell());
+
+        caster->CastSpell(dest, SPELL_DH_FEL_RUSH_DMG, dmgArgs);
     }
 
     void Register() override
