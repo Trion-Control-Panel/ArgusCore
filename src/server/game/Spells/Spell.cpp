@@ -2262,7 +2262,7 @@ void Spell::SearchChainTargets(std::list<WorldObject*>& targets, uint32 chainTar
                 if (Unit* unit = (*itr)->ToUnit())
                 {
                     uint32 deficit = unit->GetMaxHealth() - unit->GetHealth();
-                    if ((deficit > maxHPDeficit || foundItr == tempTargets.end()) && chainSource->IsWithinDist(unit, jumpRadius) && IsWithinLOS(chainSource, unit, false, VMAP::ModelIgnoreFlags::M2))
+                    if ((deficit > maxHPDeficit || foundItr == tempTargets.end()) && chainSource->IsWithinDist(unit, jumpRadius) && IsWithinLOS(chainSource, unit, false, VMAP::ModelIgnoreFlags::Nothing))
                     {
                         foundItr = itr;
                         maxHPDeficit = deficit;
@@ -2279,10 +2279,10 @@ void Spell::SearchChainTargets(std::list<WorldObject*>& targets, uint32 chainTar
                 if (!isBestDistanceMatch)
                     continue;
 
-                if (!IsWithinLOS(chainSource, *itr, false, VMAP::ModelIgnoreFlags::M2))
+                if (!IsWithinLOS(chainSource, *itr, false, VMAP::ModelIgnoreFlags::Nothing))
                     continue;
 
-                if (spellEffectInfo.EffectAttributes.HasFlag(SpellEffectAttributes::EnforceLineOfSightToChainTargets) && !IsWithinLOS(m_caster, *itr, false, VMAP::ModelIgnoreFlags::M2))
+                if (spellEffectInfo.EffectAttributes.HasFlag(SpellEffectAttributes::EnforceLineOfSightToChainTargets) && !IsWithinLOS(m_caster, *itr, false, VMAP::ModelIgnoreFlags::Nothing))
                     continue;
 
                 foundItr = itr;
@@ -5952,7 +5952,7 @@ SpellCastResult Spell::CheckCast(bool strict, int32* param1 /*= nullptr*/, int32
                     if (DynamicObject* dynObj = m_caster->ToUnit()->GetDynObject(m_triggeredByAuraSpell->Id))
                         losTarget = dynObj;
 
-                if (!IsWithinLOS(losTarget, target, true, VMAP::ModelIgnoreFlags::M2))
+                if (!IsWithinLOS(losTarget, target, true, VMAP::ModelIgnoreFlags::Nothing))
                     return SPELL_FAILED_LINE_OF_SIGHT;
             }
         }
@@ -5960,7 +5960,7 @@ SpellCastResult Spell::CheckCast(bool strict, int32* param1 /*= nullptr*/, int32
 
     // Check for line of sight for spells with dest
     if (m_targets.HasDst())
-        if (!IsWithinLOS(m_caster, *m_targets.GetDstPos(), VMAP::ModelIgnoreFlags::M2))
+        if (!IsWithinLOS(m_caster, *m_targets.GetDstPos(), VMAP::ModelIgnoreFlags::Nothing))
             return SPELL_FAILED_LINE_OF_SIGHT;
 
     // check pet presence
@@ -8171,12 +8171,12 @@ bool Spell::CheckEffectTarget(Unit const* target, SpellEffectInfo const& spellEf
                 if (!caster)
                     caster = m_caster;
 
-                if (target != m_caster && !IsWithinLOS(caster, target, true, VMAP::ModelIgnoreFlags::M2))
+                if (target != m_caster && !IsWithinLOS(caster, target, true, VMAP::ModelIgnoreFlags::Nothing))
                     return false;
             }
 
             if (losPosition)
-                if (!IsWithinLOS(target, *losPosition, VMAP::ModelIgnoreFlags::M2))
+                if (!IsWithinLOS(target, *losPosition, VMAP::ModelIgnoreFlags::Nothing))
                     return false;
         }
     }
