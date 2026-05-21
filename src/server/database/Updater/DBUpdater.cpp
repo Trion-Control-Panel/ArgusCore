@@ -26,8 +26,10 @@
 #include "StartProcess.h"
 #include "UpdateFetcher.h"
 #include <boost/filesystem/operations.hpp>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <thread>
 
 std::string DBUpdaterUtil::GetCorrectedMySQLExecutable()
 {
@@ -363,15 +365,35 @@ void DBUpdater<T>::ApplyFile(DatabaseWorkerPool<T>& pool, std::string const& hos
     std::string const& password, std::string const& port_or_socket, std::string const& database, std::string const& ssl,
     Path const& path)
 {
+    // Write credentials to a temp file so the password never appears on the
+    // command line (avoids "Using a password on the command line interface
+    // can be insecure" warning from the MySQL client).
+    std::filesystem::path const cnfPath =
+        std::filesystem::temp_directory_path() /
+        Trinity::StringFormat("argus_db_{}.cnf", static_cast<uint32>(std::hash<std::thread::id>{}(std::this_thread::get_id())));
+
+    {
+        std::ofstream cnf(cnfPath);
+        cnf << "[client]\n";
+        if (!password.empty())
+            cnf << "password=" << password << "\n";
+    }
+
+    struct CnfGuard
+    {
+        std::filesystem::path p;
+        ~CnfGuard() { std::filesystem::remove(p); }
+    } cnfGuard{ cnfPath };
+
     std::vector<std::string> args;
-    args.reserve(9);
+    args.reserve(10);
+
+    // --defaults-extra-file MUST be the first argument for the MySQL client.
+    args.emplace_back("--defaults-extra-file=" + cnfPath.string());
 
     // CLI Client connection info
     args.emplace_back("-h" + host);
     args.emplace_back("-u" + user);
-
-    if (!password.empty())
-        args.emplace_back("-p" + password);
 
     // Check if we want to connect through ip or socket (Unix only)
 #ifdef _WIN32
