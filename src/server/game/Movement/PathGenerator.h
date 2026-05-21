@@ -149,10 +149,16 @@ class TC_GAME_API PathGenerator
 
         // After MMAP smooth-path generation, check every segment against static vmap
         // collision. MMAP doesn't model thin objects (fences, small barriers), so a
-        // geometrically valid nav-mesh path can still clip through them. If a segment
-        // is blocked we truncate the path there and mark it PATHFIND_INCOMPLETE so
-        // the caller stops the unit at the obstacle rather than phasing through it.
+        // geometrically valid nav-mesh path can still clip through them. For each
+        // blocked segment we first try TryInsertBypassAt to route around the object.
+        // If no bypass fits we truncate and mark PATHFIND_INCOMPLETE/NOPATH so the
+        // caller stops the unit at the obstacle rather than phasing through it.
         void ValidatePathAgainstCollision();
+
+        // Probes lateral positions perpendicular to the blocked segment and inserts
+        // a bypass waypoint into _pathPoints when both legs (from->bypass and
+        // bypass->next) pass vmap LOS. Returns true if a bypass was inserted.
+        bool TryInsertBypassAt(uint32 segmentIndex);
 };
 
 #endif
