@@ -647,6 +647,8 @@ void PathGenerator::BuildPointPath(const float *startPoint, const float *endPoin
         _type = PathType(PATHFIND_NORMAL | PATHFIND_NOT_USING_PATH);
     }
 
+    ValidatePathAgainstCollision();
+
     TC_LOG_DEBUG("maps.mmaps", "++ PathGenerator::BuildPointPath path type {} size {} poly-size {}", _type, pointCount, _polyLength);
 }
 
@@ -654,6 +656,57 @@ void PathGenerator::NormalizePath()
 {
     for (uint32 i = 0; i < _pathPoints.size(); ++i)
         _source->UpdateAllowedPositionZ(_pathPoints[i].x, _pathPoints[i].y, _pathPoints[i].z);
+}
+
+void PathGenerator::ValidatePathAgainstCollision()
+{
+    // Straight-line shortcuts are intentional (flying, swimming, forced-dest fallback).
+    // Only MMAP-computed ground paths need the extra vmap fence-clip check.
+    if (_type & PATHFIND_NOT_USING_PATH)
+        return;
+
+    if (_pathPoints.size() < 2)
+        return;
+
+    // Raise the ray slightly so it clips at unit chest height, matching how
+    // isInLineOfSight is used in ShortenPathUntilDist.
+    float const halfHeight = _source->GetCollisionHeight() * 0.5f;
+
+    for (uint32 i = 0; i + 1 < _pathPoints.size(); ++i)
+    {
+        G3D::Vector3 const& from = _pathPoints[i];
+        G3D::Vector3 const& to   = _pathPoints[i + 1];
+
+        if (_source->GetMap()->isInLineOfSight(
+                _source->GetPhaseShift(),
+                from.x, from.y, from.z + halfHeight,
+                to.x,   to.y,   to.z   + halfHeight,
+                LINEOFSIGHT_ALL_CHECKS,
+                VMAP::ModelIgnoreFlags::Nothing))
+            continue;
+
+        // Segment blocked by static or dynamic geometry not represented in the
+        // navmesh (e.g. a thin fence). Truncate here so the unit stops before
+        // the object rather than clipping through it.
+        TC_LOG_DEBUG("maps.mmaps", "++ PathGenerator::ValidatePathAgainstCollision: segment {} blocked by vmap, truncating path", i);
+
+        if (i == 0)
+        {
+            // Can't even reach the very first waypoint, mark fully unreachable.
+            Clear();
+            _pathPoints.resize(2);
+            _pathPoints[0] = GetStartPosition();
+            _pathPoints[1] = GetStartPosition();
+            _type = PATHFIND_NOPATH;
+        }
+        else
+        {
+            _pathPoints.resize(i + 1);
+            SetActualEndPosition(_pathPoints.back());
+            _type = PathType(_type | PATHFIND_INCOMPLETE);
+        }
+        return;
+    }
 }
 
 void PathGenerator::BuildShortcut()

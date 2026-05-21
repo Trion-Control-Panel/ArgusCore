@@ -146,6 +146,13 @@ class TC_GAME_API PathGenerator
                               float* smoothPath, int* smoothPathSize, uint32 maxSmoothPathSize);
 
         void AddFarFromPolyFlags(bool startFarFromPoly, bool endFarFromPoly);
+
+        // After MMAP smooth-path generation, check every segment against static vmap
+        // collision. MMAP doesn't model thin objects (fences, small barriers), so a
+        // geometrically valid nav-mesh path can still clip through them. If a segment
+        // is blocked we truncate the path there and mark it PATHFIND_INCOMPLETE so
+        // the caller stops the unit at the obstacle rather than phasing through it.
+        void ValidatePathAgainstCollision();
 };
 
 #endif
