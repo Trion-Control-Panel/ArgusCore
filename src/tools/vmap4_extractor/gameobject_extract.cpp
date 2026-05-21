@@ -49,8 +49,11 @@ bool ExtractSingleModel(std::string& fname)
     output += "/";
     output += name;
 
-    if (FileExists(output.c_str()))
-        return true;
+    {
+        std::scoped_lock lock(ExtractedFilesMutex);
+        if (!ExtractedFiles.insert(output).second)
+            return true;
+    }
 
     Model mdl(originalName);
     if (!mdl.open())

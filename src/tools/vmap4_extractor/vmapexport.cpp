@@ -25,6 +25,7 @@
 #include "MapDefines.h"
 #include "MapUtils.h"
 #include "StringFormat.h"
+#include "ThreadPool.h"
 #include "Util.h"
 #include "VMapDefinitions.h"
 #include "wdtfile.h"
@@ -33,9 +34,13 @@
 #include <boost/filesystem/directory.hpp>
 #include <boost/filesystem/operations.hpp>
 #include <algorithm>
+#include <atomic>
+#include <condition_variable>
 #include <fstream>
 #include <list>
 #include <map>
+#include <mutex>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -75,7 +80,20 @@ std::unordered_set<uint32> maps_that_are_parents;
 boost::filesystem::path input_path;
 bool preciseVectorData = false;
 char const* CascProduct = "wow";
+uint32 Threads = std::thread::hardware_concurrency();
 std::unordered_map<std::string, WMODoodadData> WmoDoodads;
+std::mutex WmoDoodadsMutex;
+std::mutex ExtractedFilesMutex;
+std::unordered_set<std::string> ExtractedFiles;
+
+// WMO extraction state: maps output path → complete (true) or in-progress (false).
+// Uses wait-for-completion semantics so any thread that encounters a WMO already being
+// extracted by another thread blocks until WmoDoodads[name] is fully populated.
+// (ExtractedFiles/ExtractedFilesMutex provides claim-only semantics for M2 models,
+// which have no shared read dependency that requires waiting.)
+static std::mutex WmoStateMutex;
+static std::condition_variable WmoStateCv;
+static std::unordered_map<std::string, bool> WmoState; // false = in-progress, true = complete
 
 // Constants
 
@@ -151,13 +169,15 @@ uint32 GetInstalledLocalesMask()
     return 0;
 }
 
-uint32 uniqueObjectIdGenerator = std::numeric_limits<uint32>::max() - 1;
-std::map<std::pair<uint32, uint16>, uint32> uniqueObjectIds;
+static std::atomic<uint32> uniqueObjectIdGenerator = std::numeric_limits<uint32>::max() - 1;
+static std::mutex UniqueObjectIdsMutex;
+static std::map<std::pair<uint32, uint16>, uint32> uniqueObjectIds;
 
 uint32 GenerateUniqueObjectId(uint32 clientId, uint16 clientDoodadId, bool isWmo)
 {
     // WMO client ids must be preserved, they are used in DB2 files
     uint32 newId = isWmo ? clientId : uniqueObjectIdGenerator--;
+    std::scoped_lock lock(UniqueObjectIdsMutex);
     return uniqueObjectIds.emplace(std::make_pair(clientId, clientDoodadId), newId).first->second;
 }
 
@@ -181,8 +201,27 @@ bool ExtractSingleWmo(std::string& fname)
     NormalizeFileName(plain_name, strlen(plain_name));
     std::string szLocalFile = Trinity::StringFormat("{}/{}", szWorkDirWmo, plain_name);
 
-    if (FileExists(szLocalFile.c_str()))
-        return true;
+    // Claim this WMO or wait for the claiming thread to finish.
+    // We wait (not just early-return) because the MODF block reads WmoDoodads[plain_name]
+    // immediately after calling us, so we must block until the extractor thread has
+    // published the fully-populated WMODoodadData into WmoDoodads.
+    {
+        std::unique_lock lock(WmoStateMutex);
+        auto [it, inserted] = WmoState.emplace(szLocalFile, false);
+        if (!inserted)
+        {
+            WmoStateCv.wait(lock, [&]{ return WmoState.at(szLocalFile); });
+            return true;
+        }
+    }
+
+    // Signal completion on all return paths so waiting threads are never left blocked.
+    auto signalComplete = [&]()
+    {
+        std::scoped_lock lock(WmoStateMutex);
+        WmoState[szLocalFile] = true;
+        WmoStateCv.notify_all();
+    };
 
     int p = 0;
     // Select root wmo files
@@ -193,24 +232,27 @@ bool ExtractSingleWmo(std::string& fname)
                 p++;
 
     if (p == 3)
+    {
+        signalComplete();
         return true;
+    }
 
     bool file_ok = true;
     WMORoot froot(originalName);
     if (!froot.open())
     {
         printf("Couldn't open RootWmo!!!\n");
+        signalComplete();
         return true;
     }
     FILE *output = fopen(szLocalFile.c_str(),"wb");
     if(!output)
     {
         printf("couldn't open %s for writing!\n", szLocalFile.c_str());
+        signalComplete();
         return false;
     }
     froot.ConvertToVMAPRootWmo(output);
-    WMODoodadData& doodads = WmoDoodads[plain_name];
-    std::swap(doodads, froot.DoodadData);
     int Wmo_nVertices = 0;
     uint32 groupCount = 0;
     //printf("root has %d groups\n", froot->nGroups);
@@ -240,16 +282,19 @@ bool ExtractSingleWmo(std::string& fname)
 
         Wmo_nVertices += fgroup.ConvertToVMAPGroupWmo(output, preciseVectorData);
         ++groupCount;
+        // Accumulate doodad references into froot.DoodadData (thread-local) while the
+        // group loop runs. The swap into WmoDoodads happens after the loop so that when
+        // signalComplete() wakes waiting threads, they always find fully-populated data.
         for (uint16 groupReference : fgroup.DoodadReferences)
         {
-            if (groupReference >= doodads.Spawns.size())
+            if (groupReference >= froot.DoodadData.Spawns.size())
                 continue;
 
-            uint32 doodadNameIndex = doodads.Spawns[groupReference].NameIndex;
+            uint32 doodadNameIndex = froot.DoodadData.Spawns[groupReference].NameIndex;
             if (froot.ValidDoodadNames.find(doodadNameIndex) == froot.ValidDoodadNames.end())
                 continue;
 
-            doodads.References.insert(groupReference);
+            froot.DoodadData.References.insert(groupReference);
         }
     }
 
@@ -262,6 +307,14 @@ bool ExtractSingleWmo(std::string& fname)
     // Delete the extracted file in the case of an error
     if (!file_ok)
         remove(szLocalFile.c_str());
+
+    // Publish fully-populated doodad data BEFORE signaling completion.
+    // Waiting threads are guaranteed to see complete WmoDoodads[plain_name] data.
+    {
+        std::scoped_lock lock(WmoDoodadsMutex);
+        std::swap(WmoDoodads[plain_name], froot.DoodadData);
+    }
+    signalComplete();
     return true;
 }
 
@@ -278,34 +331,37 @@ bool IsLiquidIgnored(uint32 liquidTypeId)
 void ParsMapFiles()
 {
     std::unordered_map<uint32, WDTFile> wdts;
-    auto getWDT = [&wdts](uint32 mapId) -> WDTFile*
+
+    // Preload all WDTs sequentially so global WMO extraction (WDT::init) runs
+    // single-threaded and populates WmoDoodads/ExtractedFiles without races.
+    // cache=false: ADT tiles are NOT shared between threads — each thread opens
+    // its own independent CASCFile handle, avoiding any shared-state race on ADT reads.
+    for (MapEntry const& mapEntry : map_ids)
     {
-        auto itr = wdts.find(mapId);
-        if (itr == wdts.end())
-        {
-            auto mapEntryItr = std::ranges::find(map_ids, mapId, &MapEntry::Id);
-            if (mapEntryItr == map_ids.end())
-                return nullptr;
+        std::string directory = mapEntry.Directory;
+        std::string storagePath = Trinity::StringFormat("World\\Maps\\{}\\{}.wdt", directory, directory);
+        auto itr = wdts.emplace(std::piecewise_construct,
+            std::forward_as_tuple(mapEntry.Id),
+            std::forward_as_tuple(storagePath.c_str(), directory, false)).first;
+        if (!itr->second.init(mapEntry.Id))
+            wdts.erase(itr);
+    }
 
-            std::string directory = mapEntryItr->Directory;
-            std::string storagePath = Trinity::StringFormat("World\\Maps\\{}\\{}.wdt", directory, directory);
-            itr = wdts.emplace(std::piecewise_construct, std::forward_as_tuple(mapId), std::forward_as_tuple(storagePath.c_str(), directory, maps_that_are_parents.count(mapId) > 0)).first;
-            if (!itr->second.init(mapId))
-            {
-                wdts.erase(itr);
-                return nullptr;
-            }
-        }
-
-        return &itr->second;
-    };
+    Trinity::ThreadPool threadPool(Threads);
 
     for (MapEntry const& mapEntry : map_ids)
     {
-        if (WDTFile* WDT = getWDT(mapEntry.Id))
+        threadPool.PostWork([&mapEntry, &wdts]()
         {
-            WDTFile* parentWDT = mapEntry.ParentMapID >= 0 ? getWDT(mapEntry.ParentMapID) : nullptr;
-            printf("Processing Map %u\n[", mapEntry.Id);
+            WDTFile* WDT = Trinity::Containers::MapGetValuePtr(wdts, mapEntry.Id);
+            if (!WDT)
+                return;
+
+            WDTFile* parentWDT = mapEntry.ParentMapID >= 0
+                ? Trinity::Containers::MapGetValuePtr(wdts, uint32(mapEntry.ParentMapID))
+                : nullptr;
+
+            printf("Processing Map %u\n", mapEntry.Id);
             for (int32 x = 0; x < 64; ++x)
             {
                 for (int32 y = 0; y < 64; ++y)
@@ -325,12 +381,12 @@ void ParsMapFiles()
                         }
                     }
                 }
-                printf("#");
-                fflush(stdout);
             }
-            printf("]\n");
-        }
+            printf("Processing Map %u Done\n", mapEntry.Id);
+        });
     }
+
+    threadPool.Join();
 }
 
 void TryLoadDB2(char const* name, DB2CascFileSource* source, DB2FileLoader* db2, DB2FileLoadInfo const* loadInfo)
@@ -473,6 +529,17 @@ bool processArgv(int argc, char ** argv, const char *versionString)
         {
             preciseVectorData = true;
         }
+        else if (strcmp("--threads", argv[i]) == 0)
+        {
+            if ((i + 1) < argc)
+            {
+                Threads = std::max(1u, static_cast<uint32>(std::stoul(argv[++i])));
+            }
+            else
+            {
+                result = false;
+            }
+        }
         else
         {
             result = false;
@@ -483,17 +550,18 @@ bool processArgv(int argc, char ** argv, const char *versionString)
     if (!result)
     {
         printf("Extract %s.\n",versionString);
-        printf("%s [-?][-s][-l][-d <path>]\n", argv[0]);
-        printf("   -s : (default) small size (data size optimization), ~500MB less vmap data.\n");
-        printf("   -l : large size, ~500MB more vmap data. (might contain more details)\n");
-        printf("   -d <path>: Path to the vector data source folder.\n");
-        printf("   -? : This message.\n");
+        printf("%s [-?][-s][-l][-d <path>][--threads <N>]\n", argv[0]);
+        printf("   -s          : (default) small size (data size optimization), ~500MB less vmap data.\n");
+        printf("   -l          : large size, ~500MB more vmap data. (might contain more details)\n");
+        printf("   -d <path>   : Path to the vector data source folder.\n");
+        printf("   --threads N : Number of parallel map extraction threads (default: all CPU cores).\n");
+        printf("   -?          : This message.\n");
     }
 
     return result;
 }
 
-static bool RetardCheck()
+static bool ValidateClientVersion()
 {
     try
     {
@@ -536,7 +604,7 @@ int main(int argc, char ** argv)
     if (!processArgv(argc, argv, VMAP::VMAP_MAGIC))
         return 1;
 
-    if (!RetardCheck())
+    if (!ValidateClientVersion())
         return 1;
 
     // some simple check if working dir is dirty

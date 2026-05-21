@@ -216,6 +216,7 @@ bool ADTFile::init(uint32 map_num, uint32 originalMapId)
                     if (!(mapObjDef.Flags & 0x8))
                     {
                         MapObject::Extract(mapObjDef, WmoInstanceNames[mapObjDef.Id].c_str(), false, map_num, originalMapId, dirfile.get(), dirfileCache);
+                        std::scoped_lock lock(WmoDoodadsMutex);
                         Doodad::ExtractSet(WmoDoodads[WmoInstanceNames[mapObjDef.Id]], mapObjDef, false, map_num, originalMapId, dirfile.get(), dirfileCache);
                     }
                     else
@@ -223,6 +224,7 @@ bool ADTFile::init(uint32 map_num, uint32 originalMapId)
                         std::string fileName = Trinity::StringFormat("FILE{:08X}.xxx", mapObjDef.Id);
                         ExtractSingleWmo(fileName);
                         MapObject::Extract(mapObjDef, fileName.c_str(), false, map_num, originalMapId, dirfile.get(), dirfileCache);
+                        std::scoped_lock lock(WmoDoodadsMutex);
                         Doodad::ExtractSet(WmoDoodads[fileName], mapObjDef, false, map_num, originalMapId, dirfile.get(), dirfileCache);
                     }
                 }

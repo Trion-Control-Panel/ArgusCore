@@ -19,8 +19,10 @@
 #define VMAPEXPORT_H
 
 #include "Define.h"
+#include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 // flags of each spawn
 enum ModelInstanceFlags
@@ -40,6 +42,9 @@ struct WMODoodadData;
 
 extern const char * szWorkDirWmo;
 extern std::unordered_map<std::string, WMODoodadData> WmoDoodads;
+extern std::mutex WmoDoodadsMutex;
+extern std::mutex ExtractedFilesMutex;
+extern std::unordered_set<std::string> ExtractedFiles;
 
 uint32 GenerateUniqueObjectId(uint32 clientId, uint16 clientDoodadId, bool isWmo);
 
