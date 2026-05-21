@@ -800,9 +800,25 @@ class spell_dh_essence_break : public SpellScript
 };
 
 // 198013 - Eye Beam
-// In 7.3.5 DB2 data, effect 0 has TriggerSpell = 198030 (SPELL_AURA_PERIODIC_TRIGGER_SPELL).
-// The core's HandlePeriodicTriggerSpellAuraTick already casts 198030 each tick from that field.
-// No script override needed — adding one here would double the damage.
+class spell_dh_eye_beam : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_EYE_BEAM_DAMAGE });
+    }
+
+    void HandleEffectPeriodic(AuraEffect const* aurEff)
+    {
+        GetTarget()->CastSpell(GetTarget(), SPELL_DH_EYE_BEAM_DAMAGE,
+            CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR)
+            .SetTriggeringAura(aurEff));
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dh_eye_beam::HandleEffectPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
+    }
+};
 
 // Called by 228477 - Soul Cleave
 class spell_dh_feast_of_souls : public SpellScript
@@ -1694,6 +1710,7 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScriptWithArgs(spell_dh_demonic, "spell_dh_demonic_vengeance", SPELL_DH_METAMORPHOSIS_VENGEANCE_TRANSFORM);
     RegisterSpellScript(spell_dh_demon_spikes);
     RegisterSpellScript(spell_dh_essence_break);
+    RegisterSpellScript(spell_dh_eye_beam);
     RegisterSpellScript(spell_dh_feast_of_souls);
     RegisterSpellScript(spell_dh_fel_devastation);
     RegisterSpellScript(spell_dh_fel_flame_fortification);
