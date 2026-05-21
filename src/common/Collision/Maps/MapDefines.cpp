@@ -16,9 +16,10 @@
  */
 
 #include "MapDefines.h"
+#include "ExtractorsVersion.h"
 
 u_map_magic const MapMagic          = { { 'M','A','P','S' } };
-uint32 const MapVersionMagic        = 10;
+uint32 const MapVersionMagic        = EXTRACTORS_VERSION;
 u_map_magic const MapAreaMagic      = { { 'A','R','E','A' } };
 u_map_magic const MapHeightMagic    = { { 'M','H','G','T' } };
 u_map_magic const MapLiquidMagic    = { { 'M','L','I','Q' } };

@@ -20,9 +20,10 @@
 
 #include "Define.h"
 #include "DetourNavMesh.h"
+#include "ExtractorsVersion.h"
 
 inline constexpr uint32 MMAP_MAGIC    = 0x4d4d4150; // 'MMAP'
-inline constexpr uint32 MMAP_VERSION  = 15;
+inline constexpr uint32 MMAP_VERSION  = EXTRACTORS_VERSION;
 
 struct MmapTileHeader
 {

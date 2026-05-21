@@ -18,14 +18,17 @@
 #ifndef _VMAPDEFINITIONS_H
 #define _VMAPDEFINITIONS_H
 
+#include "ExtractorsVersion.h"
 #include <cstdio>
 
 #define LIQUID_TILE_SIZE (533.333f / 128.f)
 
 namespace VMAP
 {
-    const char VMAP_MAGIC[] = "VMAP_4.D";
-    const char RAW_VMAP_MAGIC[] = "VMAP04D";                // used in extracted vmap files with raw data
+    // "ARGUS_Vn" — assembled vmap files (8 bytes compared on load, no null in window)
+    const char VMAP_MAGIC[]     = { 'A','R','G','U','S','_','V', char('0' + EXTRACTORS_VERSION), '\0' };
+    // "ARGUSVn\0" — raw extracted vmap files (7 chars + null = 8 bytes compared on load)
+    const char RAW_VMAP_MAGIC[] = { 'A','R','G','U','S','V',     char('0' + EXTRACTORS_VERSION), '\0' };
     const char GAMEOBJECT_MODELS[] = "GameObjectModels.dtree";
 
     // defined in VMapManager2.cpp currently...
