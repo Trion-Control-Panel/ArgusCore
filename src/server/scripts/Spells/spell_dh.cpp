@@ -904,7 +904,7 @@ class spell_dh_fel_rush : public SpellScript
         // Pick the variant based on whether the caster is on the ground or in air/water.
         // Both variants have SPELL_EFFECT_CHARGE_DEST, which requires an explicit destTarget.
         // Without this script that dest is never set and the effect silently returns early.
-        uint32 spellId = (caster->IsInWater() || !caster->IsOnGround())
+        uint32 spellId = (caster->IsInWater() || caster->IsFlying() || caster->IsFalling())
             ? SPELL_DH_FEL_RUSH_WATER_AIR
             : SPELL_DH_FEL_RUSH_GROUND;
 
