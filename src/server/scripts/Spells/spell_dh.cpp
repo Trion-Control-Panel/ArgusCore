@@ -917,6 +917,9 @@ class spell_dh_fel_rush : public SpellScript
     {
         Unit* caster = GetCaster();
 
+        // Cancel any player movement so W-key motion doesn't inflate the computed destination.
+        caster->StopMoving();
+
         // Pick the variant based on whether the caster is on the ground or in air/water.
         // Both variants have SPELL_EFFECT_CHARGE_DEST, which requires an explicit destTarget.
         // Without this script that dest is never set and the effect silently returns early.
@@ -924,7 +927,7 @@ class spell_dh_fel_rush : public SpellScript
             ? SPELL_DH_FEL_RUSH_WATER_AIR
             : SPELL_DH_FEL_RUSH_GROUND;
 
-        // 15-yard dash straight forward, snapped to the first geometry collision point
+        // 15-yard dash straight forward, snapped to the first geometry collision point.
         Position dest = caster->GetFirstCollisionPosition(15.0f, 0.0f);
 
         CastSpellExtraArgs dashArgs;
@@ -932,19 +935,40 @@ class spell_dh_fel_rush : public SpellScript
         dashArgs.SetTriggeringSpell(GetSpell());
 
         caster->CastSpell(dest, spellId, dashArgs);
-
-        // Deal damage at the landing point. The charge dest effect's TriggerSpell field
-        // is 0 in our world DB, so the damage spell must be cast explicitly here.
-        CastSpellExtraArgs dmgArgs;
-        dmgArgs.TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR;
-        dmgArgs.SetTriggeringSpell(GetSpell());
-
-        caster->CastSpell(dest, SPELL_DH_FEL_RUSH_DMG, dmgArgs);
+        // Damage is cast from the landing sub-spell scripts (spell_dh_fel_rush_ground /
+        // spell_dh_fel_rush_water_air) in their OnEffectHit handler, which fires after
+        // EffectChargeDest's HIT phase — i.e. after the player has actually arrived.
     }
 
     void Register() override
     {
         AfterCast += SpellCastFn(spell_dh_fel_rush::HandleDash);
+    }
+};
+
+// 197922 - Fel Rush (ground variant)
+// 197923 - Fel Rush (air/water variant)
+// Both carry SPELL_EFFECT_CHARGE_DEST. EffectChargeDest delays its HIT phase until the
+// charge movement finishes (UpdateDelayMomentForDst), so OnEffectHit here fires only
+// after the player has landed — giving correct damage timing.
+class spell_dh_fel_rush_charge : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_FEL_RUSH_DMG });
+    }
+
+    void HandleDamage(SpellEffIndex /*effIndex*/) const
+    {
+        GetCaster()->CastSpell(GetCaster(), SPELL_DH_FEL_RUSH_DMG, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_FULL_MASK,
+            .TriggeringSpell = GetSpell()
+        });
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_dh_fel_rush_charge::HandleDamage, EFFECT_0, SPELL_EFFECT_CHARGE_DEST);
     }
 };
 
@@ -1724,6 +1748,7 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_fel_devastation);
     RegisterSpellScript(spell_dh_fel_flame_fortification);
     RegisterSpellScript(spell_dh_fel_rush);
+    RegisterSpellScript(spell_dh_fel_rush_charge);
     RegisterSpellScript(spell_dh_felblade);
     RegisterSpellScript(spell_dh_felblade_charge);
     RegisterSpellScript(spell_dh_felblade_cooldown_reset_proc);

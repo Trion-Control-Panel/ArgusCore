@@ -100,7 +100,14 @@ void GenericMovementGenerator::Finalize(Unit* owner, bool/* active*/, bool movem
 void GenericMovementGenerator::MovementInform(Unit* owner)
 {
     if (_arrivalSpellId)
-        owner->CastSpell(ObjectAccessor::GetUnit(*owner, _arrivalSpellTargetGuid), _arrivalSpellId, true);
+    {
+        // When no explicit target was stored (e.g. Metamorphosis jump-to-location), fall
+        // back to self so AoE landing spells like 200166 have a valid CastSpellTargetArg.
+        Unit* target = _arrivalSpellTargetGuid.IsEmpty()
+            ? owner
+            : ObjectAccessor::GetUnit(*owner, _arrivalSpellTargetGuid);
+        owner->CastSpell(target, _arrivalSpellId, true);
+    }
 
     SetScriptResult(MovementStopReason::Finished);
 
