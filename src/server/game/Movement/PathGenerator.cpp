@@ -647,6 +647,8 @@ void PathGenerator::BuildPointPath(const float *startPoint, const float *endPoin
         _type = PathType(PATHFIND_NORMAL | PATHFIND_NOT_USING_PATH);
     }
 
+    ValidatePathAgainstCollision();
+
     TC_LOG_DEBUG("maps.mmaps", "++ PathGenerator::BuildPointPath path type {} size {} poly-size {}", _type, pointCount, _polyLength);
 }
 
@@ -654,6 +656,168 @@ void PathGenerator::NormalizePath()
 {
     for (uint32 i = 0; i < _pathPoints.size(); ++i)
         _source->UpdateAllowedPositionZ(_pathPoints[i].x, _pathPoints[i].y, _pathPoints[i].z);
+}
+
+void PathGenerator::ValidatePathAgainstCollision()
+{
+    _jumpSegmentIndices.clear();
+
+    if (_type & PATHFIND_NOT_USING_PATH)
+        return;
+    if (_pathPoints.size() < 2)
+        return;
+
+    // Height above ground for the jump clearance ray. Must be above the tallest
+    // fence we want to be jumpable, but below truly impassable walls.
+    // Matches walkableClimb=4 (1.07y max step) + small overhead.
+    static constexpr float JUMP_CLEARANCE_HEIGHT = 1.5f;
+    // How far past the fence to place the landing point.
+    static constexpr float JUMP_LANDING_OFFSET   = 3.0f;
+    // Step size when marching along the direct ray to locate the fence.
+    static constexpr float FENCE_SEARCH_STEP     = 1.5f;
+
+    float const halfHeight = _source->GetCollisionHeight() * 0.5f;
+
+    // Copy start/end before any potential resize below.
+    G3D::Vector3 const pathStart = _pathPoints.front();
+    G3D::Vector3 const pathEnd   = _pathPoints.back();
+    G3D::Vector3 const dirToEnd  = pathEnd - pathStart;
+    float const totalLen = dirToEnd.length();
+
+    // Check whether the direct line from start to destination is blocked at
+    // ground level but clear at jump height. If so, the MMAP path is going around
+    // a jumpable obstacle and we replace it with a direct jump path instead.
+    if (totalLen > 1.0f)
+    {
+        bool const directGroundBlocked = !_source->GetMap()->isInLineOfSight(
+            _source->GetPhaseShift(),
+            pathStart.x, pathStart.y, pathStart.z + halfHeight,
+            pathEnd.x,   pathEnd.y,   pathEnd.z   + halfHeight,
+            LINEOFSIGHT_ALL_CHECKS, VMAP::ModelIgnoreFlags::Nothing);
+
+        if (directGroundBlocked)
+        {
+            bool const directJumpClear = _source->GetMap()->isInLineOfSight(
+                _source->GetPhaseShift(),
+                pathStart.x, pathStart.y, pathStart.z + JUMP_CLEARANCE_HEIGHT,
+                pathEnd.x,   pathEnd.y,   pathEnd.z   + JUMP_CLEARANCE_HEIGHT,
+                LINEOFSIGHT_ALL_CHECKS, VMAP::ModelIgnoreFlags::Nothing);
+
+            if (directJumpClear)
+            {
+                // Step along the direct ray to find where the fence surface begins,
+                // so the landing point ends up just past the obstacle rather than
+                // all the way at the destination.
+                G3D::Vector3 const dir = dirToEnd / totalLen;
+                float fenceNearDist = totalLen;
+                float const searchRange = std::min(totalLen, 25.0f);
+
+                for (float d = FENCE_SEARCH_STEP; d <= searchRange; d += FENCE_SEARCH_STEP)
+                {
+                    G3D::Vector3 probe = pathStart + dir * d;
+                    if (!_source->GetMap()->isInLineOfSight(
+                            _source->GetPhaseShift(),
+                            pathStart.x, pathStart.y, pathStart.z + halfHeight,
+                            probe.x, probe.y, probe.z + halfHeight,
+                            LINEOFSIGHT_ALL_CHECKS, VMAP::ModelIgnoreFlags::Nothing))
+                    {
+                        fenceNearDist = d - FENCE_SEARCH_STEP;
+                        break;
+                    }
+                }
+
+                float const landingDist  = std::min(fenceNearDist + JUMP_LANDING_OFFSET, totalLen);
+                float const approachDist = std::max(0.0f, fenceNearDist - 0.5f);
+
+                G3D::Vector3 fenceApproach = pathStart + dir * approachDist;
+                _source->UpdateAllowedPositionZ(fenceApproach.x, fenceApproach.y, fenceApproach.z);
+
+                G3D::Vector3 landing = pathStart + dir * landingDist;
+                _source->UpdateAllowedPositionZ(landing.x, landing.y, landing.z);
+
+                // Walk straight at the fence, then jump. Using the MMAP detour here would
+                // route the NPC sideways along the fence so the jump never fires from the
+                // right position. A straight approach is correct because the NPC's side of
+                // the fence is already clear (that is why the NPC is here).
+                if (approachDist < 0.5f)
+                {
+                    // Already at the fence, build a 2-point immediate-jump path.
+                    _pathPoints.resize(2);
+                    _pathPoints[0] = pathStart;
+                    _pathPoints[1] = landing;
+                    _jumpSegmentIndices.push_back(0);
+                }
+                else
+                {
+                    // Walk directly to the near side of the fence, then jump over it.
+                    _pathPoints.resize(3);
+                    _pathPoints[0] = pathStart;
+                    _pathPoints[1] = fenceApproach;
+                    _pathPoints[2] = landing;
+                    _jumpSegmentIndices.push_back(1);
+                }
+
+                SetActualEndPosition(_pathPoints.back());
+                _type = PathType(PATHFIND_NORMAL | PATHFIND_HAS_JUMP);
+
+                TC_LOG_DEBUG("maps.mmaps", "++ PathGenerator::ValidatePathAgainstCollision: jump path built, fenceDist={:.1f} approachDist={:.1f} landingDist={:.1f}", fenceNearDist, approachDist, landingDist);
+                return;
+            }
+        }
+    }
+
+    // Direct path is not jumpable. Validate each MMAP segment individually.
+    // In practice MMAP already routes around obstacles, so this handles any
+    // residual conflicts that slip through (e.g. dynamic objects).
+    uint32 i = 0;
+    while (i + 1 < _pathPoints.size())
+    {
+        G3D::Vector3 const& from = _pathPoints[i];
+        G3D::Vector3 const& to   = _pathPoints[i + 1];
+
+        if (_source->GetMap()->isInLineOfSight(
+                _source->GetPhaseShift(),
+                from.x, from.y, from.z + halfHeight,
+                to.x,   to.y,   to.z   + halfHeight,
+                LINEOFSIGHT_ALL_CHECKS,
+                VMAP::ModelIgnoreFlags::Nothing))
+        {
+            ++i;
+            continue;
+        }
+
+        if (_source->GetMap()->isInLineOfSight(
+                _source->GetPhaseShift(),
+                from.x, from.y, from.z + JUMP_CLEARANCE_HEIGHT,
+                to.x,   to.y,   to.z   + JUMP_CLEARANCE_HEIGHT,
+                LINEOFSIGHT_ALL_CHECKS,
+                VMAP::ModelIgnoreFlags::Nothing))
+        {
+            TC_LOG_DEBUG("maps.mmaps", "++ PathGenerator::ValidatePathAgainstCollision: segment {} is jumpable", i);
+            _jumpSegmentIndices.push_back(i);
+            _type = PathType(_type | PATHFIND_HAS_JUMP);
+            ++i;
+            continue;
+        }
+
+        TC_LOG_DEBUG("maps.mmaps", "++ PathGenerator::ValidatePathAgainstCollision: segment {} is impassable, truncating", i);
+
+        if (i == 0)
+        {
+            Clear();
+            _pathPoints.resize(2);
+            _pathPoints[0] = GetStartPosition();
+            _pathPoints[1] = GetStartPosition();
+            _type = PATHFIND_NOPATH;
+        }
+        else
+        {
+            _pathPoints.resize(i + 1);
+            SetActualEndPosition(_pathPoints.back());
+            _type = PathType(_type | PATHFIND_INCOMPLETE);
+        }
+        return;
+    }
 }
 
 void PathGenerator::BuildShortcut()

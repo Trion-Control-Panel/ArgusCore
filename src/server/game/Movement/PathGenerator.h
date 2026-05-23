@@ -50,6 +50,7 @@ enum PathType
     PATHFIND_FARFROMPOLY_START = 0x40,   // start position is far from the mmap poligon
     PATHFIND_FARFROMPOLY_END   = 0x80,   // end positions is far from the mmap poligon
     PATHFIND_FARFROMPOLY       = PATHFIND_FARFROMPOLY_START | PATHFIND_FARFROMPOLY_END, // start or end positions are far from the mmap poligon
+    PATHFIND_HAS_JUMP          = 0x100,   // one or more segments in this path require a jump
 };
 
 class TC_GAME_API PathGenerator
@@ -83,6 +84,7 @@ class TC_GAME_API PathGenerator
         float GetPathLength() const;
 
         PathType GetPathType() const { return _type; }
+        std::vector<uint32> const& GetJumpSegments() const { return _jumpSegmentIndices; }
 
         // shortens the path until the destination is the specified distance from the target point
         void ShortenPathUntilDist(G3D::Vector3 const& target, float dist);
@@ -110,6 +112,8 @@ class TC_GAME_API PathGenerator
 
         dtQueryFilter _filter;  // use single filter for all movements, update it when needed
 
+        std::vector<uint32> _jumpSegmentIndices; // indices i where path segment [i]->[i+1] requires a jump
+
         void SetStartPosition(G3D::Vector3 const& point) { _startPosition = point; }
         void SetEndPosition(G3D::Vector3 const& point) { _actualEndPosition = point; _endPosition = point; }
         void SetActualEndPosition(G3D::Vector3 const& point) { _actualEndPosition = point; }
@@ -119,6 +123,7 @@ class TC_GAME_API PathGenerator
         {
             _polyLength = 0;
             _pathPoints.clear();
+            _jumpSegmentIndices.clear();
         }
 
         bool InRange(G3D::Vector3 const& p1, G3D::Vector3 const& p2, float r, float h) const;
@@ -146,6 +151,11 @@ class TC_GAME_API PathGenerator
                               float* smoothPath, int* smoothPathSize, uint32 maxSmoothPathSize);
 
         void AddFarFromPolyFlags(bool startFarFromPoly, bool endFarFromPoly);
+
+        // Check each path segment against VMap collision. Segments blocked at ground level
+        // but clear at jump height are marked in _jumpSegmentIndices. Segments blocked at
+        // both levels are truncated so the unit stops before the obstacle.
+        void ValidatePathAgainstCollision();
 };
 
 #endif

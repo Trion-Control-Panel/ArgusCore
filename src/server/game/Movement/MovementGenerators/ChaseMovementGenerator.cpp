@@ -143,6 +143,19 @@ bool ChaseMovementGenerator::Update(Unit* owner, uint32 diff)
     // if we're done moving, we want to clean up
     if (owner->HasUnitState(UNIT_STATE_CHASE_MOVE) && owner->movespline->Finalized())
     {
+        if (_pendingJumpDest)
+        {
+            // Arrived at the fence approach point. Launch the jump over the obstacle.
+            Position dest = *_pendingJumpDest;
+            _pendingJumpDest.reset();
+            _path = nullptr;
+            owner->ClearUnitState(UNIT_STATE_CHASE_MOVE);
+            owner->GetMotionMaster()->MoveJump(
+                dest.GetPositionX(), dest.GetPositionY(), dest.GetPositionZ(),
+                owner->GetSpeed(MOVE_RUN), JUMP_SPEED_Z);
+            return true;
+        }
+
         RemoveFlag(MOVEMENTGENERATOR_FLAG_INFORM_ENABLED);
         _path = nullptr;
         if (Creature* cOwner = owner->ToCreature())
@@ -195,6 +208,9 @@ bool ChaseMovementGenerator::Update(Unit* owner, uint32 diff)
             if (owner->IsHovering())
                 owner->UpdateAllowedPositionZ(x, y, z);
 
+            // Cancel any previously queued jump before recalculating.
+            _pendingJumpDest.reset();
+
             bool success = _path->CalculatePath(x, y, z, owner->CanFly());
             if (!success || (_path->GetPathType() & (PATHFIND_NOPATH /* | PATHFIND_INCOMPLETE*/)))
             {
@@ -226,14 +242,52 @@ bool ChaseMovementGenerator::Update(Unit* owner, uint32 diff)
                 }
             }
 
-            owner->AddUnitState(UNIT_STATE_CHASE_MOVE);
-            AddFlag(MOVEMENTGENERATOR_FLAG_INFORM_ENABLED);
+            std::vector<uint32> const& jumpSegs = _path->GetJumpSegments();
+            if (!jumpSegs.empty() && jumpSegs[0] + 1 < _path->GetPath().size())
+            {
+                uint32 const firstJump = jumpSegs[0];
+                Movement::PointsArray const& fullPath = _path->GetPath();
+                G3D::Vector3 const& landingPt = fullPath[firstJump + 1];
 
-            Movement::MoveSplineInit init(owner);
-            init.MovebyPath(_path->GetPath());
-            init.SetWalk(walk);
-            init.SetFacing(target);
-            init.Launch();
+                if (firstJump == 0)
+                {
+                    // Already at the obstacle, jump immediately.
+                    // Clear chase-move state and return now so this same Update()
+                    // tick cannot evaluate the finalized-spline block and fire a
+                    // second jump before the motion master deactivates us.
+                    owner->ClearUnitState(UNIT_STATE_CHASE_MOVE);
+                    owner->GetMotionMaster()->MoveJump(
+                        landingPt.x, landingPt.y, landingPt.z,
+                        owner->GetSpeed(MOVE_RUN), JUMP_SPEED_Z);
+                    return true;
+                }
+                else
+                {
+                    // Approach the fence, then jump when we arrive.
+                    _pendingJumpDest.emplace(landingPt.x, landingPt.y, landingPt.z);
+                    Movement::PointsArray approachPath(fullPath.begin(), fullPath.begin() + firstJump + 1);
+
+                    owner->AddUnitState(UNIT_STATE_CHASE_MOVE);
+                    AddFlag(MOVEMENTGENERATOR_FLAG_INFORM_ENABLED);
+
+                    Movement::MoveSplineInit init(owner);
+                    init.MovebyPath(approachPath);
+                    init.SetWalk(walk);
+                    init.SetFacing(target);
+                    init.Launch();
+                }
+            }
+            else
+            {
+                owner->AddUnitState(UNIT_STATE_CHASE_MOVE);
+                AddFlag(MOVEMENTGENERATOR_FLAG_INFORM_ENABLED);
+
+                Movement::MoveSplineInit init(owner);
+                init.MovebyPath(_path->GetPath());
+                init.SetWalk(walk);
+                init.SetFacing(target);
+                init.Launch();
+            }
         }
     }
 

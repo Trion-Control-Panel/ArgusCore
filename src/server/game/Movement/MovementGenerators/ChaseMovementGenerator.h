@@ -45,12 +45,14 @@ class ChaseMovementGenerator : public MovementGenerator, public AbstractFollower
 
     private:
         static constexpr uint32 RANGE_CHECK_INTERVAL = 100; // time (ms) until we attempt to recalculate
+        static constexpr float  JUMP_SPEED_Z          = 8.5f;  // vertical launch speed for obstacle jumps (~1.9y peak)
 
         Optional<ChaseRange> const _range;
         Optional<ChaseAngle> const _angle;
 
         std::unique_ptr<PathGenerator> _path;
         Optional<Position> _lastTargetPosition;
+        Optional<Position> _pendingJumpDest; // set while approaching a jumpable obstacle
         TimeTracker _rangeCheckTimer;
         bool _movingTowards = true;
         bool _mutualChase = true;
