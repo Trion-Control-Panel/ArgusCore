@@ -52,6 +52,7 @@ Modernize an old Legion-based TrinityCore source into a modern, stable, maintain
 | 8 | [Safe Async Systems](#phase-8--safe-async-systems) | **Complete** |
 | 9 | [Map Threading Research](#phase-9--map-threading-research) | **Complete** |
 | 10 | [World Layering](#phase-10--world-layering) | **Not started** |
+| 11 | [NPC Gameplay Systems](#phase-11--npc-gameplay-systems) | **In progress** |
 
 ---
 
@@ -458,6 +459,65 @@ The current model runs one `Map` object per open-world zone. At high population 
 - [ ] Layer merge produces no duplicate NPCs or items
 - [ ] Group members always visible to each other (always on same layer)
 - [ ] Stable at 500+ players per realm across multiple layers
+
+---
+
+## Phase 11 — NPC Gameplay Systems
+
+**Goals:** Make NPC combat and movement behave closer to blizzlike. Each feature is isolated and tested independently before the next begins.
+
+### Completed
+
+- [x] NPC pathfinding: lower `walkableClimb` in MMAP extractor so fences are impassable walls instead of walkable steps (requires MMAP regeneration)
+- [x] NPC obstacle jumping: humanoid NPCs jump over short obstacles (< 1.5y) when chasing instead of routing around — `PathGenerator` detects jumpable direct path, `ChaseMovementGenerator` executes `MoveJump`
+
+### NPC Power Types
+
+Make NPCs use the correct resource bar (mana, rage, energy, focus, etc.) based on their class, matching blizzlike behavior.
+
+**Three levels — implement in order, validate before moving to the next:**
+
+#### Level 1 — Display only (database)
+Set `unit_class` in `creature_template` so the correct power bar is shown to players. No code changes.
+
+- [ ] Audit creature_template entries: confirm unit_class is set correctly for named humanoid NPCs (vendors, guards, bosses)
+- [ ] Write SQL update for missing or wrong unit_class values
+- [ ] Validate in-game: mage NPC shows mana bar, warrior shows rage bar
+
+#### Level 2 — Actual resource consumption (code)
+NPC spells consume mana/rage/energy when cast. A mage NPC can run out of mana.
+
+- [ ] Audit where spell cost checks are bypassed for NPCs in the spell system
+- [ ] Remove or conditionalize the bypass so NPCs pay spell costs
+- [ ] Validate: mage NPC mana depletes under sustained casting pressure
+- [ ] Validate: no regression on boss scripts that rely on unlimited resources
+
+#### Level 3 — Full AI resource management (code + AI)
+NPCs regenerate resources, conserve energy, build rage on hits, and adjust ability usage based on current resource levels.
+
+- [ ] Implement class-appropriate power regeneration rates for NPCs (mana regen, energy tick, rage generation on hit/damage)
+- [ ] Add resource awareness to creature AI base class: expose `GetPowerPercent()` for script conditions
+- [ ] Update key humanoid NPC scripts to use resource-gated ability priority (e.g. do not cast if OOM, use filler if low energy)
+- [ ] Validate: warrior NPCs generate and spend rage naturally in combat
+- [ ] Validate: mage NPCs use filler spells when low on mana
+
+### Rules
+
+- Level 2 must not break any existing boss scripts that depend on NPCs having infinite resources
+- Level 3 is opt-in per script — do not apply globally without profiling the AI overhead
+- Test every level in-game before starting the next
+
+### Do NOT
+
+- Change player power systems
+- Touch battleground or raid boss scripts during Level 2/3 rollout
+- Mix power system changes with movement or combat refactors
+
+### Validation
+
+- [ ] Level 1: all major humanoid NPC types show correct power bar
+- [ ] Level 2: resource depletion works, no boss script regressions
+- [ ] Level 3: NPC combat feels natural, no AI performance regression
 
 ---
 
