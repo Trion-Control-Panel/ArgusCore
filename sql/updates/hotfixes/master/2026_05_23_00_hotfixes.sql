@@ -1,6 +1,4 @@
--- Whirlwind (190411) - Fury Warrior: add 30 Rage cost missing from DB2 data.
--- ManaCost stores rage at 10x internal scale, so 30 rage = 300.
--- PowerType 1 = POWER_RAGE. ID matches SpellID for easy lookup.
-DELETE FROM `spell_power` WHERE `ID` = 190411 AND `SpellID` = 190411;
-INSERT INTO `spell_power` (`ManaCost`, `PowerCostPct`, `PowerPctPerSecond`, `RequiredAuraSpellID`, `PowerCostMaxPct`, `OrderIndex`, `PowerType`, `ID`, `ManaCostPerLevel`, `ManaPerSecond`, `OptionalCost`, `PowerDisplayID`, `AltPowerBarID`, `SpellID`, `VerifiedBuild`) VALUES
-(300, 0, 0, 0, 0, 0, 1, 190411, 0, 0, 0, 0, 0, 190411, 1);
+-- Revert: Fury Warrior Whirlwind (190411) has no Rage cost by design in Legion 7.3.5.
+-- It applies the Whirlwind buff for Rampage cleave and gives rage on multi-target hit.
+-- Remove any erroneously added spell_power entry for this spell.
+DELETE FROM `spell_power` WHERE `SpellID` = 190411;
