@@ -281,8 +281,12 @@ private:
  * at its default neutral faction (32) means no Stormwind NPCs (guards, free infantry)
  * ever auto-aggro it.  Both AIs bypass UpdateVictim() while paired so SelectVictim's
  * faction-hostility check (IsValidAttackTarget CvC) does not force an evade.
- * Damage from the opposing NPC is clamped once health drops below 85%, keeping both
- * sides alive forever.  Player attacks are not protected.
+ * Damage from the opposing NPC is clamped at 65% HP so each fight shows ~35% visible
+ * HP loss.  Both sides are healed to full when a new pair forms.  EnterEvadeMode is
+ * intentionally avoided -- evade puts the defender in UNIT_STATE_EVADING which can
+ * block re-pairing with a freshly respawned attacker; AttackStop + reschedule is
+ * used instead.  Each worg targets an unpaired infantry (no active victim) to
+ * prevent stacking.  Player attacks are not protected.
  *
  * References: SkyFire 5.4.8, TrinityCore-Cata zone_elwynn_forest.cpp
  */
@@ -292,12 +296,14 @@ enum Northshire
     NPC_STORMWIND_INFANTRY_E    = 49869,
     NPC_BLACKROCK_BATTLE_WORG_E = 49871,
 
-    NORTHSHIRE_AI_HEALTH_MIN    = 85,   // health floor for NPC-vs-NPC damage (blizzlike, SkyFire ref)
+    NORTHSHIRE_AI_HEALTH_MIN    = 65,   // immune below 65% HP -- visible ~35% HP loss per fight
 
-    EVENT_NORTHSHIRE_FIND_ENEMY = 1,
-    EVENT_NORTHSHIRE_WORG_GROWL = 2,
+    EVENT_NORTHSHIRE_FIND_ENEMY      = 1,
+    EVENT_NORTHSHIRE_WORG_GROWL      = 2,
+    EVENT_NORTHSHIRE_INFANTRY_CLEAVE = 3,
 
-    SPELL_WORG_GROWL            = 2649, // cosmetic growl cast on victim
+    SPELL_WORG_GROWL            = 2649,  // cosmetic snarl on victim
+    SPELL_INFANTRY_CLEAVE       = 16044, // melee cleave used by Kalimdor warrior-type humanoids
 };
 
 // 49869 - Stormwind Infantry
@@ -308,11 +314,16 @@ struct npc_stormwind_infantry_northshire : public ScriptedAI
     void Reset() override
     {
         me->SetSheath(SHEATH_STATE_UNARMED);
+        _events.Reset();
     }
 
     void AttackStart(Unit* who) override
     {
         AttackStartNoMove(who);
+        // Restart spell cycle on every new pairing; CancelEvent prevents stacking
+        // if AttackStart is somehow called again before Reset clears the queue.
+        _events.CancelEvent(EVENT_NORTHSHIRE_INFANTRY_CLEAVE);
+        _events.ScheduleEvent(EVENT_NORTHSHIRE_INFANTRY_CLEAVE, randtime(5s, 12s));
     }
 
     void DamageTaken(Unit* attacker, uint32& damage, DamageEffectType /*damageType*/, SpellInfo const* /*spellInfo = nullptr*/) override
@@ -329,11 +340,28 @@ struct npc_stormwind_infantry_northshire : public ScriptedAI
 
     // No UpdateVictim() -- intentional (TC Cata pattern).
     // m_attacking is set when the worg calls AttackStart on us; DoMeleeAttackIfReady
-    // uses GetVictim() == m_attacking internally and is a no-op if it is null.
-    void UpdateAI(uint32 /*diff*/) override
+    // uses GetVictim() == m_attacking internally and is a no-op if null.
+    void UpdateAI(uint32 diff) override
     {
+        _events.Update(diff);
+        while (uint32 eventId = _events.ExecuteEvent())
+        {
+            switch (eventId)
+            {
+                case EVENT_NORTHSHIRE_INFANTRY_CLEAVE:
+                    if (me->GetVictim())
+                        DoCastVictim(SPELL_INFANTRY_CLEAVE);
+                    _events.ScheduleEvent(EVENT_NORTHSHIRE_INFANTRY_CLEAVE, randtime(8s, 15s));
+                    break;
+                default:
+                    break;
+            }
+        }
         me->DoMeleeAttackIfReady();
     }
+
+private:
+    EventMap _events;
 };
 
 // 49871 - Blackrock Battle Worg
@@ -355,12 +383,6 @@ struct npc_blackrock_battle_worg : public ScriptedAI
     void AttackStart(Unit* who) override
     {
         AttackStartNoMove(who);
-    }
-
-    void JustDied(Unit* /*killer*/) override
-    {
-        if (Creature* infantry = ObjectAccessor::GetCreature(*me, _infantryGUID))
-            infantry->AI()->EnterEvadeMode();
     }
 
     void DamageTaken(Unit* attacker, uint32& damage, DamageEffectType /*damageType*/, SpellInfo const* /*spellInfo = nullptr*/) override
@@ -393,17 +415,36 @@ struct npc_blackrock_battle_worg : public ScriptedAI
             switch (eventId)
             {
                 case EVENT_NORTHSHIRE_FIND_ENEMY:
-                    if (Creature* infantry = me->FindNearestCreature(NPC_STORMWIND_INFANTRY_E, 20.0f, true))
+                {
+                    // Prefer infantry that has no attacker yet so each worg gets a unique target.
+                    std::list<Creature*> infantryList;
+                    me->GetCreatureListWithEntryInGrid(infantryList, NPC_STORMWIND_INFANTRY_E, 20.0f);
+
+                    Creature* target = nullptr;
+                    for (Creature* infantry : infantryList)
+                        if (infantry->IsAlive() && !infantry->GetVictim())
+                        {
+                            target = infantry;
+                            break;
+                        }
+
+                    if (!target)
                     {
-                        _isAttackingInfantry = true;
-                        _infantryGUID = infantry->GetGUID();
-                        AttackStart(infantry);
-                        if (infantry->IsAIEnabled())
-                            infantry->AI()->AttackStart(me);
-                    }
-                    else
                         _events.ScheduleEvent(EVENT_NORTHSHIRE_FIND_ENEMY, 3s);
+                        break;
+                    }
+
+                    // Full heal on both sides so each fight starts fresh.
+                    me->SetFullHealth();
+                    target->SetFullHealth();
+
+                    _isAttackingInfantry = true;
+                    _infantryGUID = target->GetGUID();
+                    AttackStart(target);
+                    if (target->IsAIEnabled())
+                        target->AI()->AttackStart(me);
                     break;
+                }
                 case EVENT_NORTHSHIRE_WORG_GROWL:
                     if (me->GetVictim())
                         DoCastVictim(SPELL_WORG_GROWL);
@@ -426,7 +467,8 @@ struct npc_blackrock_battle_worg : public ScriptedAI
             if (!infantry || !infantry->IsAlive())
             {
                 _isAttackingInfantry = false;
-                EnterEvadeMode(EvadeReason::NoHostiles);
+                me->AttackStop();
+                _events.ScheduleEvent(EVENT_NORTHSHIRE_FIND_ENEMY, 3s);
                 return;
             }
         }

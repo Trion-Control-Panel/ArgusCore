@@ -100,3 +100,5 @@ logs/
 # Legacy VCS noise (left over from TrinityCore history)
 # -----------------------------------------------------------------------
 .hg/
+sql/TDB_world_735.26972_2025_05_11.sql
+sql/TDB_hotfixes_735.26972_2025_05_11.sql
