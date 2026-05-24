@@ -48,7 +48,7 @@ Modernize an old Legion-based TrinityCore source into a modern, stable, maintain
 | 4 | [Dependency Updates](#phase-4--dependency-updates) | **Validated** |
 | 5 | [Code Modernization](#phase-5--code-modernization) | **Complete** |
 | 6 | [CI, Testing, and Profiling](#phase-6--ci-testing-and-profiling) | **Complete** |
-| 7 | [Modular System](#phase-7--modular-system) | **Complete** |
+| 7 | [Modular System](#phase-7--modular-system) | **In progress** |
 | 8 | [Safe Async Systems](#phase-8--safe-async-systems) | **Complete** |
 | 9 | [Map Threading Research](#phase-9--map-threading-research) | **Complete** |
 | 10 | [World Layering](#phase-10--world-layering) | **Not started** |
@@ -286,7 +286,7 @@ reading the code and removes the implicit "these are second-class citizens" sign
 
 **Goals:** Introduce modular architecture slowly.
 
-### Tasks
+### C++ Module System
 
 - [x] Create `modules/` directory structure
 - [x] Add `modules/cmake/AddModule.cmake` — `add_argus_module()` helper function
@@ -296,16 +296,48 @@ reading the code and removes the implicit "these are second-class citizens" sign
 - [x] Link `modules-loader` + all module libs into worldserver from root CMakeLists.txt
 - [x] Hook `AddModuleScripts()` into `AddScripts()` in `ScriptLoader.cpp.in.cmake` (static builds only)
 
+### Database Update Layering
+
+Introduce AzerothCore-style update layers so modules, pending changes, and server-local overrides each have their own tracked directory and state. All four databases (world, auth, characters, hotfixes) are covered.
+
+**Update layers:**
+
+| State | Directory | Purpose |
+|---|---|---|
+| `RELEASED` | `sql/updates/<db>/master/` | Committed, stable updates |
+| `ARCHIVED` | `sql/old/` | Legacy history |
+| `CUSTOM` | `sql/custom/<db>/` | Server-local overrides, never committed |
+| `PENDING` | `sql/pending/<db>/` | WIP / pre-review SQL |
+| `MODULE` | `modules/mod-*/sql/<db>/` | Module-owned migrations |
+
+**Completed:**
+
+- [x] Expand `updates` and `updates_include` state enum to `RELEASED | ARCHIVED | CUSTOM | MODULE | PENDING` — SQL update files for all 4 DBs (`2026_05_24_01_world.sql`, `2026_05_24_00_auth.sql`, `2026_05_24_00_characters.sql`, `2026_05_24_00_hotfixes.sql`)
+- [x] Create `sql/pending/<db>/` directories with `.gitkeep` for all 4 DBs
+- [x] Create `.gitkeep` files in existing `sql/custom/<db>/` directories
+- [x] Register `sql/pending/<db>/` as `PENDING` and `sql/custom/<db>/` as `CUSTOM` in `updates_include` via the SQL update files
+- [x] Expand `UpdateFetcher::State` enum — add `CUSTOM`, `MODULE`, `PENDING` to `UpdateFetcher.h`
+- [x] Update `AppliedFileEntry::StateConvert` (both overloads) to handle all 5 state values correctly
+- [x] Fix `Update()` counter: only `ARCHIVED` increments `countArchivedUpdates`; `CUSTOM`/`MODULE`/`PENDING` count as recent
+- [x] Add `tools/create_sql.ps1` — generates `sql/pending/<db>/rev_<epoch_ms>.sql` and opens it in `$env:EDITOR`
+
+**Pending:**
+
+- [ ] Module SQL auto-discovery in `DBUpdater.cpp` — at startup, scan `modules/mod-*/sql/<db>/` directories and register them as `MODULE`-state include paths so module migrations are applied automatically without any manual `updates_include` entries
+
 ### How to create a module
 
 ```
 modules/mod-myfeature/
-    CMakeLists.txt       — calls add_argus_module(NAME "MyFeature")
+    CMakeLists.txt          — calls add_argus_module(NAME "MyFeature")
     src/
-        mod_myfeature.cpp — defines void AddMyFeatureScripts()
+        mod_myfeature.cpp   — defines void AddMyFeatureScripts()
         mod_myfeature.h
-    conf/                — optional: .conf.dist files
-    sql/                 — optional: database migrations
+    conf/                   — optional: .conf.dist files copied next to binary
+    sql/
+        world/              — optional: YYYY_MM_DD_NN.sql world migrations
+        auth/               — optional: auth migrations
+        characters/         — optional: character migrations
 ```
 
 ### First Modular Targets (future)
@@ -323,6 +355,7 @@ modules/mod-myfeature/
 ### Validation
 
 - [ ] Modules load correctly
+- [ ] Module SQL migrations apply on first startup without manual DB edits
 - [ ] Server remains stable
 - [ ] Gameplay unchanged
 
