@@ -102,6 +102,7 @@
 #include "VMapManager2.h"
 #include "WardenCheckMgr.h"
 #include "WaypointManager.h"
+#include "LayerManager.h"
 #include "WeatherMgr.h"
 #include "WhoListStorage.h"
 #include "WorldSession.h"
@@ -901,6 +902,9 @@ void World::LoadConfigSettings(bool reload)
         { .Name = "AuctionHouseBot.Update.Interval"sv, .DefaultValue = 20, .Index = CONFIG_AHBOT_UPDATE_INTERVAL },
         { .Name = "BlackMarket.MaxAuctions"sv, .DefaultValue = 12, .Index = CONFIG_BLACKMARKET_MAXAUCTIONS },
         { .Name = "BlackMarket.UpdatePeriod"sv, .DefaultValue = 24, .Index = CONFIG_BLACKMARKET_UPDATE_PERIOD },
+        { .Name = "Layer.MaxPlayersPerLayer"sv, .DefaultValue = DEFAULT_LAYER_MAX_PLAYERS, .Index = CONFIG_LAYER_MAX_PLAYERS, .Min = 1 },
+        { .Name = "Layer.MinPlayersPerLayer"sv, .DefaultValue = DEFAULT_LAYER_MIN_PLAYERS, .Index = CONFIG_LAYER_MIN_PLAYERS, .Min = 0 },
+        { .Name = "Layer.ChangeCooldownSecs"sv, .DefaultValue = DEFAULT_LAYER_CHANGE_CD_SECS, .Index = CONFIG_LAYER_CHANGE_COOLDOWN_SECS, .Min = 0 },
     } };
 
     static constexpr ConfigOptionLoadDefinitionArray<uint64, INT64_CONFIG_VALUE_COUNT> int64s =
@@ -1215,6 +1219,9 @@ void World::LoadConfigSettings(bool reload)
         sSupportMgr->SetSuggestionSystemStatus(m_bool_configs[CONFIG_SUPPORT_SUGGESTIONS_ENABLED]);
         sMapMgr->SetGridCleanUpDelay(m_int_configs[CONFIG_INTERVAL_GRIDCLEAN]);
         sMapMgr->SetMapUpdateInterval(m_int_configs[CONFIG_INTERVAL_MAPUPDATE]);
+        sLayerMgr->Configure(m_int_configs[CONFIG_LAYER_MAX_PLAYERS],
+                             m_int_configs[CONFIG_LAYER_MIN_PLAYERS],
+                             m_int_configs[CONFIG_LAYER_CHANGE_COOLDOWN_SECS]);
         m_timers[WUPDATE_UPTIME].SetInterval(m_int_configs[CONFIG_UPTIME_UPDATE] * MINUTE * IN_MILLISECONDS);
         m_timers[WUPDATE_UPTIME].Reset();
         m_timers[WUPDATE_CLEANDB].SetInterval(m_int_configs[CONFIG_LOGDB_CLEARINTERVAL] * MINUTE * IN_MILLISECONDS);

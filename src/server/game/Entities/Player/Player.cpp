@@ -81,6 +81,7 @@
 #include "LootItemStorage.h"
 #include "LootMgr.h"
 #include "LootPackets.h"
+#include "LayerManager.h"
 #include "Mail.h"
 #include "MailPackets.h"
 #include "MapManager.h"
@@ -17214,6 +17215,7 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
         uint32 prestigeLevel;
         PlayerRestState honorRestState;
         float honorRestBonus;
+        uint32 world_layer;
 
         explicit PlayerLoadData(Field const* fields)
         {
@@ -17299,6 +17301,7 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
             prestigeLevel = fields[i++].GetUInt32();
             honorRestState = PlayerRestState(fields[i++].GetUInt8());
             honorRestBonus = fields[i++].GetFloat();
+            world_layer    = fields[i++].GetUInt32();
         }
 
     } fields(result->Fetch());
@@ -18021,6 +18024,12 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
     _InitHonorLevelOnLoadFromDB(fields.honor, fields.honorLevel, fields.prestigeLevel);
 
     _restMgr->LoadRestBonus(REST_TYPE_HONOR, fields.honorRestState, fields.honorRestBonus);
+
+    // Seed the layer cooldown state so the 30-min anti-farm timer survives restarts.
+    // AssignLayer will still run full population-balancing rules on zone entry;
+    // this only pre-populates _playerStates so Rule 2 (cooldown) has data to check.
+    if (fields.world_layer != 0)
+        sLayerMgr->RecordPlayerLayer(GetGUID(), fields.map, fields.world_layer);
     if (time_diff > 0)
     {
         //speed collect rest bonus in offline, in logout, far from tavern, city (section/in hour)
@@ -19874,6 +19883,8 @@ void Player::SaveToDB(LoginDatabaseTransaction loginTransaction, CharacterDataba
         stmt->setUInt32(index++, GetPrestigeLevel());
         stmt->setUInt8(index++, uint8(GetUInt32Value(PLAYER_FIELD_REST_INFO + AsUnderlyingType(REST_STATE_HONOR))));
         stmt->setFloat(index++, finiteAlways(_restMgr->GetRestBonus(REST_TYPE_HONOR)));
+        // Save the open-world layer; store 0 for instanced maps (irrelevant there).
+        stmt->setUInt32(index++, GetMap() && !GetMap()->Instanceable() ? GetMap()->GetWorldLayer() : 0);
         if (std::shared_ptr<Realm const> currentRealm = sRealmList->GetCurrentRealm())
             stmt->setUInt32(index++, ClientBuild::GetMinorMajorBugfixVersionForBuild(currentRealm->Build));
         else

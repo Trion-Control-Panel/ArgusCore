@@ -308,6 +308,15 @@ bool LayerManager::ConsumePendingMigration(ObjectGuid guid, uint32& outLayerId)
     return true;
 }
 
+void LayerManager::Configure(uint32 maxPlayers, uint32 minPlayers, uint32 cooldownSecs)
+{
+    _maxPlayersPerLayer = maxPlayers;
+    _minPlayersPerLayer = minPlayers;
+    _changeCooldownSecs = cooldownSecs;
+    TC_LOG_INFO("layers", "LayerManager: configured — max {} min {} cooldown {}s.",
+        maxPlayers, minPlayers, cooldownSecs);
+}
+
 void LayerManager::MigratePlayerToLayer(Player* player, uint32 targetLayerId)
 {
     if (!player)

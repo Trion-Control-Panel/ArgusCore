@@ -120,6 +120,9 @@ public:
     // for the default (pre-layering) world map.
     uint32 GenerateLayerId();
 
+    // Called by World::LoadConfigSettings on startup and config reload.
+    void Configure(uint32 maxPlayers, uint32 minPlayers, uint32 cooldownSecs);
+
     uint32 GetMaxPlayersPerLayer() const { return _maxPlayersPerLayer; }
     uint32 GetMinPlayersPerLayer() const { return _minPlayersPerLayer; }
     uint32 GetChangeCooldownSecs() const { return _changeCooldownSecs; }
