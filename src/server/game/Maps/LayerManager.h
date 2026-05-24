@@ -35,7 +35,9 @@
 #define ARGUS_LAYERMANAGER_H
 
 #include "Define.h"
+#include "ObjectGuid.h"
 #include <atomic>
+#include <ctime>
 #include <shared_mutex>
 #include <unordered_map>
 #include <vector>
@@ -63,11 +65,11 @@ public:
 
     // Returns the layerId this player should be placed on for the given
     // open-world map and baseInstanceId (0 for normal maps, teamId 0/1 for
-    // faction-split maps).
-    //
-    // Current behaviour (stub):  always returns 0.
-    // Full behaviour (next step): respects group co-location, migration
-    //   cooldown, and population thresholds.
+    // faction-split maps).  Priority order:
+    //   0. Pending migration (server-initiated) — overrides everything.
+    //   1. Group co-location — follow the leader's current layer.
+    //   2. Migration cooldown — stay on current layer if recently moved.
+    //   3. Population balancing — least-populated layer, or a new one.
     uint32 AssignLayer(uint32 mapId, uint32 baseInstanceId, Player const* player);
 
     // -----------------------------------------------------------------------
@@ -99,6 +101,21 @@ public:
     // _maxPlayersPerLayer, meaning a new layer should be created.
     bool NeedsNewLayer(uint32 mapId) const;
 
+    // Records which layer a player was assigned to on a given map.
+    // Called by MapManager::CreateMap right after AssignLayer so the
+    // cooldown check in the next call works correctly.
+    void RecordPlayerLayer(ObjectGuid guid, uint32 mapId, uint32 layerId);
+
+    // Initiates a seamless layer migration: same position, no loading screen.
+    // Safe to call from any map thread; the actual transfer is driven by the
+    // normal TeleportTo / HandleMoveWorldportAck machinery.
+    void MigratePlayerToLayer(Player* player, uint32 targetLayerId);
+
+    // Stages a pending migration that AssignLayer will consume exactly once.
+    // Use MigratePlayerToLayer for the full migration flow; this is exposed
+    // for the group-join path (Step 4) which sets it before TeleportTo.
+    void SetPendingMigration(ObjectGuid guid, uint32 layerId);
+
     // Allocates a monotonically increasing layerId.  layerId 0 is reserved
     // for the default (pre-layering) world map.
     uint32 GenerateLayerId();
@@ -108,6 +125,13 @@ public:
     uint32 GetChangeCooldownSecs() const { return _changeCooldownSecs; }
 
 private:
+    struct PlayerLayerState
+    {
+        uint32 mapId        = 0;
+        uint32 layerId      = 0;
+        time_t lastAssigned = 0;  // Unix timestamp of the last layer assignment
+    };
+
     struct LayerData
     {
         explicit LayerData(uint32 id) : layerId(id), playerCount(0) { }
@@ -122,9 +146,18 @@ private:
         std::atomic<uint32> playerCount;
     };
 
+    bool ConsumePendingMigration(ObjectGuid guid, uint32& outLayerId);
+
     // mapId → list of active layers for that map (created in registration order)
     std::unordered_map<uint32, std::vector<LayerData>> _layers;
-    mutable std::shared_mutex                          _lock;
+
+    // playerGuid (raw) → last layer assignment per player
+    std::unordered_map<uint64, PlayerLayerState> _playerStates;
+
+    // playerGuid (raw) → pending layer to migrate to (consumed by AssignLayer)
+    std::unordered_map<uint64, uint32> _pendingMigrations;
+
+    mutable std::shared_mutex _lock;
 
     std::atomic<uint32> _nextLayerId{ 1 };  // 0 is the default unassigned layer
 

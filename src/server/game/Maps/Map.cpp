@@ -16,6 +16,7 @@
  */
 
 #include "Map.h"
+#include "LayerManager.h"
 #include "BattlegroundMgr.h"
 #include "BattlegroundScript.h"
 #include "CellImpl.h"
@@ -416,6 +417,7 @@ bool Map::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     if (player->IsAlive())
         ConvertCorpseToBones(player->GetGUID());
 
+    sLayerMgr->OnPlayerEnter(GetId(), m_worldLayer);
     sScriptMgr->OnPlayerEnterMap(this, player);
     return true;
 }
@@ -966,6 +968,7 @@ void Map::RemovePlayerFromMap(Player* player, bool remove)
 {
     // Before leaving map, update zone/area for stats
     player->UpdateZone(MAP_INVALID_ZONE, 0);
+    sLayerMgr->OnPlayerLeave(GetId(), m_worldLayer);
     sScriptMgr->OnPlayerLeaveMap(this, player);
 
     GetMultiPersonalPhaseTracker().MarkAllPhasesForDeletion(player->GetGUID());

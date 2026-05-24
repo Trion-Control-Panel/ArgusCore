@@ -253,6 +253,7 @@ Map* MapManager::CreateMap(uint32 mapId, Player* player, Optional<uint32> lfgDun
             newInstanceId = player->GetTeamId();
 
         uint32 layerId = sLayerMgr->AssignLayer(mapId, newInstanceId, player);
+        sLayerMgr->RecordPlayerLayer(player->GetGUID(), mapId, layerId);
         map = FindMap_i(mapId, newInstanceId, layerId);
         if (!map)
             map = CreateWorldMap(mapId, newInstanceId, layerId);

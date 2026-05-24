@@ -1338,7 +1338,9 @@ bool Player::TeleportTo(TeleportLocation const& teleportLocation, TeleportToOpti
     if (duel && GetMapId() != teleportLocation.Location.GetMapId() && GetMap()->GetGameObject(GetGuidValue(PLAYER_DUEL_ARBITER)))
         DuelComplete(DUEL_FLED);
 
-    if (GetMapId() == teleportLocation.Location.GetMapId() && (!teleportLocation.InstanceId || GetInstanceId() == teleportLocation.InstanceId))
+    // Layer migration must take the far-teleport path even though mapId is identical,
+    // so that HandleMoveWorldportAck calls CreateMap and picks up the pending layer.
+    if (GetMapId() == teleportLocation.Location.GetMapId() && (!teleportLocation.InstanceId || GetInstanceId() == teleportLocation.InstanceId) && !(options & TELE_TO_LAYER_MIGRATION))
     {
         //lets reset far teleport flag if it wasn't reset during chained teleport
         SetSemaphoreTeleportFar(false);
@@ -1402,11 +1404,15 @@ bool Player::TeleportTo(TeleportLocation const& teleportLocation, TeleportToOpti
             return false;
         }
 
-        // Seamless teleport can happen only if cosmetic maps match
-        if (!oldmap ||
-            (oldmap->GetEntry()->CosmeticParentMapID != int32(teleportLocation.Location.GetMapId()) && int32(GetMapId()) != mEntry->CosmeticParentMapID &&
-            !((oldmap->GetEntry()->CosmeticParentMapID != -1) ^ (oldmap->GetEntry()->CosmeticParentMapID != mEntry->CosmeticParentMapID))))
-            options &= ~TELE_TO_SEAMLESS;
+        // Seamless teleport can happen only if cosmetic maps match.
+        // Layer migration is exempt: same mapId, different layer — always seamless.
+        if (!(options & TELE_TO_LAYER_MIGRATION))
+        {
+            if (!oldmap ||
+                (oldmap->GetEntry()->CosmeticParentMapID != int32(teleportLocation.Location.GetMapId()) && int32(GetMapId()) != mEntry->CosmeticParentMapID &&
+                !((oldmap->GetEntry()->CosmeticParentMapID != -1) ^ (oldmap->GetEntry()->CosmeticParentMapID != mEntry->CosmeticParentMapID))))
+                options &= ~TELE_TO_SEAMLESS;
+        }
 
         //lets reset near teleport flag if it wasn't reset during chained teleports
         SetSemaphoreTeleportNear(false);

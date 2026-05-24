@@ -17,6 +17,8 @@
 
 #include "Group.h"
 #include "Battleground.h"
+#include "LayerManager.h"
+#include "Map.h"
 #include "BattlegroundMgr.h"
 #include "CharacterCache.h"
 #include "DatabaseEnv.h"
@@ -498,6 +500,27 @@ bool Group::AddMember(Player* player)
         {
             player->SetLegacyRaidDifficultyID(GetLegacyRaidDifficultyID());
             player->SendRaidDifficulty(true);
+        }
+
+        // Layer migration: if player and leader are already on the same open-world
+        // map but different layers, migrate the new member seamlessly now.
+        // If they're on different maps entirely, AssignLayer Rule 1 handles it
+        // automatically when the player next enters a zone (no action needed here).
+        {
+            ObjectGuid leaderGuid = GetLeaderGUID();
+            if (Player* leader = ObjectAccessor::FindConnectedPlayer(leaderGuid))
+            {
+                Map* leaderMap = leader->GetMap();
+                Map* playerMap = player->GetMap();
+                if (leaderMap && playerMap
+                    && !leaderMap->Instanceable()
+                    && leaderMap->GetId()         == playerMap->GetId()
+                    && leaderMap->GetInstanceId() == playerMap->GetInstanceId()
+                    && leaderMap->GetWorldLayer() != playerMap->GetWorldLayer())
+                {
+                    sLayerMgr->MigratePlayerToLayer(player, leaderMap->GetWorldLayer());
+                }
+            }
         }
     }
 
