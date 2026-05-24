@@ -22,6 +22,7 @@
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "ScriptedCreature.h"
+#include "SpellInfo.h"
 
 enum COG_Paths
 {
@@ -273,7 +274,175 @@ private:
     GuidVector _childrenGUIDs;
 };
 
+/*
+ * Northshire Valley ambient battle: Stormwind Infantry (49869) and Blackrock
+ * Battle Worg (49871) fight each other indefinitely.  Combat is fully script-driven
+ * via explicit AttackStart calls -- no faction change on the worg.  Keeping the worg
+ * at its default neutral faction (32) means no Stormwind NPCs (guards, free infantry)
+ * ever auto-aggro it.  Both AIs bypass UpdateVictim() while paired so SelectVictim's
+ * faction-hostility check (IsValidAttackTarget CvC) does not force an evade.
+ * Damage from the opposing NPC is clamped once health drops below 85%, keeping both
+ * sides alive forever.  Player attacks are not protected.
+ *
+ * References: SkyFire 5.4.8, TrinityCore-Cata zone_elwynn_forest.cpp
+ */
+
+enum Northshire
+{
+    NPC_STORMWIND_INFANTRY_E    = 49869,
+    NPC_BLACKROCK_BATTLE_WORG_E = 49871,
+
+    NORTHSHIRE_AI_HEALTH_MIN    = 85,   // health floor for NPC-vs-NPC damage (blizzlike, SkyFire ref)
+
+    EVENT_NORTHSHIRE_FIND_ENEMY = 1,
+    EVENT_NORTHSHIRE_WORG_GROWL = 2,
+
+    SPELL_WORG_GROWL            = 2649, // cosmetic growl cast on victim
+};
+
+// 49869 - Stormwind Infantry
+struct npc_stormwind_infantry_northshire : public ScriptedAI
+{
+    npc_stormwind_infantry_northshire(Creature* creature) : ScriptedAI(creature) { }
+
+    void Reset() override
+    {
+        me->SetSheath(SHEATH_STATE_UNARMED);
+    }
+
+    void AttackStart(Unit* who) override
+    {
+        AttackStartNoMove(who);
+    }
+
+    void DamageTaken(Unit* attacker, uint32& damage, DamageEffectType /*damageType*/, SpellInfo const* /*spellInfo = nullptr*/) override
+    {
+        if (attacker && attacker->GetEntry() == NPC_BLACKROCK_BATTLE_WORG_E)
+        {
+            uint64 const floor = me->CountPctFromMaxHealth(NORTHSHIRE_AI_HEALTH_MIN);
+            if (me->GetHealth() <= floor)
+                damage = 0;
+            else
+                damage = std::min<uint32>(damage, uint32(me->GetHealth() - floor));
+        }
+    }
+
+    // No UpdateVictim() -- intentional (TC Cata pattern).
+    // m_attacking is set when the worg calls AttackStart on us; DoMeleeAttackIfReady
+    // uses GetVictim() == m_attacking internally and is a no-op if it is null.
+    void UpdateAI(uint32 /*diff*/) override
+    {
+        me->DoMeleeAttackIfReady();
+    }
+};
+
+// 49871 - Blackrock Battle Worg
+struct npc_blackrock_battle_worg : public ScriptedAI
+{
+    npc_blackrock_battle_worg(Creature* creature)
+        : ScriptedAI(creature), _isAttackingInfantry(false) { }
+
+    void Reset() override
+    {
+        _isAttackingInfantry = false;
+        _infantryGUID.Clear();
+        _events.Reset();
+        _events.ScheduleEvent(EVENT_NORTHSHIRE_FIND_ENEMY, 1s);
+        _events.ScheduleEvent(EVENT_NORTHSHIRE_WORG_GROWL, randtime(8s, 18s));
+    }
+
+    // Stationary only -- no chase generator, no pathfinding, no CanNotReachTarget evade.
+    void AttackStart(Unit* who) override
+    {
+        AttackStartNoMove(who);
+    }
+
+    void JustDied(Unit* /*killer*/) override
+    {
+        if (Creature* infantry = ObjectAccessor::GetCreature(*me, _infantryGUID))
+            infantry->AI()->EnterEvadeMode();
+    }
+
+    void DamageTaken(Unit* attacker, uint32& damage, DamageEffectType /*damageType*/, SpellInfo const* /*spellInfo = nullptr*/) override
+    {
+        if (!attacker)
+            return;
+
+        if (attacker->GetEntry() == NPC_STORMWIND_INFANTRY_E)
+        {
+            uint64 const floor = me->CountPctFromMaxHealth(NORTHSHIRE_AI_HEALTH_MIN);
+            if (me->GetHealth() <= floor)
+                damage = 0;
+            else
+                damage = std::min<uint32>(damage, uint32(me->GetHealth() - floor));
+        }
+        else
+        {
+            // Player or pet attack: allow the kill. Clearing the flag lets
+            // UpdateVictim() pick them up so the worg fights back.
+            _isAttackingInfantry = false;
+        }
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        _events.Update(diff);
+
+        while (uint32 eventId = _events.ExecuteEvent())
+        {
+            switch (eventId)
+            {
+                case EVENT_NORTHSHIRE_FIND_ENEMY:
+                    if (Creature* infantry = me->FindNearestCreature(NPC_STORMWIND_INFANTRY_E, 20.0f, true))
+                    {
+                        _isAttackingInfantry = true;
+                        _infantryGUID = infantry->GetGUID();
+                        AttackStart(infantry);
+                        if (infantry->IsAIEnabled())
+                            infantry->AI()->AttackStart(me);
+                    }
+                    else
+                        _events.ScheduleEvent(EVENT_NORTHSHIRE_FIND_ENEMY, 3s);
+                    break;
+                case EVENT_NORTHSHIRE_WORG_GROWL:
+                    if (me->GetVictim())
+                        DoCastVictim(SPELL_WORG_GROWL);
+                    _events.ScheduleEvent(EVENT_NORTHSHIRE_WORG_GROWL, randtime(8s, 18s));
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        // TC Cata pattern: when _isAttackingInfantry is true the short-circuit prevents
+        // UpdateVictim() from running, so SelectVictim() never triggers an evade on our
+        // non-hostile faction pair. When not paired, UpdateVictim() handles player targets.
+        if (!_isAttackingInfantry && !UpdateVictim())
+            return;
+
+        if (_isAttackingInfantry)
+        {
+            Creature* infantry = ObjectAccessor::GetCreature(*me, _infantryGUID);
+            if (!infantry || !infantry->IsAlive())
+            {
+                _isAttackingInfantry = false;
+                EnterEvadeMode(EvadeReason::NoHostiles);
+                return;
+            }
+        }
+
+        me->DoMeleeAttackIfReady();
+    }
+
+private:
+    EventMap _events;
+    ObjectGuid _infantryGUID;
+    bool _isAttackingInfantry;
+};
+
 void AddSC_elwynn_forest()
 {
     RegisterCreatureAI(npc_cameron);
+    RegisterCreatureAI(npc_stormwind_infantry_northshire);
+    RegisterCreatureAI(npc_blackrock_battle_worg);
 }
