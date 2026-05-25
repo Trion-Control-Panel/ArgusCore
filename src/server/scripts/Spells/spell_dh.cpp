@@ -159,7 +159,7 @@ enum DemonHunterSpells
     SPELL_DH_NEMESIS_ABERRATIONS                   = 208607,
     SPELL_DH_NEMESIS_BEASTS                        = 208608,
     SPELL_DH_NEMESIS_CRITTERS                      = 208609,
-    SPELL_DH_NEMESIS_DEMONS                        = 208608,
+    SPELL_DH_NEMESIS_DEMONS                        = 208579,
     SPELL_DH_NEMESIS_DRAGONKIN                     = 208610,
     SPELL_DH_NEMESIS_ELEMENTALS                    = 208611,
     SPELL_DH_NEMESIS_GIANTS                        = 208612,
@@ -214,6 +214,28 @@ enum DemonHunterSpells
     SPELL_DH_VENGEFUL_BONDS                        = 320635,
     SPELL_DH_VENGEFUL_RETREAT                      = 198813,
     SPELL_DH_VENGEFUL_RETREAT_TRIGGER              = 198793,
+
+    // Ported from LegionCore
+    SPELL_DH_ANGUISH                            = 202443,
+    SPELL_DH_ANGUISH_DAMAGE                     = 202446,
+    SPELL_DH_DESPERATE_INSTINCTS_TALENT         = 205478,
+    SPELL_DH_EYE_OF_LEOTHERAS_MARK              = 206649,
+    SPELL_DH_FEL_LANCE                          = 206966,
+    SPELL_DH_FLAMING_SOUL                       = 238118,
+    SPELL_DH_FUELED_BY_PAIN_TALENT              = 213017,
+    SPELL_DH_FUELED_BY_PAIN_LINGERING_ORDEAL    = 238046,
+    SPELL_DH_MANA_BREAK                         = 203704,
+    SPELL_DH_NEMESIS_TALENT                     = 206491,
+    SPELL_DH_REVERSE_MAGIC                      = 205604,
+    SPELL_DH_SHATTERED_SOULS_HAVOC_KILL         = 178940,
+    SPELL_DH_SHATTERED_SOULS_VENGEANCE_KILL     = 204254,
+    SPELL_DH_SHATTER_SOUL_AT_HAVOC_LESSER       = 228536,
+    SPELL_DH_SHATTER_SOUL_AT_HAVOC_NORMAL       = 226370,
+    SPELL_DH_SHATTER_SOUL_AT_HAVOC_DEMON        = 226259,
+    SPELL_DH_SHATTER_SOUL_AT_VENGEANCE_NORMAL   = 226263,
+    SPELL_DH_SHATTER_SOUL_AT_VENGEANCE_DEMON    = 226264,
+    SPELL_DH_SHATTER_SOUL_HAVOC_NORMAL_CAST     = 209651,
+    SPELL_DH_METAMORPHOSIS_IMPACT_PLAYER        = 247121,
 };
 
 enum DemonHunterSpellCategories
@@ -1722,6 +1744,478 @@ class spell_dh_violent_transformation : public AuraScript
     }
 };
 
+// 202443 - Anguish
+// On aura removal fires accumulated stacks as a single burst hit.
+class spell_dh_anguish : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_ANGUISH_DAMAGE });
+    }
+
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/) const
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetTarget();
+        if (!caster || !target)
+            return;
+
+        caster->CastSpell(target, SPELL_DH_ANGUISH_DAMAGE, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, int32(GetStackAmount()) } }
+        });
+    }
+
+    void Register() override
+    {
+        OnEffectRemove += AuraEffectRemoveFn(spell_dh_anguish::OnRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 202446 - Anguish
+// Multiplies base damage by the stack count forwarded via SPELLVALUE_BASE_POINT0.
+class spell_dh_anguish_damage : public SpellScript
+{
+    void HandleOnHit()
+    {
+        if (GetHitUnit())
+            SetHitDamage(GetHitDamage() * GetSpellValue()->EffectBasePoints[EFFECT_0]);
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_dh_anguish_damage::HandleOnHit);
+    }
+};
+
+// 206491 - Nemesis
+// When the marked target dies, apply a long-duration damage bonus matching its creature type.
+class spell_dh_nemesis : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({
+            SPELL_DH_NEMESIS_HUMANOIDS,  SPELL_DH_NEMESIS_DEMONS,     SPELL_DH_NEMESIS_ABERRATIONS,
+            SPELL_DH_NEMESIS_BEASTS,     SPELL_DH_NEMESIS_CRITTERS,   SPELL_DH_NEMESIS_DRAGONKIN,
+            SPELL_DH_NEMESIS_ELEMENTALS, SPELL_DH_NEMESIS_GIANTS,     SPELL_DH_NEMESIS_MECHANICALS,
+            SPELL_DH_NEMESIS_UNDEAD
+        });
+    }
+
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/) const
+    {
+        if (GetTargetApplication()->GetRemoveMode() != AURA_REMOVE_BY_DEATH)
+            return;
+
+        Unit* caster = GetCaster();
+        Unit* target = GetTarget();
+        if (!caster || !target)
+            return;
+
+        uint32 spellId = 0;
+        switch (target->GetCreatureType())
+        {
+            case CREATURE_TYPE_HUMANOID:   spellId = SPELL_DH_NEMESIS_HUMANOIDS;   break;
+            case CREATURE_TYPE_DEMON:      spellId = SPELL_DH_NEMESIS_DEMONS;      break;
+            case CREATURE_TYPE_ABERRATION: spellId = SPELL_DH_NEMESIS_ABERRATIONS; break;
+            case CREATURE_TYPE_BEAST:      spellId = SPELL_DH_NEMESIS_BEASTS;      break;
+            case CREATURE_TYPE_CRITTER:    spellId = SPELL_DH_NEMESIS_CRITTERS;    break;
+            case CREATURE_TYPE_DRAGONKIN:  spellId = SPELL_DH_NEMESIS_DRAGONKIN;   break;
+            case CREATURE_TYPE_ELEMENTAL:  spellId = SPELL_DH_NEMESIS_ELEMENTALS;  break;
+            case CREATURE_TYPE_GIANT:      spellId = SPELL_DH_NEMESIS_GIANTS;      break;
+            case CREATURE_TYPE_MECHANICAL: spellId = SPELL_DH_NEMESIS_MECHANICALS; break;
+            case CREATURE_TYPE_UNDEAD:     spellId = SPELL_DH_NEMESIS_UNDEAD;      break;
+            default: return;
+        }
+
+        // Duration comes from the buff spell data (300 sec in 7.3.5).
+        caster->CastSpell(caster, spellId, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR
+        });
+    }
+
+    void Register() override
+    {
+        AfterEffectRemove += AuraEffectRemoveFn(spell_dh_nemesis::OnRemove, EFFECT_0, SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 205478 - Desperate Instincts
+// Automatically casts Blur when the DH falls below 35% HP (respects Blur's cooldown).
+class spell_dh_desperate_instincts : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_BLUR_TRIGGER });
+    }
+
+    void HandleTrigger(AuraEffect const* /*aurEff*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (caster->GetHealthPct() >= 35.f)
+        {
+            Remove();
+            return;
+        }
+
+        if (!caster->GetSpellHistory()->HasCooldown(SPELL_DH_BLUR_TRIGGER))
+            caster->CastSpell(caster, SPELL_DH_BLUR_TRIGGER, CastSpellExtraArgsInit{
+                // Respect category cooldown so Blur can only auto-fire once per real cooldown.
+                .TriggerFlags = TriggerCastFlags(TRIGGERED_FULL_MASK & ~TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD)
+            });
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dh_desperate_instincts::HandleTrigger, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
+    }
+};
+
+// 205604 - Reverse Magic (Honor Talent)
+// Strips all dispellable magic/poison effects from the target and copies them back to their original caster.
+class spell_dh_reverse_magic : public SpellScript
+{
+    void HandleOnHit()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        uint32 const dispelMask = (1 << DISPEL_MAGIC) | (1 << DISPEL_POISON);
+        DispelChargesList dispelList;
+        target->GetDispellableAuraList(caster, dispelMask, dispelList);
+        if (dispelList.empty())
+            return;
+
+        float const range = GetSpellInfo()->GetEffect(EFFECT_0).CalcValue(caster);
+
+        for (DispelableAura& dispelEntry : dispelList)
+        {
+            Aura* aura = dispelEntry.GetAura();
+            if (!aura)
+                continue;
+
+            Unit* origCaster = aura->GetCaster();
+            if (origCaster && caster->GetDistance(origCaster) <= range)
+            {
+                if (Aura* reflected = origCaster->AddAura(aura->GetSpellInfo()->Id, origCaster))
+                {
+                    reflected->SetStackAmount(aura->GetStackAmount());
+                    reflected->SetDuration(aura->GetDuration());
+                    for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+                        if (AuraEffect* dst = reflected->GetEffect(i))
+                            if (AuraEffect const* src = aura->GetEffect(i))
+                            {
+                                dst->SetAmount(src->GetAmount());
+                                dst->SetPeriodicTimer(src->GetPeriodicTimer());
+                            }
+                }
+            }
+
+            target->RemoveAurasDueToSpellByDispel(aura->GetId(), SPELL_DH_REVERSE_MAGIC, aura->GetCasterGUID(), caster);
+        }
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_dh_reverse_magic::HandleOnHit);
+    }
+};
+
+// 206966 - Fel Lance (Honor Talent)
+// Deals damage equal to a percentage of the target's maximum health.
+class spell_dh_fel_lance : public SpellScript
+{
+    void HandleDamage(SpellEffIndex effIndex)
+    {
+        if (Unit* target = GetHitUnit())
+            SetHitDamage(target->CountPctFromMaxHealth(GetSpellInfo()->GetEffect(effIndex).CalcValue(GetCaster())));
+    }
+
+    void Register() override
+    {
+        OnEffectLaunchTarget += SpellEffectFn(spell_dh_fel_lance::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 206650 - Eye of Leotheras (Honor Talent)
+// Damages the target for a percentage of their max HP and refreshes the Eye of Leotheras mark.
+class spell_dh_eye_of_leotheras : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_EYE_OF_LEOTHERAS_MARK });
+    }
+
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        Unit* target = GetHitUnit();
+        if (!target)
+            return;
+
+        SpellInfo const* markInfo = sSpellMgr->GetSpellInfo(SPELL_DH_EYE_OF_LEOTHERAS_MARK, DIFFICULTY_NONE);
+        if (!markInfo)
+            return;
+
+        SetHitDamage(target->CountPctFromMaxHealth(markInfo->GetEffect(EFFECT_0).CalcValue(GetCaster())));
+
+        if (Aura* mark = target->GetAura(SPELL_DH_EYE_OF_LEOTHERAS_MARK))
+            mark->SetDuration(mark->GetMaxDuration());
+    }
+
+    void Register() override
+    {
+        OnEffectLaunchTarget += SpellEffectFn(spell_dh_eye_of_leotheras::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 203704 - Mana Break (Honor Talent)
+// Deals damage scaled by how much mana the target is missing (more missing mana = more damage).
+class spell_dh_mana_break : public SpellScript
+{
+    bool Validate(SpellInfo const* spellInfo) override
+    {
+        return ValidateSpellEffect({ { spellInfo->Id, EFFECT_3 } });
+    }
+
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        Unit* target = GetHitUnit();
+        if (!target)
+            return;
+
+        int32 basePercent = GetSpellInfo()->GetEffect(EFFECT_0).CalcValue(GetCaster());
+
+        if (target->GetMaxPower(POWER_MANA) > 0)
+        {
+            float missingManaPct = 100.f - target->GetPowerPct(POWER_MANA);
+            basePercent += int32(missingManaPct * 0.2f);
+
+            int32 const cap = GetSpellInfo()->GetEffect(EFFECT_3).CalcValue(GetCaster());
+            if (basePercent > cap)
+                basePercent = cap;
+        }
+
+        SetHitDamage(target->CountPctFromMaxHealth(basePercent));
+    }
+
+    void Register() override
+    {
+        OnEffectLaunchTarget += SpellEffectFn(spell_dh_mana_break::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 235904 - Mana Rift (Honor Talent)
+// Deals max HP damage and burns mana proportional to the target's max mana pool.
+class spell_dh_mana_rift : public SpellScript
+{
+    void HandleDamage(SpellEffIndex effIndex)
+    {
+        if (Unit* target = GetHitUnit())
+            SetHitDamage(target->CountPctFromMaxHealth(GetSpellInfo()->GetEffect(effIndex).CalcValue(GetCaster())));
+    }
+
+    void HandleMana(SpellEffIndex effIndex)
+    {
+        if (Unit* target = GetHitUnit())
+            SetEffectValue(CalculatePct(target->GetMaxPower(POWER_MANA), GetSpellInfo()->GetEffect(effIndex).CalcValue(GetCaster())));
+    }
+
+    void Register() override
+    {
+        OnEffectLaunchTarget += SpellEffectFn(spell_dh_mana_rift::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+        OnEffectLaunchTarget += SpellEffectFn(spell_dh_mana_rift::HandleMana, EFFECT_1, SPELL_EFFECT_POWER_BURN);
+    }
+};
+
+// 178940 - Shattered Souls (Havoc passive)
+// 204254 - Shattered Souls (Vengeance passive)
+// On kill, spawns a soul fragment AreaTrigger at the enemy's location.
+class spell_dh_shattered_souls : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({
+            SPELL_DH_SHATTER_SOUL_HAVOC_NORMAL_CAST, SPELL_DH_SHATTERED_SOUL_LESSER_SOUL_FRAGMENT_2,
+            SPELL_DH_SHATTER_SOUL_2, SPELL_DH_SHATTER_SOUL_1
+        });
+    }
+
+    void OnProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo) const
+    {
+        Unit* caster = GetCaster();
+        Unit* target = eventInfo.GetActionTarget();
+        if (!caster || !target)
+            return;
+
+        bool isDemon = target->GetCreatureType() == CREATURE_TYPE_DEMON;
+
+        if (GetId() == SPELL_DH_SHATTERED_SOULS_HAVOC_KILL)
+        {
+            uint32 fragSpell = isDemon ? SPELL_DH_SHATTERED_SOUL_LESSER_SOUL_FRAGMENT_2 : SPELL_DH_SHATTER_SOUL_HAVOC_NORMAL_CAST;
+            caster->CastSpell(caster, fragSpell, TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
+        }
+        else // Vengeance
+        {
+            uint32 fragSpell = isDemon ? SPELL_DH_SHATTER_SOUL_2 : SPELL_DH_SHATTER_SOUL_1;
+            caster->CastSpell(caster, fragSpell, TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_dh_shattered_souls::OnProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 209980 - Shattered Soul (lesser, Vengeance)  209981 - (big, Vengeance)
+// 210038 - (big demon, Vengeance)  228533 - (lesser, Havoc)
+// 237867 - (big demon, Havoc)      209651 - (big, Havoc)
+// Spawns the matching soul fragment AreaTrigger at the spell destination.
+class spell_dh_shatter_soul : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({
+            SPELL_DH_SHATTERED_SOUL,
+            SPELL_DH_SHATTER_SOUL_AT_HAVOC_LESSER,  SPELL_DH_SHATTER_SOUL_AT_VENGEANCE_DEMON,
+            SPELL_DH_SHATTER_SOUL_AT_VENGEANCE_NORMAL, SPELL_DH_SHATTER_SOUL_AT_HAVOC_DEMON,
+            SPELL_DH_SHATTER_SOUL_AT_HAVOC_NORMAL
+        });
+    }
+
+    void HandleHitTarget(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        WorldLocation const* loc = GetExplTargetDest();
+        if (!caster || !loc)
+            return;
+
+        uint32 atSpell = 0;
+        switch (GetSpellInfo()->Id)
+        {
+            case SPELL_DH_SHATTER_SOUL:                           atSpell = SPELL_DH_SHATTERED_SOUL;                  break; // lesser Vengeance
+            case SPELL_DH_SHATTERED_SOUL_LESSER_SOUL_FRAGMENT_1: atSpell = SPELL_DH_SHATTER_SOUL_AT_HAVOC_LESSER;    break; // lesser Havoc
+            case SPELL_DH_SHATTER_SOUL_2:                         atSpell = SPELL_DH_SHATTER_SOUL_AT_VENGEANCE_DEMON; break; // big demon Vengeance
+            case SPELL_DH_SHATTER_SOUL_1:                         atSpell = SPELL_DH_SHATTER_SOUL_AT_VENGEANCE_NORMAL;break; // big Vengeance
+            case SPELL_DH_SHATTERED_SOUL_LESSER_SOUL_FRAGMENT_2: atSpell = SPELL_DH_SHATTER_SOUL_AT_HAVOC_DEMON;     break; // big demon Havoc
+            case SPELL_DH_SHATTER_SOUL_HAVOC_NORMAL_CAST:         atSpell = SPELL_DH_SHATTER_SOUL_AT_HAVOC_NORMAL;   break; // big Havoc
+            default: return;
+        }
+
+        caster->CastSpell(*loc, atSpell, TRIGGERED_FULL_MASK);
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_dh_shatter_soul::HandleHitTarget, EFFECT_1, SPELL_EFFECT_TRIGGER_MISSILE);
+    }
+};
+
+// 238118 - Flaming Soul
+// Extends Fiery Brand's duration on the target each time the aura procs.
+class spell_dh_flaming_soul : public AuraScript
+{
+    void OnProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo) const
+    {
+        Unit* caster = GetCaster();
+        Unit* target = eventInfo.GetActionTarget();
+        if (!caster || !target)
+            return;
+
+        uint32 brandId = caster->HasAura(SPELL_DH_BURNING_ALIVE) ? SPELL_DH_FIERY_BRAND_DEBUFF_RANK_2 : SPELL_DH_FIERY_BRAND_DEBUFF_RANK_1;
+        if (Aura* brand = target->GetAura(brandId, caster->GetGUID()))
+        {
+            int32 newDur = brand->GetDuration() + aurEff->GetAmount();
+            brand->SetDuration(newDur);
+
+            // 212818 is the periodic damage component of Fiery Brand — extend it too.
+            if (Aura* periodic = target->GetAura(212818, caster->GetGUID()))
+                periodic->SetDuration(newDur);
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_dh_flaming_soul::OnProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 213017 - Fueled by Pain
+// Each time the Vengeance DH takes sufficient damage, extends (or starts) Metamorphosis.
+class spell_dh_fueled_by_pain : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_METAMORPHOSIS_VENGEANCE_TRANSFORM });
+    }
+
+    void OnProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo) const
+    {
+        Unit* caster = eventInfo.GetActor();
+        if (!caster)
+            return;
+
+        int32 extension = aurEff->GetAmount() * IN_MILLISECONDS;
+        if (AuraEffect const* lingering = caster->GetAuraEffect(SPELL_DH_FUELED_BY_PAIN_LINGERING_ORDEAL, EFFECT_0))
+            extension += lingering->GetAmount();
+
+        if (Aura* meta = caster->GetAura(SPELL_DH_METAMORPHOSIS_VENGEANCE_TRANSFORM))
+        {
+            meta->SetDuration(meta->GetDuration() + extension, true);
+        }
+        else
+        {
+            caster->CastSpell(caster, SPELL_DH_METAMORPHOSIS_VENGEANCE_TRANSFORM, CastSpellExtraArgsInit{
+                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+                .SpellValueOverrides = { { SPELLVALUE_DURATION, extension } }
+            });
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_dh_fueled_by_pain::OnProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 200166 - Metamorphosis (Havoc impact damage)
+// Filters players from the AoE knockback — players hit by Metamorphosis receive a different spell.
+class spell_dh_metamorphosis_impact : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_METAMORPHOSIS_IMPACT_PLAYER });
+    }
+
+    void FilterTargets(std::list<WorldObject*>& targets)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        targets.remove_if([caster, this](WorldObject* obj)
+        {
+            if (Player* plr = obj->ToPlayer())
+            {
+                caster->CastSpell(plr, SPELL_DH_METAMORPHOSIS_IMPACT_PLAYER,
+                    TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
+                return true;
+            }
+            return false;
+        });
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_dh_metamorphosis_impact::FilterTargets, EFFECT_0, TARGET_UNIT_SRC_AREA_ENEMY);
+    }
+};
+
 void AddSC_demon_hunter_spell_scripts()
 {
     RegisterSpellScript(spell_dh_army_unto_oneself);
@@ -1797,6 +2291,22 @@ void AddSC_demon_hunter_spell_scripts()
 
     RegisterSpellAndAuraScriptPair(spell_dh_glide, spell_dh_glide_AuraScript);
     RegisterSpellScript(spell_dh_glide_timer);
+
+    // Ported from LegionCore
+    RegisterSpellScript(spell_dh_anguish);
+    RegisterSpellScript(spell_dh_anguish_damage);
+    RegisterSpellScript(spell_dh_nemesis);
+    RegisterSpellScript(spell_dh_desperate_instincts);
+    RegisterSpellScript(spell_dh_reverse_magic);
+    RegisterSpellScript(spell_dh_fel_lance);
+    RegisterSpellScript(spell_dh_eye_of_leotheras);
+    RegisterSpellScript(spell_dh_mana_break);
+    RegisterSpellScript(spell_dh_mana_rift);
+    RegisterSpellScript(spell_dh_shattered_souls);
+    RegisterSpellScript(spell_dh_shatter_soul);
+    RegisterSpellScript(spell_dh_flaming_soul);
+    RegisterSpellScript(spell_dh_fueled_by_pain);
+    RegisterSpellScript(spell_dh_metamorphosis_impact);
 
     // Soulbind conduits
     RegisterSpellScript(spell_dh_soul_furnace_conduit);

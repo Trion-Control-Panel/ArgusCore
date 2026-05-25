@@ -51,8 +51,9 @@ Modernize an old Legion-based TrinityCore source into a modern, stable, maintain
 | 7 | [Modular System](#phase-7--modular-system) | **Complete** |
 | 8 | [Safe Async Systems](#phase-8--safe-async-systems) | **Complete** |
 | 9 | [Map Threading Research](#phase-9--map-threading-research) | **Complete** |
-| 10 | [World Layering](#phase-10--world-layering) | **Not started** |
+| 10 | [World Layering](#phase-10--world-layering) | **Complete** |
 | 11 | [NPC Gameplay Systems](#phase-11--npc-gameplay-systems) | **In progress** |
+| 12 | [Class Spell Restoration](#phase-12--class-spell-restoration) | **Not started** |
 
 ---
 
@@ -518,6 +519,310 @@ NPCs regenerate resources, conserve energy, build rage on hits, and adjust abili
 - [ ] Level 1: all major humanoid NPC types show correct power bar
 - [ ] Level 2: resource depletion works, no boss script regressions
 - [ ] Level 3: NPC combat feels natural, no AI performance regression
+
+---
+
+## Phase 12 — Class Spell Restoration
+
+**Goals:** Port Legion-era spell scripts from `logs/LegionCore-7.3.5-merged` into ArgusCore one spell at a time. Each spell is verified in-game before the next begins.
+
+### Why
+
+ArgusCore's `src/server/scripts/Spells/` has post-Legion (BfA/Shadowlands) implementations for several classes, but is missing a large body of 7.3.5-era implementations that existed in original Legion-era codebases. LegionCore contains those original scripts. Porting them restores correct Legion behavior for spells that currently do nothing or behave incorrectly.
+
+### Source Reference
+
+All source scripts are in:
+`C:\Users\Administrator\Documents\GitHub\ArgusCore\logs\LegionCore-7.3.5-merged\src\server\scripts\Spells\`
+
+Target files are in:
+`C:\Users\Administrator\Documents\GitHub\ArgusCore\src\server\scripts\Spells\`
+
+### Rules
+
+- Port **one struct at a time** — compile and test before moving to the next
+- Do NOT copy blindly — read what the script does and confirm it matches 7.3.5 spell IDs in the DBC
+- If ArgusCore already has a newer (more complete) implementation of the same spell, skip it
+- Keep LegionCore comments intact where they explain a design decision
+- Priest and Shaman are skipped — ArgusCore already has more complete implementations than LegionCore
+
+### Commit format
+
+```
+feat(scripts/spell): port spell_monk_chi_wave from LegionCore
+```
+
+---
+
+### Death Knight (36 missing)
+
+Source: `spell_dk.cpp` (LegionCore) → `spell_dk.cpp` (ArgusCore)
+
+- [ ] `spell_dk_marrowrend`
+- [ ] `spell_dk_bone_shield`
+- [ ] `spell_dk_tombstone`
+- [ ] `spell_dk_bonestorm`
+- [ ] `spell_dk_blood_mirror`
+- [ ] `spell_dk_defile`
+- [ ] `spell_dk_breath_of_sindragosa`
+- [ ] `spell_dk_apocalypse`
+- [ ] `spell_dk_festering_strike`
+- [ ] `spell_dk_festering_wound`
+- [ ] `spell_dk_scourge_strike`
+- [ ] `spell_dk_scourge_strike_trigger`
+- [ ] `spell_dk_frost_strike`
+- [ ] `spell_dk_glacial_advance`
+- [ ] `spell_dk_glacial_advance_damage`
+- [ ] `spell_dk_pillar_of_frost`
+- [ ] `spell_dk_will_of_the_necropolis`
+- [ ] `spell_dk_purgatory`
+- [ ] `spell_dk_purgatory_absorb`
+- [ ] `spell_dk_desecrated_ground`
+- [ ] `spell_dk_anti_magic_shell_self`
+- [ ] `spell_dk_anti_magic_shell_raid`
+- [ ] `spell_dk_anti_magic_zone`
+- [ ] `spell_dk_gorefiends_grasp`
+- [ ] `spell_dk_death_grip_dummy`
+- [ ] `spell_dk_death_gate`
+- [ ] `spell_dk_death_gate_teleport`
+- [ ] `spell_dk_death_pact`
+- [ ] `spell_dk_ghoul_explode`
+- [ ] `spell_dk_corpse_explosion`
+- [ ] `spell_dk_corpse_shield`
+- [ ] `spell_dk_frost_shield`
+- [ ] `spell_dk_necrotic_strike`
+- [ ] `spell_dk_consumption`
+- [ ] `spell_dk_change_duration`
+- [ ] `spell_dk_hook`
+
+---
+
+### Monk (30 missing)
+
+Source: `spell_monk.cpp` (LegionCore) → `spell_monk.cpp` (ArgusCore)
+
+- [ ] `spell_monk_enveloping_mist`
+- [ ] `spell_monk_guard`
+- [ ] `spell_monk_gift_of_the_ox`
+- [ ] `spell_monk_sheiluns_gift`
+- [ ] `spell_monk_touch_of_karma`
+- [ ] `spell_monk_touch_of_death`
+- [ ] `spell_monk_dampen_harm`
+- [ ] `spell_monk_diffuse_magic`
+- [ ] `spell_monk_purifying_brew`
+- [ ] `spell_monk_purified_healing`
+- [ ] `spell_monk_hurricane_strike`
+- [ ] `spell_monk_whirling_dragon_punch_activater`
+- [ ] `spell_monk_whirling_dragon_punch_activated`
+- [ ] `spell_monk_expel_harm`
+- [ ] `spell_monk_zen_pulse`
+- [ ] `spell_monk_chi_wave`
+- [ ] `spell_monk_chi_wave_dummy`
+- [ ] `spell_monk_chi_wave_filter`
+- [ ] `spell_monk_storm_earth_and_fire`
+- [ ] `spell_monk_storm_earth_and_fire_clone_visual`
+- [ ] `spell_monk_clone_cast`
+- [ ] `spell_monk_flying_serpent_kick`
+- [ ] `spell_monk_disable`
+- [ ] `spell_monk_transcendence`
+- [ ] `spell_monk_transcendence_transfer`
+- [ ] `spell_monk_zen_pilgrimage`
+- [ ] `spell_monk_zen_pilgrimage_return`
+- [ ] `spell_monk_remove_zen_flight`
+- [ ] `spell_monk_zen_flight_check`
+- [ ] `spell_monk_power_strikes`
+
+---
+
+### Demon Hunter
+
+Source: `spell_dh.cpp` (LegionCore) → `spell_dh.cpp` (ArgusCore)
+
+- [x] `spell_dh_metamorphosis_main` — covered by `spell_dh_chaotic_transformation` + `spell_dh_demonic` in ArgusCore
+- [x] `spell_dh_metamorphosis` (200166 impact) — ported 2026-05-25 as `spell_dh_metamorphosis_impact`
+- [x] `spell_dh_blade_dance` — ArgusCore has a more complete version
+- [x] `spell_dh_fel_rush_main` — ArgusCore has a more complete version
+- [x] `spell_dh_fel_rush` (192611 Loramus talent) — artifact-only, not relevant in 7.3.5 fresh realm
+- [ ] `spell_dh_soul_cleave` — blocked: requires `GetAreaObjectList` (LegionCore custom API)
+- [ ] `spell_dh_soul_cleave_damage` — blocked: same as above
+- [x] `spell_dh_shatter_soul` — ported 2026-05-25
+- [ ] `spell_dh_spirit_bomb` — blocked: requires `GetAreaObjectList`
+- [ ] `spell_dh_spirit_bomb_damage` — blocked: requires `GetAreaObjectList`
+- [x] `spell_dh_anguish` — ported 2026-05-25
+- [x] `spell_dh_anguish_damage` — ported 2026-05-25
+- [x] `spell_dh_glide` — ArgusCore has a more complete version
+- [x] `spell_dh_nemesis` — ported 2026-05-25
+- [x] `spell_dh_disable_absorb` — ArgusCore has `spell_dh_last_resort` (more complete)
+- [x] `spell_dh_desperate_instincts` — ported 2026-05-25
+- [ ] `spell_dh_soul_barrier` — blocked: requires `GetAreaObjectList`
+- [x] `spell_dh_darkness` — ArgusCore has a more complete version
+- [ ] `spell_dh_empower_wards` — deferred: complex accumulator mechanic (218910/218713/218561 chain)
+- [x] `spell_dh_reverse_magic` — ported 2026-05-25
+- [ ] `spell_dh_nether_bond` — blocked: requires `GetAura()->GetRndEffectTarget()` (LegionCore custom API)
+- [ ] `spell_dh_nether_bond_dummy` — blocked: same as above
+- [ ] `spell_dh_illidans_grasp_throw` — blocked: requires `m_whoHasMyAuras` (LegionCore custom API)
+- [ ] `spell_dh_illidans_grasp_visual` — blocked: same as above
+- [x] `spell_dh_eye_of_leotheras` — ported 2026-05-25
+- [x] `spell_dh_mana_break` — ported 2026-05-25
+- [x] `spell_dh_mana_rift` — ported 2026-05-25
+- [x] `spell_dh_fel_lance` — ported 2026-05-25
+- [x] `spell_dh_shattered_souls` (178940/204254) — ported 2026-05-25
+- [x] `spell_dh_flaming_soul` (238118) — ported 2026-05-25
+- [x] `spell_dh_fueled_by_pain` (213017) — ported 2026-05-25
+
+---
+
+### Paladin (24 missing)
+
+Source: `spell_paladin.cpp` (LegionCore) → `spell_paladin.cpp` (ArgusCore)
+
+- [ ] `spell_pal_shield_of_the_righteous`
+- [ ] `spell_pal_divine_storm`
+- [ ] `spell_pal_holy_shock`
+- [ ] `spell_pal_holy_shield`
+- [ ] `spell_pal_holy_prism`
+- [ ] `spell_pal_holy_prism_effect`
+- [ ] `spell_pal_holy_prism_heal`
+- [ ] `spell_pal_holy_prism_damage`
+- [ ] `spell_pal_lights_hammer`
+- [ ] `spell_pal_ardent_defender`
+- [ ] `spell_pal_shield_of_vengeance`
+- [ ] `spell_pal_light_of_the_protector`
+- [ ] `spell_pal_last_defender`
+- [ ] `spell_pal_at_last_defender`
+- [ ] `spell_pal_at_aura_of_sacrifice`
+- [ ] `spell_pal_at_devotion_aura`
+- [ ] `spell_pal_lay_on_hands`
+- [ ] `spell_pal_divine_steed`
+- [ ] `spell_pal_zeal`
+- [ ] `spell_pal_holy_wrath`
+- [ ] `spell_pal_greater_blessing_of_kings`
+- [ ] `spell_pal_divine_shield`
+- [ ] `spell_pal_hand_of_protection`
+- [ ] `spell_pal_divine_intervention`
+
+---
+
+### Warlock (16 missing)
+
+Source: `spell_warlock.cpp` (LegionCore) → `spell_warlock.cpp` (ArgusCore)
+
+- [ ] `spell_warl_corruption`
+- [ ] `spell_warl_unstable_affliction`
+- [ ] `spell_warl_unstable_affliction_R2`
+- [ ] `spell_warl_streten_insanity`
+- [ ] `spell_warl_seed_of_corruption_dota`
+- [ ] `spell_warl_doom_bolt`
+- [ ] `spell_warl_soul_harvest`
+- [ ] `spell_warl_burning_rush`
+- [ ] `spell_warl_banish`
+- [ ] `spell_warl_demonic_circle_summon`
+- [ ] `spell_warl_demonic_circle_teleport`
+- [ ] `spell_warl_demonic_gateway`
+- [ ] `spell_warl_demonic_gateway_cast`
+- [ ] `spell_warl_demonic_gateway_duration`
+- [ ] `spell_warl_demonic_gateway_at`
+- [ ] `spell_warl_demon_skin`
+
+---
+
+### Hunter (15 missing)
+
+Source: `spell_hunter.cpp` (LegionCore) → `spell_hunter.cpp` (ArgusCore)
+
+- [ ] `spell_hun_kill_command`
+- [ ] `spell_hun_dire_beast`
+- [ ] `spell_hun_a_murder_of_crows`
+- [ ] `spell_hun_beast_cleave`
+- [ ] `spell_hun_flanking_strike`
+- [ ] `spell_hun_cobra_shot`
+- [ ] `spell_hun_explosive_shot`
+- [ ] `spell_hun_explosive_shot_detonate`
+- [ ] `spell_hun_explosive_trap`
+- [ ] `spell_hun_ancient_hysteria`
+- [ ] `spell_hun_masters_call`
+- [ ] `spell_hun_pet_heart_of_the_phoenix`
+- [ ] `spell_hun_tame_beast`
+- [ ] `spell_hun_fetch`
+- [ ] `spell_hun_fireworks`
+
+---
+
+### Warrior (12 missing)
+
+Source: `spell_warrior.cpp` (LegionCore) → `spell_warrior.cpp` (ArgusCore)
+
+- [ ] `spell_warr_execute`
+- [ ] `spell_warr_bloodthirst`
+- [ ] `spell_warr_revenge`
+- [ ] `spell_warr_shield_block`
+- [ ] `spell_warr_heroic_leap`
+- [ ] `spell_warr_ravager`
+- [ ] `spell_warr_ravager_visual`
+- [ ] `spell_warr_intercept`
+- [ ] `spell_war_intervene`
+- [ ] `spell_warr_charge_check_cast`
+- [ ] `spell_warr_charge_drop_fire`
+- [ ] `spell_warr_fervor_of_battle`
+
+---
+
+### Druid (12 missing)
+
+Source: `spell_druid.cpp` (LegionCore) → `spell_druid.cpp` (ArgusCore)
+
+- [ ] `spell_dru_rip`
+- [ ] `spell_dru_rake`
+- [ ] `spell_dru_shred`
+- [ ] `spell_dru_thrash`
+- [ ] `spell_dru_ferocious_bite`
+- [ ] `spell_dru_ashamanes_frenzy`
+- [ ] `spell_dru_lifebloom`
+- [ ] `spell_dru_incarnation`
+- [ ] `spell_dru_incarnation_tree_of_life`
+- [ ] `spell_dru_cat_form`
+- [ ] `spell_dru_travel_form`
+- [ ] `spell_dru_travel_form_remove`
+
+---
+
+### Mage (8 missing)
+
+Source: `spell_mage.cpp` (LegionCore) → `spell_mage.cpp` (ArgusCore)
+
+- [ ] `spell_mage_cauterize`
+- [ ] `spell_mage_arcane_barrage`
+- [ ] `spell_mage_flurry`
+- [ ] `spell_mage_illusion`
+- [ ] `spell_mage_flameglow`
+- [ ] `spell_mage_erosion`
+- [ ] `spell_mage_displacement`
+- [ ] `spell_elem_invisibility`
+
+---
+
+### Rogue (1 missing)
+
+Source: `spell_rogue.cpp` (LegionCore) → `spell_rogue.cpp` (ArgusCore)
+
+- [ ] `spell_rog_shadowy_duel_main`
+
+---
+
+### Do NOT
+
+- Port scripts for spells that do not exist in 7.3.5 DBC data
+- Port Priest or Shaman — ArgusCore's implementations are already more complete
+- Change spell IDs or aura IDs without verifying against the 7.3.5 DBC
+- Port multiple spells in one commit
+
+### Validation
+
+After each spell is ported:
+- [ ] Server compiles
+- [ ] Spell fires and produces visible effect in-game
+- [ ] No crash on cast
+- [ ] No regression on related spells of the same spec
 
 ---
 
