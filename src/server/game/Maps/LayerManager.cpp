@@ -97,7 +97,7 @@ uint32 LayerManager::AssignLayer(uint32 mapId, uint32 baseInstanceId, Player con
     // -----------------------------------------------------------------------
     {
         std::shared_lock lock(_lock);
-        auto it = _playerStates.find(player->GetGUID().GetRawValue());
+        auto it = _playerStates.find(player->GetGUID().GetCounter());
         if (it != _playerStates.end() && it->second.mapId == mapId)
         {
             time_t elapsed = std::time(nullptr) - it->second.lastAssigned;
@@ -162,7 +162,7 @@ uint32 LayerManager::AssignLayer(uint32 mapId, uint32 baseInstanceId, Player con
 void LayerManager::RecordPlayerLayer(ObjectGuid guid, uint32 mapId, uint32 layerId)
 {
     std::unique_lock lock(_lock);
-    auto& state       = _playerStates[guid.GetRawValue()];
+    auto& state       = _playerStates[guid.GetCounter()];
     bool  layerChange = (state.mapId != mapId || state.layerId != layerId);
 
     state.mapId   = mapId;
@@ -292,7 +292,7 @@ uint32 LayerManager::GenerateLayerId()
 void LayerManager::SetPendingMigration(ObjectGuid guid, uint32 layerId)
 {
     std::unique_lock lock(_lock);
-    _pendingMigrations[guid.GetRawValue()] = layerId;
+    _pendingMigrations[guid.GetCounter()] = layerId;
     TC_LOG_DEBUG("layers", "LayerManager: staged pending migration to layer {} for player {}.",
         layerId, guid.ToString());
 }
@@ -300,7 +300,7 @@ void LayerManager::SetPendingMigration(ObjectGuid guid, uint32 layerId)
 bool LayerManager::ConsumePendingMigration(ObjectGuid guid, uint32& outLayerId)
 {
     std::unique_lock lock(_lock);
-    auto it = _pendingMigrations.find(guid.GetRawValue());
+    auto it = _pendingMigrations.find(guid.GetCounter());
     if (it == _pendingMigrations.end())
         return false;
     outLayerId = it->second;
@@ -332,7 +332,12 @@ void LayerManager::MigratePlayerToLayer(Player* player, uint32 targetLayerId)
     SetPendingMigration(player->GetGUID(), targetLayerId);
 
     // TELE_TO_LAYER_MIGRATION forces the far-teleport path (HandleMoveWorldportAck)
-    // even though mapId is identical.  TELE_TO_SEAMLESS suppresses the loading screen.
+    // even though mapId is identical, so CreateMap picks up the pending layerId.
+    // TELE_TO_SEAMLESS suppresses the loading screen and the TRANSFER_PENDING packet.
+    // The client acks SUSPEND_COMMS regardless of whether the mapId changes, so the
+    // SuspendToken → NewWorld → HandleMoveWorldportAck chain completes normally.
+    // Map::AddPlayerToMap clears m_clientGUIDs for TELE_TO_LAYER_MIGRATION even in
+    // seamless mode, ensuring all same-spawnId creatures in the new layer get CREATE.
     // TELE_TO_NOT_UNSUMMON_PET keeps the player's pet across layers.
     player->TeleportTo(currentMap->GetId(),
         player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(),

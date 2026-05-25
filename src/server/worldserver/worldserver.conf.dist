@@ -4371,45 +4371,6 @@ Load.Locales = 1
 #
 ###################################################################################################
 
-###################################################################################################
-# SOLO LFG
-#
-#    SoloLFG.Enable
-#        Description: Enable the module.
-#        Default:     0  - (Disabled)
-#                     1  - (Enabled)
-
-SoloLFG.Enable = 0
-
-#    SoloLFG.Announce
-#        Description: Announce the module.
-#        Default:     1  - (Enabled)
-#                     0  - (Disabled)
-
-SoloLFG.Announce = 1
-
-#
-###################################################################################################
-
-###################################################################################################
-# SoloCraft
-#
-#    SoloCraft.Enable
-#        Description: Enable the module.
-#        Default:     0  - (Disabled)
-#                     1  - (Enabled)
-
-SoloCraft.Enable = 0
-
-#    SoloCraft.Stats.Mult
-#        Description: Stats percentage bonus multiplier
-#        Default:     55.0
-#                     0.0 - (Disable)
-
-SoloCraft.Stats.Mult = 55.0
-
-#
-###################################################################################################
 
 ###################################################################################################
 # WORLD LAYERING

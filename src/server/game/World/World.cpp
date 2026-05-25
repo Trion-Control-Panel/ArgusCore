@@ -1030,6 +1030,12 @@ void World::LoadConfigSettings(bool reload)
     for (ConfigOptionLoadDefinition<uint32, WorldIntConfigs> const& definition : ints)
         StoreConfigValue(m_int_configs[definition.Index], sConfigMgr->GetIntDefault(definition.Name, definition.DefaultValue), definition, reload);
 
+    // Forward layer thresholds to LayerManager unconditionally — the if (reload)
+    // block below only runs on /reload config, not on initial startup.
+    sLayerMgr->Configure(m_int_configs[CONFIG_LAYER_MAX_PLAYERS],
+                         m_int_configs[CONFIG_LAYER_MIN_PLAYERS],
+                         m_int_configs[CONFIG_LAYER_CHANGE_COOLDOWN_SECS]);
+
     for (ConfigOptionLoadDefinition<uint64, WorldInt64Configs> const& definition : int64s)
         StoreConfigValue(m_int64_configs[definition.Index], sConfigMgr->GetInt64Default(definition.Name, definition.DefaultValue), definition, reload);
 
@@ -1219,9 +1225,6 @@ void World::LoadConfigSettings(bool reload)
         sSupportMgr->SetSuggestionSystemStatus(m_bool_configs[CONFIG_SUPPORT_SUGGESTIONS_ENABLED]);
         sMapMgr->SetGridCleanUpDelay(m_int_configs[CONFIG_INTERVAL_GRIDCLEAN]);
         sMapMgr->SetMapUpdateInterval(m_int_configs[CONFIG_INTERVAL_MAPUPDATE]);
-        sLayerMgr->Configure(m_int_configs[CONFIG_LAYER_MAX_PLAYERS],
-                             m_int_configs[CONFIG_LAYER_MIN_PLAYERS],
-                             m_int_configs[CONFIG_LAYER_CHANGE_COOLDOWN_SECS]);
         m_timers[WUPDATE_UPTIME].SetInterval(m_int_configs[CONFIG_UPTIME_UPDATE] * MINUTE * IN_MILLISECONDS);
         m_timers[WUPDATE_UPTIME].Reset();
         m_timers[WUPDATE_CLEANDB].SetInterval(m_int_configs[CONFIG_LOGDB_CLEARINTERVAL] * MINUTE * IN_MILLISECONDS);

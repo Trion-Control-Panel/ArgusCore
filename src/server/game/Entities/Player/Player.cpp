@@ -1406,7 +1406,7 @@ bool Player::TeleportTo(TeleportLocation const& teleportLocation, TeleportToOpti
         }
 
         // Seamless teleport can happen only if cosmetic maps match.
-        // Layer migration is exempt: same mapId, different layer — always seamless.
+        // Layer migration never sets TELE_TO_SEAMLESS so this check is a no-op for it.
         if (!(options & TELE_TO_LAYER_MIGRATION))
         {
             if (!oldmap ||

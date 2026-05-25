@@ -144,6 +144,12 @@ private:
         LayerData& operator=(LayerData const&) = delete;
         LayerData(LayerData&& o) noexcept
             : layerId(o.layerId), playerCount(o.playerCount.load()) { }
+        LayerData& operator=(LayerData&& o) noexcept
+        {
+            layerId = o.layerId;
+            playerCount.store(o.playerCount.load());
+            return *this;
+        }
 
         uint32             layerId;
         std::atomic<uint32> playerCount;
@@ -154,11 +160,11 @@ private:
     // mapId → list of active layers for that map (created in registration order)
     std::unordered_map<uint32, std::vector<LayerData>> _layers;
 
-    // playerGuid (raw) → last layer assignment per player
-    std::unordered_map<uint64, PlayerLayerState> _playerStates;
+    // playerGuid counter → last layer assignment per player
+    std::unordered_map<ObjectGuid::LowType, PlayerLayerState> _playerStates;
 
-    // playerGuid (raw) → pending layer to migrate to (consumed by AssignLayer)
-    std::unordered_map<uint64, uint32> _pendingMigrations;
+    // playerGuid counter → pending layer to migrate to (consumed by AssignLayer)
+    std::unordered_map<ObjectGuid::LowType, uint32> _pendingMigrations;
 
     mutable std::shared_mutex _lock;
 

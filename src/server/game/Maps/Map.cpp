@@ -17,6 +17,7 @@
 
 #include "Map.h"
 #include "LayerManager.h"
+#include "Player.h"
 #include "BattlegroundMgr.h"
 #include "BattlegroundScript.h"
 #include "CellImpl.h"
@@ -405,7 +406,10 @@ bool Map::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
 
     SendInitTransports(player);
 
-    if (initPlayer)
+    // Layer migrations are seamless (initPlayer=false) but share spawn IDs across
+    // layers, so the client would otherwise skip CREATE for "already known" GUIDs
+    // that actually belong to a different layer instance.  Force a full reset here.
+    if (initPlayer || player->GetTeleportOptions() & TELE_TO_LAYER_MIGRATION)
         player->m_clientGUIDs.clear();
 
     player->UpdateObjectVisibility(false);
