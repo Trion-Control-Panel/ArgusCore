@@ -558,42 +558,42 @@ feat(scripts/spell): port spell_monk_chi_wave from LegionCore
 
 Source: `spell_dk.cpp` (LegionCore) → `spell_dk.cpp` (ArgusCore)
 
-- [ ] `spell_dk_marrowrend`
-- [ ] `spell_dk_bone_shield`
-- [ ] `spell_dk_tombstone`
-- [ ] `spell_dk_bonestorm`
-- [ ] `spell_dk_blood_mirror`
-- [ ] `spell_dk_defile`
-- [ ] `spell_dk_breath_of_sindragosa`
-- [ ] `spell_dk_apocalypse`
-- [ ] `spell_dk_festering_strike`
-- [ ] `spell_dk_festering_wound`
-- [ ] `spell_dk_scourge_strike`
-- [ ] `spell_dk_scourge_strike_trigger`
-- [ ] `spell_dk_frost_strike`
-- [ ] `spell_dk_glacial_advance`
-- [ ] `spell_dk_glacial_advance_damage`
-- [ ] `spell_dk_pillar_of_frost`
-- [ ] `spell_dk_will_of_the_necropolis`
-- [ ] `spell_dk_purgatory`
-- [ ] `spell_dk_purgatory_absorb`
-- [ ] `spell_dk_desecrated_ground`
-- [ ] `spell_dk_anti_magic_shell_self`
-- [ ] `spell_dk_anti_magic_shell_raid`
-- [ ] `spell_dk_anti_magic_zone`
-- [ ] `spell_dk_gorefiends_grasp`
-- [ ] `spell_dk_death_grip_dummy`
-- [ ] `spell_dk_death_gate`
-- [ ] `spell_dk_death_gate_teleport`
-- [ ] `spell_dk_death_pact`
-- [ ] `spell_dk_ghoul_explode`
-- [ ] `spell_dk_corpse_explosion`
-- [ ] `spell_dk_corpse_shield`
-- [ ] `spell_dk_frost_shield`
-- [ ] `spell_dk_necrotic_strike`
-- [ ] `spell_dk_consumption`
-- [ ] `spell_dk_change_duration`
-- [ ] `spell_dk_hook`
+- [x] `spell_dk_marrowrend` — covered by `spell_dk_apply_bone_shield` (ArgusCore already has better version)
+- [x] `spell_dk_bone_shield` — ported 2026-05-25 (no proc-delay timer; OnEffectUpdate not available in ArgusCore)
+- [x] `spell_dk_tombstone` — ported 2026-05-25
+- [ ] `spell_dk_bonestorm` — **blocked**: requires `DoCalcMaxDuration` hook (not in ArgusCore)
+- [ ] `spell_dk_blood_mirror` — **blocked**: requires `GetRndEffectTarget()` (not in ArgusCore)
+- [x] `spell_dk_defile` — ported 2026-05-25
+- [ ] `spell_dk_breath_of_sindragosa` — **blocked**: requires `GetRndEffectTarget()` + `AddEffectTarget()` (not in ArgusCore)
+- [x] `spell_dk_apocalypse` — ported 2026-05-25
+- [x] `spell_dk_festering_strike` — ArgusCore already has a more complete implementation; skip
+- [x] `spell_dk_festering_wound` (194311 pop) — ported 2026-05-25 (Soul Reaper interaction only; Pestilent Pustules skipped — no `ModCustomData` in ArgusCore)
+- [x] `spell_dk_scourge_strike` — already in ArgusCore
+- [x] `spell_dk_scourge_strike_trigger` — already in ArgusCore
+- [x] `spell_dk_frost_strike` — ported 2026-05-25 (Shattering Strikes bonus)
+- [ ] `spell_dk_glacial_advance` — **blocked**: requires `ClearSpellTargets` / `AddDelayedEvent` (LegionCore custom APIs)
+- [ ] `spell_dk_glacial_advance_damage` — **blocked**: requires `ExistSpellTarget` / `AddSpellTargets` (LegionCore custom APIs)
+- [x] `spell_dk_pillar_of_frost` — ported 2026-05-25 (MECHANIC_INCAPACITATE immunity)
+- [x] `spell_dk_will_of_the_necropolis` — ported 2026-05-25
+- [x] `spell_dk_purgatory` — ported 2026-05-25
+- [x] `spell_dk_purgatory_absorb` — ported 2026-05-25
+- [x] `spell_dk_desecrated_ground` — ported 2026-05-25
+- [x] `spell_dk_anti_magic_shell_self` — ArgusCore has a more complete `spell_dk_anti_magic_shell`; skip
+- [x] `spell_dk_anti_magic_shell_raid` — ported 2026-05-25
+- [x] `spell_dk_anti_magic_zone` — ported 2026-05-25
+- [x] `spell_dk_gorefiends_grasp` — ported 2026-05-25 (area pull logic)
+- [x] `spell_dk_death_grip_dummy` — ArgusCore has `spell_dk_death_grip_initial` covering this; skip
+- [x] `spell_dk_death_gate` — already in ArgusCore
+- [x] `spell_dk_death_gate_teleport` — ported 2026-05-25
+- [x] `spell_dk_death_pact` — ArgusCore has a cleaner implementation; skip
+- [x] `spell_dk_ghoul_explode` — ArgusCore has a more complete version with damage calc; skip
+- [x] `spell_dk_corpse_explosion` — ported 2026-05-25
+- [x] `spell_dk_corpse_shield` — ported 2026-05-25
+- [x] `spell_dk_frost_shield` — ported 2026-05-25
+- [x] `spell_dk_necrotic_strike` — ported 2026-05-25
+- [x] `spell_dk_consumption` — ported 2026-05-25
+- [x] `spell_dk_change_duration` — ported 2026-05-25
+- [x] `spell_dk_hook` — ported 2026-05-25
 
 ---
 

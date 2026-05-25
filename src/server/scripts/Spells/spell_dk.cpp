@@ -25,7 +25,9 @@
 #include "AreaTrigger.h"
 #include "AreaTriggerAI.h"
 #include "Containers.h"
+#include "DynamicObject.h"
 #include "ObjectMgr.h"
+#include "Pet.h"
 #include "Player.h"
 #include "Spell.h"
 #include "SpellAuraEffects.h"
@@ -104,7 +106,23 @@ enum DeathKnightSpells
     SPELL_DK_UNHOLY                             = 137007,
     SPELL_DK_UNHOLY_VIGOR                       = 196263,
     SPELL_DH_VORACIOUS_LEECH                    = 274009,
-    SPELL_DH_VORACIOUS_TALENT                   = 273953
+    SPELL_DH_VORACIOUS_TALENT                   = 273953,
+    // Legion-era spells ported from LegionCore
+    SPELL_DK_PURGATORY_STACKS                   = 116888,
+    SPELL_DK_PURGATORY_DEATH                    = 123982,
+    SPELL_DK_PURGATORY_MARKER                   = 123981,
+    SPELL_DK_DESECRATED_GROUND_IMMUNE           = 115018,
+    SPELL_DK_DARK_INFUSION                      = 215711,
+    SPELL_DK_SOUL_REAPER_OLD_DEBUFF             = 130736,
+    SPELL_DK_CORPSE_SHIELD_TRANSFER             = 212753,
+    SPELL_DK_CORPSE_SHIELD_KILL                 = 212756,
+    SPELL_DK_CONSUMPTION_HEAL                   = 205224,
+    SPELL_DK_GOREFIENDS_GRASP_PULL              = 114869,
+    SPELL_DK_GOREFIENDS_GRASP_JUMP              = 146599,
+    SPELL_DK_FESTERING_WOUND_BURST              = 194311,
+    SPELL_DK_RUNIC_POWER_REGEN                  = 195757,
+    SPELL_DK_APOCALYPSE_SUMMON                  = 205491,
+    SPELL_DK_DEATH_GATE_ACHERUS_FORTRESS        = 187753
 };
 
 enum Misc
@@ -1411,17 +1429,643 @@ struct at_dk_death_and_decay : AreaTriggerAI
     }
 };
 
+// 118009 - Desecrated Ground
+class spell_dk_desecrated_ground : public AuraScript
+{
+    void OnTick(AuraEffect const* /*aurEff*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+        if (DynamicObject* dynObj = caster->GetDynObject(118009))
+            if (caster->GetDistance(dynObj) <= 8.0f)
+                caster->CastSpell(caster, SPELL_DK_DESECRATED_GROUND_IMMUNE, true);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dk_desecrated_ground::OnTick, EFFECT_1, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
+// 51271 - Pillar of Frost
+class spell_dk_pillar_of_frost : public AuraScript
+{
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        GetTarget()->ApplySpellImmune(SPELL_DK_PILLAR_OF_FROST, IMMUNITY_MECHANIC, MECHANIC_INCAPACITATE, true);
+    }
+
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        GetTarget()->ApplySpellImmune(SPELL_DK_PILLAR_OF_FROST, IMMUNITY_MECHANIC, MECHANIC_INCAPACITATE, false);
+    }
+
+    void Register() override
+    {
+        OnEffectApply += AuraEffectApplyFn(spell_dk_pillar_of_frost::OnApply, EFFECT_2, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        OnEffectRemove += AuraEffectRemoveFn(spell_dk_pillar_of_frost::OnRemove, EFFECT_2, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 116888 - Purgatory (Shroud of Purgatory heal absorb)
+class spell_dk_purgatory : public AuraScript
+{
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        // Expired without full heal - kill the player
+        if (GetTargetApplication()->GetRemoveMode() == AURA_REMOVE_BY_EXPIRE)
+            GetTarget()->CastSpell(GetTarget(), SPELL_DK_PURGATORY_DEATH, true);
+    }
+
+    void Register() override
+    {
+        OnEffectRemove += AuraEffectRemoveFn(spell_dk_purgatory::OnRemove, EFFECT_0, SPELL_AURA_SCHOOL_HEAL_ABSORB, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 114556 - Purgatory (passive death prevention absorb)
+class spell_dk_purgatory_absorb : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_PURGATORY_STACKS, SPELL_DK_PURGATORY_MARKER });
+    }
+
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = -1; // unlimited absorb pool
+    }
+
+    void Absorb(AuraEffect* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        Unit* target = GetTarget();
+        if (dmgInfo.GetDamage() < target->GetHealth())
+            return;
+
+        // Already under shroud — block the damage
+        if (target->HasAura(SPELL_DK_PURGATORY_STACKS))
+        {
+            absorbAmount = dmgInfo.GetDamage();
+            return;
+        }
+
+        // Already triggered once this encounter — allow death
+        if (target->HasAura(SPELL_DK_PURGATORY_MARKER))
+            return;
+
+        // First lethal hit: apply shroud and survive at 1 HP
+        CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
+        args.AddSpellMod(SPELLVALUE_BASE_POINT0, (int32)dmgInfo.GetDamage());
+        target->CastSpell(target, SPELL_DK_PURGATORY_STACKS, args);
+        target->CastSpell(target, SPELL_DK_PURGATORY_MARKER, true);
+        target->SetHealth(1);
+        absorbAmount = dmgInfo.GetDamage();
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_purgatory_absorb::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_dk_purgatory_absorb::Absorb, EFFECT_0);
+    }
+};
+
+// 50462 - Anti-Magic Shell (cast on raid member)
+class spell_dk_anti_magic_shell_raid : public AuraScript
+{
+    bool Load() override
+    {
+        absorbPct = uint32(GetEffectInfo(EFFECT_0).CalcValue(GetCaster()));
+        return true;
+    }
+
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = -1; // unlimited absorb
+    }
+
+    void Absorb(AuraEffect* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        absorbAmount = CalculatePct(dmgInfo.GetDamage(), absorbPct);
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_anti_magic_shell_raid::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_dk_anti_magic_shell_raid::Absorb, EFFECT_0);
+    }
+
+private:
+    uint32 absorbPct = 0;
+};
+
+// 50461 - Anti-Magic Zone (Honor talent)
+class spell_dk_anti_magic_zone : public AuraScript
+{
+    bool Load() override
+    {
+        absorbPct = uint32(GetEffectInfo(EFFECT_0).CalcValue(GetCaster()));
+        return true;
+    }
+
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = 136800;
+        if (Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr)
+            amount += int32(player->GetStat(STAT_STRENGTH) * 4);
+    }
+
+    void Absorb(AuraEffect* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        absorbAmount = CalculatePct(dmgInfo.GetDamage(), absorbPct);
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_anti_magic_zone::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_dk_anti_magic_zone::Absorb, EFFECT_0);
+    }
+
+private:
+    uint32 absorbPct = 0;
+};
+
+// 108199 - Gorefiend's Grasp (pull area enemies to target's position)
+class spell_dk_gorefiends_grasp : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_GOREFIENDS_GRASP_PULL, SPELL_DK_GOREFIENDS_GRASP_JUMP });
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        Unit* centralTarget = GetExplTargetUnit();
+        Unit* hitTarget = GetHitUnit();
+        if (!centralTarget || !hitTarget || centralTarget == hitTarget)
+            return;
+
+        Position const* dest = GetExplTargetDest();
+        centralTarget->CastSpell(hitTarget, SPELL_DK_GOREFIENDS_GRASP_PULL, true);
+        hitTarget->CastSpell(dest->GetPositionX(), dest->GetPositionY(), dest->GetPositionZ(), SPELL_DK_GOREFIENDS_GRASP_JUMP, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dk_gorefiends_grasp::HandleDummy, EFFECT_1, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+};
+
+// 53822 - Death Gate, 187753 - Death Gate (Acherus Fortress)
+class spell_dk_death_gate_teleport : public SpellScript
+{
+    SpellCastResult CheckClass()
+    {
+        if (GetCaster()->GetClass() != CLASS_DEATH_KNIGHT)
+        {
+            SetCustomCastResultMessage(SPELL_CUSTOM_ERROR_MUST_BE_DEATH_KNIGHT);
+            return SPELL_FAILED_CUSTOM_ERROR;
+        }
+
+        if (GetSpellInfo()->Id == SPELL_DK_DEATH_GATE_ACHERUS_FORTRESS)
+            return SPELL_CAST_OK;
+
+        if (Player* player = GetCaster()->ToPlayer())
+            if (player->IsQuestRewarded(40715))
+            {
+                // Player has unlocked the Acherus Fortress gate — use that spell instead
+                GetCaster()->CastSpell(GetCaster(), SPELL_DK_DEATH_GATE_ACHERUS_FORTRESS, true);
+                return SPELL_FAILED_DONT_REPORT;
+            }
+
+        return SPELL_CAST_OK;
+    }
+
+    void HandleTeleport(SpellEffIndex effIndex)
+    {
+        Player* player = GetCaster()->ToPlayer();
+        if (!player)
+            return;
+
+        // If already at the gate destination zone, send to hearthstone location instead
+        uint32 requiredZone = (GetSpellInfo()->Id == SPELL_DK_DEATH_GATE_ACHERUS_FORTRESS) ? 7679 : 139;
+        if (player->GetZoneId() == requiredZone)
+        {
+            PreventHitEffect(effIndex);
+            player->TeleportTo(player->m_homebind);
+        }
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_dk_death_gate_teleport::CheckClass);
+        OnEffectHitTarget += SpellEffectFn(spell_dk_death_gate_teleport::HandleTeleport, EFFECT_0, SPELL_EFFECT_TELEPORT_L);
+    }
+};
+
+// 127344 - Corpse Explosion (Honor talent — target must be a fresh corpse)
+class spell_dk_corpse_explosion : public SpellScript
+{
+    SpellCastResult CheckCast()
+    {
+        if (Unit* target = GetExplTargetUnit())
+            if (!target->isDead() || target->GetDisplayId() != target->GetNativeDisplayId())
+                return SPELL_FAILED_TARGET_NOT_DEAD;
+        return SPELL_CAST_OK;
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_dk_corpse_explosion::CheckCast);
+    }
+};
+
+// 152280 - Defile (zero out the absorb effect so it doesn't block damage)
+class spell_dk_defile : public AuraScript
+{
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = 0;
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_defile::CalculateAmount, EFFECT_3, SPELL_AURA_SCHOOL_ABSORB);
+    }
+};
+
+// 206967 - Will of the Necropolis
+class spell_dk_will_of_the_necropolis : public AuraScript
+{
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = -1; // infinite pool; actual absorb is calculated per hit
+    }
+
+    void Absorb(AuraEffect* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        absorbAmount = 0;
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+        if (caster->GetHealthPct() < float(GetEffectInfo(EFFECT_2).CalcValue(caster)))
+            absorbAmount = CalculatePct(dmgInfo.GetDamage(), GetEffectInfo(EFFECT_1).CalcValue(caster));
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_will_of_the_necropolis::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_dk_will_of_the_necropolis::Absorb, EFFECT_0);
+    }
+};
+
+// 195181 - Bone Shield
+class spell_dk_bone_shield : public AuraScript
+{
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = -1; // absorb pool is unlimited; consumed by losing stacks
+    }
+
+    void Absorb(AuraEffect* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        absorbAmount = 0;
+        Unit* target = GetTarget();
+        if (!target)
+            return;
+
+        int32 absorbPerc = GetEffectInfo(EFFECT_4).CalcValue(target);
+        absorbAmount = CalculatePct(dmgInfo.GetDamage(), absorbPerc);
+
+        // Physical hits consume one stack
+        if (dmgInfo.GetSchoolMask() & SPELL_SCHOOL_MASK_NORMAL)
+            ModStackAmount(-1);
+    }
+
+    void OnStackChange(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* target = GetTarget();
+        if (!target)
+            return;
+
+        // Ossuary: 5+ stacks grant a secondary buff
+        if (AuraEffect* ossuary = target->GetAuraEffect(219786, EFFECT_0))
+        {
+            if (GetStackAmount() >= ossuary->GetAmount())
+            {
+                if (!target->HasAura(219788))
+                    target->CastSpell(target, 219788, true);
+            }
+            else
+                target->RemoveAurasDueToSpell(219788);
+        }
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_bone_shield::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_dk_bone_shield::Absorb, EFFECT_0);
+        OnEffectApply += AuraEffectApplyFn(spell_dk_bone_shield::OnStackChange, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
+    }
+};
+
+// 219809 - Tombstone (convert Bone Shield stacks into an absorb)
+class spell_dk_tombstone : public AuraScript
+{
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = 0;
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (Aura* boneShield = caster->GetAura(SPELL_DK_BONE_SHIELD))
+        {
+            int32 stacks = boneShield->GetStackAmount();
+            int32 maxStacks = GetEffectInfo(EFFECT_4).CalcValue(caster);
+            if (stacks > maxStacks)
+                stacks = maxStacks;
+
+            amount = int32(caster->CountPctFromMaxHealth(GetEffectInfo(EFFECT_3).CalcValue(caster))) * stacks;
+            boneShield->ModStackAmount(-stacks);
+        }
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_tombstone::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+    }
+};
+
+// 66196, 222026 - Frost Strike (Shattering Strikes bonus damage on 5-stack Razorice)
+class spell_dk_frost_strike : public SpellScript
+{
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (Aura* shatteringStrikes = caster->GetAura(207057))
+        {
+            Unit* target = GetHitUnit();
+            if (!target)
+                return;
+
+            // Razorice debuff (51714) at 5 stacks triggers Shattering Strikes bonus
+            if (Aura* razorice = target->GetAura(51714, caster->GetGUID()))
+                if (razorice->GetStackAmount() == 5)
+                {
+                    int32 bonusPct = shatteringStrikes->GetSpellInfo()->GetEffect(EFFECT_0).CalcValue(caster);
+                    SetHitDamage(GetHitDamage() + CalculatePct(GetHitDamage(), bonusPct));
+                    if (GetSpellInfo()->Id == 66196)
+                        razorice->Remove();
+                }
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dk_frost_strike::HandleOnHit, EFFECT_1, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
+    }
+};
+
+// 207203 - Frost Shield (absorb proc from Permafrost, capped at 20% max HP)
+class spell_dk_frost_shield : public AuraScript
+{
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        if (Unit* caster = GetCaster())
+            amount = std::min(amount, int32(caster->CountPctFromMaxHealth(20)));
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_frost_shield::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+    }
+};
+
+// 223929 - Necrotic Wound (heal absorb scaled from caster AP)
+class spell_dk_necrotic_strike : public AuraScript
+{
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(223829))
+            amount = CalculatePct(int32(caster->GetTotalAttackPowerValue(BASE_ATTACK)),
+                                  spellInfo->GetEffect(EFFECT_0).CalcValue(caster));
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_necrotic_strike::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_HEAL_ABSORB);
+    }
+};
+
+// 207319 - Corpse Shield (redirect incoming damage to the DK's pet)
+class spell_dk_corpse_shield : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_CORPSE_SHIELD_TRANSFER, SPELL_DK_CORPSE_SHIELD_KILL });
+    }
+
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = -1;
+    }
+
+    void Absorb(AuraEffect* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        absorbAmount = 0;
+        Player* target = GetTarget()->ToPlayer();
+        if (!target)
+            return;
+
+        Pet* pet = target->GetPet();
+        if (!pet || !pet->IsAlive())
+            return;
+
+        int32 absorbPerc = GetEffectInfo(EFFECT_0).CalcValue(target);
+        absorbAmount = CalculatePct(dmgInfo.GetDamage(), absorbPerc);
+
+        // Cap absorb by pet's remaining HP
+        if (pet->GetHealth() <= absorbAmount)
+        {
+            absorbAmount = uint32(pet->GetHealth());
+            target->CastSpell(target, SPELL_DK_CORPSE_SHIELD_KILL, true);
+        }
+
+        CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
+        args.AddSpellMod(SPELLVALUE_BASE_POINT0, (int32)absorbAmount);
+        target->CastSpell(pet, SPELL_DK_CORPSE_SHIELD_TRANSFER, args);
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_corpse_shield::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_dk_corpse_shield::Absorb, EFFECT_0);
+    }
+};
+
+// 205223 - Consumption (Artifact — heals caster for a percent of damage dealt)
+class spell_dk_consumption : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_CONSUMPTION_HEAL });
+    }
+
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        int32 healAmount = CalculatePct(GetHitDamage(), GetEffectInfo(EFFECT_2).CalcValue(caster));
+        caster->CastSpell(caster, SPELL_DK_CONSUMPTION_HEAL,
+            CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT0, healAmount));
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dk_consumption::HandleOnHit, EFFECT_1, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
+    }
+};
+
+// 220143 - Apocalypse (burst all Festering Wounds on target)
+class spell_dk_apocalypse : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_FESTERING_WOUND, SPELL_DK_FESTERING_WOUND_BURST });
+    }
+
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        if (Aura* wounds = target->GetAura(SPELL_DK_FESTERING_WOUND, caster->GetGUID()))
+        {
+            int32 count = wounds->GetStackAmount();
+            int32 cap = GetEffectInfo(EFFECT_2).CalcValue(caster);
+            if (count > cap)
+                count = cap;
+
+            for (int32 i = 0; i < count; ++i)
+            {
+                caster->CastSpell(target, SPELL_DK_FESTERING_WOUND_BURST, true);
+                caster->CastSpell(caster, SPELL_DK_RUNIC_POWER_REGEN, true);
+                caster->CastSpell(target, SPELL_DK_APOCALYPSE_SUMMON, true);
+            }
+            wounds->ModStackAmount(-count);
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dk_apocalypse::HandleOnHit, EFFECT_1, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
+    }
+};
+
+// 194311 - Festering Wound (pop effect — Soul Reaper interaction)
+class spell_dk_festering_wound : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_DARK_INFUSION, SPELL_DK_SOUL_REAPER_OLD_DEBUFF });
+    }
+
+    void HandleOnCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        Unit* target = GetExplTargetUnit();
+        if (target && target->HasAura(SPELL_DK_SOUL_REAPER_OLD_DEBUFF, caster->GetGUID()))
+            caster->CastSpell(caster, SPELL_DK_DARK_INFUSION, true);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_dk_festering_wound::HandleOnCast);
+    }
+};
+
+// 207290, 51460 - Unholy Frenzy / Runic Corruption (stack duration on reapply)
+class spell_dk_change_duration : public SpellScript
+{
+    int32 _prevDuration = 0;
+
+    void HandleBeforeCast()
+    {
+        if (Unit* caster = GetCaster())
+            if (Aura* aura = caster->GetAura(GetSpellInfo()->Id))
+                _prevDuration = aura->GetDuration();
+    }
+
+    void HandleAfterCast()
+    {
+        if (Unit* caster = GetCaster())
+            if (Aura* aura = caster->GetAura(GetSpellInfo()->Id))
+                aura->SetDuration(aura->GetDuration() + _prevDuration);
+    }
+
+    void Register() override
+    {
+        BeforeCast += SpellCastFn(spell_dk_change_duration::HandleBeforeCast);
+        AfterCast += SpellCastFn(spell_dk_change_duration::HandleAfterCast);
+    }
+};
+
+// 212472, 212528 - Hook (Death Grip variant — grip target or self-pull if immune)
+class spell_dk_hook : public SpellScript
+{
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        if ((target->GetMechanicImmunityMask() & (1 << MECHANIC_GRIP)) || target->HasAuraWithMechanic(1 << MECHANIC_ROOT))
+            caster->CastSpell(target, SPELL_DK_DEATH_GRIP_JUMP, true);
+        else
+            target->CastSpell(caster, SPELL_DK_DEATH_GRIP_JUMP, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dk_hook::HandleOnHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
 void AddSC_deathknight_spell_scripts()
 {
     RegisterSpellScript(spell_dk_advantage_t10_4p);
     RegisterSpellScript(spell_dk_anti_magic_shell);
+    RegisterSpellScript(spell_dk_anti_magic_shell_raid);
+    RegisterSpellScript(spell_dk_anti_magic_zone);
     RegisterSpellScriptWithArgs(spell_dk_apply_bone_shield, "spell_dk_marrowrend_apply_bone_shield", EFFECT_2);
     RegisterSpellScriptWithArgs(spell_dk_apply_bone_shield, "spell_dk_deaths_caress_apply_bone_shield", EFFECT_2);
+    RegisterSpellScript(spell_dk_apocalypse);
     RegisterSpellScript(spell_dk_army_transform);
     RegisterSpellScript(spell_dk_blinding_sleet);
     RegisterSpellScript(spell_dk_blooddrinker);
     RegisterSpellScript(spell_dk_blood_boil);
+    RegisterSpellScript(spell_dk_bone_shield);
     RegisterSpellScript(spell_dk_brittle);
+    RegisterSpellScript(spell_dk_change_duration);
+    RegisterSpellScript(spell_dk_consumption);
+    RegisterSpellScript(spell_dk_corpse_explosion);
+    RegisterSpellScript(spell_dk_corpse_shield);
     RegisterSpellScript(spell_dk_crimson_scourge);
     RegisterSpellScript(spell_dk_dancing_rune_weapon);
     RegisterSpellScript(spell_dk_dark_simulacrum);
@@ -1429,15 +2073,23 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_death_and_decay);
     RegisterSpellScript(spell_dk_death_coil);
     RegisterSpellScript(spell_dk_death_gate);
+    RegisterSpellScript(spell_dk_death_gate_teleport);
+    RegisterSpellScript(spell_dk_defile);
+    RegisterSpellScript(spell_dk_desecrated_ground);
     RegisterSpellScript(spell_dk_death_grip_initial);
     RegisterSpellScript(spell_dk_death_pact);
     RegisterSpellScript(spell_dk_death_strike);
     RegisterSpellScript(spell_dk_death_strike_enabler);
     RegisterSpellScript(spell_dk_festering_strike);
+    RegisterSpellScript(spell_dk_festering_wound);
     RegisterSpellScript(spell_dk_frost_fever_proc);
+    RegisterSpellScript(spell_dk_frost_shield);
+    RegisterSpellScript(spell_dk_frost_strike);
     RegisterSpellScript(spell_dk_ghoul_explode);
     RegisterSpellScript(spell_dk_glyph_of_scourge_strike_script);
+    RegisterSpellScript(spell_dk_gorefiends_grasp);
     RegisterSpellScript(spell_dk_heartbreaker);
+    RegisterSpellScript(spell_dk_hook);
     RegisterSpellScript(spell_dk_howling_blast);
     RegisterSpellScript(spell_dk_ice_prison);
     RegisterSpellScript(spell_dk_icy_talons);
@@ -1445,10 +2097,14 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_improved_death_strike);
     RegisterSpellScript(spell_dk_mark_of_blood);
     RegisterSpellScript(spell_dk_necrosis);
+    RegisterSpellScript(spell_dk_necrotic_strike);
     RegisterSpellScript(spell_dk_obliteration);
     RegisterSpellScript(spell_dk_permafrost);
     RegisterSpellScript(spell_dk_pet_geist_transform);
     RegisterSpellScript(spell_dk_pet_skeleton_transform);
+    RegisterSpellScript(spell_dk_pillar_of_frost);
+    RegisterSpellScript(spell_dk_purgatory);
+    RegisterSpellScript(spell_dk_purgatory_absorb);
     RegisterSpellScript(spell_dk_pvp_4p_bonus);
     RegisterSpellScript(spell_dk_raise_dead);
     RegisterSpellScript(spell_dk_reaper_of_souls);
@@ -1457,7 +2113,9 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScriptWithArgs(spell_dk_soul_reaper, "spell_dk_soul_reaper_reaper_of_souls", EFFECT_0, Optional<SpellEffIndex>());
     RegisterSpellScript(spell_dk_subduing_grasp);
     RegisterSpellScript(spell_dk_t20_2p_rune_empowered);
+    RegisterSpellScript(spell_dk_tombstone);
     RegisterSpellScript(spell_dk_vampiric_blood);
+    RegisterSpellScript(spell_dk_will_of_the_necropolis);
     RegisterSpellScript(spell_dk_voracious);
 
     RegisterAreaTriggerAI(at_dk_death_and_decay);
