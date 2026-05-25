@@ -16,6 +16,7 @@
  */
 
 #include "MapManager.h"
+#include "LayerManager.h"
 #include "BattlefieldMgr.h"
 #include "Battleground.h"
 #include "BattlegroundScript.h"
@@ -69,15 +70,15 @@ MapManager* MapManager::instance()
     return &instance;
 }
 
-Map* MapManager::FindMap_i(uint32 mapId, uint32 instanceId) const
+Map* MapManager::FindMap_i(uint32 mapId, uint32 instanceId, uint32 layerId) const
 {
-    auto itr = i_maps.find({ mapId, instanceId });
+    auto itr = i_maps.find({ mapId, instanceId, layerId });
     return itr != i_maps.end() ? itr->second.get() : nullptr;
 }
 
-Map* MapManager::CreateWorldMap(uint32 mapId, uint32 instanceId)
+Map* MapManager::CreateWorldMap(uint32 mapId, uint32 instanceId, uint32 layerId)
 {
-    Map* map = new Map(mapId, i_gridCleanUpDelay, instanceId, DIFFICULTY_NONE);
+    Map* map = new Map(mapId, i_gridCleanUpDelay, instanceId, DIFFICULTY_NONE, layerId);
     map->LoadRespawnTimes();
     map->LoadCorpseData();
     map->InitSpawnGroupState();
@@ -85,6 +86,7 @@ Map* MapManager::CreateWorldMap(uint32 mapId, uint32 instanceId)
     if (sWorld->getBoolConfig(CONFIG_BASEMAP_LOAD_GRIDS))
         map->LoadAllCells();
 
+    sLayerMgr->RegisterLayer(mapId, layerId);
     return map;
 }
 
@@ -250,14 +252,16 @@ Map* MapManager::CreateMap(uint32 mapId, Player* player, Optional<uint32> lfgDun
         if (entry->IsSplitByFaction())
             newInstanceId = player->GetTeamId();
 
-        map = FindMap_i(mapId, newInstanceId);
+        uint32 layerId = sLayerMgr->AssignLayer(mapId, newInstanceId, player);
+        sLayerMgr->RecordPlayerLayer(player->GetGUID(), mapId, layerId);
+        map = FindMap_i(mapId, newInstanceId, layerId);
         if (!map)
-            map = CreateWorldMap(mapId, newInstanceId);
+            map = CreateWorldMap(mapId, newInstanceId, layerId);
     }
 
     if (map)
     {
-        Trinity::unique_trackable_ptr<Map>& ptr = i_maps[{ map->GetId(), map->GetInstanceId() }];
+        Trinity::unique_trackable_ptr<Map>& ptr = i_maps[{ map->GetId(), map->GetInstanceId(), map->GetWorldLayer() }];
         if (ptr.get() != map)
         {
             ptr.reset(map);
@@ -275,7 +279,13 @@ Map* MapManager::CreateMap(uint32 mapId, Player* player, Optional<uint32> lfgDun
 Map* MapManager::FindMap(uint32 mapId, uint32 instanceId) const
 {
     std::shared_lock<std::shared_mutex> lock(_mapsLock);
-    return FindMap_i(mapId, instanceId);
+    return FindMap_i(mapId, instanceId, 0);
+}
+
+Map* MapManager::FindMap(uint32 mapId, uint32 instanceId, uint32 layerId) const
+{
+    std::shared_lock<std::shared_mutex> lock(_mapsLock);
+    return FindMap_i(mapId, instanceId, layerId);
 }
 
 uint32 MapManager::FindInstanceIdForPlayer(uint32 mapId, Player const* player) const

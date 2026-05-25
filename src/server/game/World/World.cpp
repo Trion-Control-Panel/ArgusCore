@@ -102,6 +102,7 @@
 #include "VMapManager2.h"
 #include "WardenCheckMgr.h"
 #include "WaypointManager.h"
+#include "LayerManager.h"
 #include "WeatherMgr.h"
 #include "WhoListStorage.h"
 #include "WorldSession.h"
@@ -901,6 +902,9 @@ void World::LoadConfigSettings(bool reload)
         { .Name = "AuctionHouseBot.Update.Interval"sv, .DefaultValue = 20, .Index = CONFIG_AHBOT_UPDATE_INTERVAL },
         { .Name = "BlackMarket.MaxAuctions"sv, .DefaultValue = 12, .Index = CONFIG_BLACKMARKET_MAXAUCTIONS },
         { .Name = "BlackMarket.UpdatePeriod"sv, .DefaultValue = 24, .Index = CONFIG_BLACKMARKET_UPDATE_PERIOD },
+        { .Name = "Layer.MaxPlayersPerLayer"sv, .DefaultValue = DEFAULT_LAYER_MAX_PLAYERS, .Index = CONFIG_LAYER_MAX_PLAYERS, .Min = 1 },
+        { .Name = "Layer.MinPlayersPerLayer"sv, .DefaultValue = DEFAULT_LAYER_MIN_PLAYERS, .Index = CONFIG_LAYER_MIN_PLAYERS, .Min = 0 },
+        { .Name = "Layer.ChangeCooldownSecs"sv, .DefaultValue = DEFAULT_LAYER_CHANGE_CD_SECS, .Index = CONFIG_LAYER_CHANGE_COOLDOWN_SECS, .Min = 0 },
     } };
 
     static constexpr ConfigOptionLoadDefinitionArray<uint64, INT64_CONFIG_VALUE_COUNT> int64s =
@@ -1025,6 +1029,12 @@ void World::LoadConfigSettings(bool reload)
 
     for (ConfigOptionLoadDefinition<uint32, WorldIntConfigs> const& definition : ints)
         StoreConfigValue(m_int_configs[definition.Index], sConfigMgr->GetIntDefault(definition.Name, definition.DefaultValue), definition, reload);
+
+    // Forward layer thresholds to LayerManager unconditionally — the if (reload)
+    // block below only runs on /reload config, not on initial startup.
+    sLayerMgr->Configure(m_int_configs[CONFIG_LAYER_MAX_PLAYERS],
+                         m_int_configs[CONFIG_LAYER_MIN_PLAYERS],
+                         m_int_configs[CONFIG_LAYER_CHANGE_COOLDOWN_SECS]);
 
     for (ConfigOptionLoadDefinition<uint64, WorldInt64Configs> const& definition : int64s)
         StoreConfigValue(m_int64_configs[definition.Index], sConfigMgr->GetInt64Default(definition.Name, definition.DefaultValue), definition, reload);

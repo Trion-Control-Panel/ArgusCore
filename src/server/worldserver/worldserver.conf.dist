@@ -8,6 +8,7 @@
 #
 #    EXAMPLE CONFIG
 #    CONNECTIONS AND DIRECTORIES
+#    WORLD LAYERING
 #    PERFORMANCE SETTINGS
 #    SERVER LOGGING
 #    SERVER SETTINGS
@@ -4370,42 +4371,29 @@ Load.Locales = 1
 #
 ###################################################################################################
 
-###################################################################################################
-# SOLO LFG
-#
-#    SoloLFG.Enable
-#        Description: Enable the module.
-#        Default:     0  - (Disabled)
-#                     1  - (Enabled)
-
-SoloLFG.Enable = 0
-
-#    SoloLFG.Announce
-#        Description: Announce the module.
-#        Default:     1  - (Enabled)
-#                     0  - (Disabled)
-
-SoloLFG.Announce = 1
-
-#
-###################################################################################################
 
 ###################################################################################################
-# SoloCraft
+# WORLD LAYERING
 #
-#    SoloCraft.Enable
-#        Description: Enable the module.
-#        Default:     0  - (Disabled)
-#                     1  - (Enabled)
+#    Layer.MaxPlayersPerLayer
+#        Description: Maximum number of players on one open-world layer before a new
+#                     layer is spawned automatically.
+#        Default:     400
+#
+#    Layer.MinPlayersPerLayer
+#        Description: Minimum player count on a layer before it is eligible for merging
+#                     into another layer (merge logic is not yet implemented; this value
+#                     is reserved for a future step).
+#        Default:     80
+#
+#    Layer.ChangeCooldownSecs
+#        Description: Seconds a player must wait between involuntary layer changes.
+#                     Prevents rapid cycling exploits (group-join/leave loops).
+#        Default:     1800  (30 minutes)
 
-SoloCraft.Enable = 0
-
-#    SoloCraft.Stats.Mult
-#        Description: Stats percentage bonus multiplier
-#        Default:     55.0
-#                     0.0 - (Disable)
-
-SoloCraft.Stats.Mult = 55.0
+Layer.MaxPlayersPerLayer = 400
+Layer.MinPlayersPerLayer = 80
+Layer.ChangeCooldownSecs = 1800
 
 #
 ###################################################################################################

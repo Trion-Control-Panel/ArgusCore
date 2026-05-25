@@ -16,6 +16,8 @@
  */
 
 #include "Map.h"
+#include "LayerManager.h"
+#include "Player.h"
 #include "BattlegroundMgr.h"
 #include "BattlegroundScript.h"
 #include "CellImpl.h"
@@ -129,9 +131,9 @@ void Map::DeleteStateMachine()
     delete si_GridStates[GRID_STATE_REMOVAL];
 }
 
-Map::Map(uint32 id, time_t expiry, uint32 InstanceId, Difficulty SpawnMode) :
+Map::Map(uint32 id, time_t expiry, uint32 InstanceId, Difficulty SpawnMode, uint32 layerId) :
 _creatureToMoveLock(false), _gameObjectsToMoveLock(false), _dynamicObjectsToMoveLock(false), _areaTriggersToMoveLock(false),
-i_mapEntry(sMapStore.LookupEntry(id)), i_spawnMode(SpawnMode), i_InstanceId(InstanceId),
+i_mapEntry(sMapStore.LookupEntry(id)), i_spawnMode(SpawnMode), i_InstanceId(InstanceId), m_worldLayer(layerId),
 m_unloadTimer(0), m_VisibleDistance(DEFAULT_VISIBILITY_DISTANCE), m_mapRefIter(m_mapRefManager.end()),
 m_VisibilityNotifyPeriod(DEFAULT_VISIBILITY_NOTIFY_PERIOD),
 m_activeNonPlayersIter(m_activeNonPlayers.end()), _transportsUpdateIter(_transports.end()),
@@ -404,7 +406,10 @@ bool Map::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
 
     SendInitTransports(player);
 
-    if (initPlayer)
+    // Layer migrations are seamless (initPlayer=false) but share spawn IDs across
+    // layers, so the client would otherwise skip CREATE for "already known" GUIDs
+    // that actually belong to a different layer instance.  Force a full reset here.
+    if (initPlayer || player->GetTeleportOptions() & TELE_TO_LAYER_MIGRATION)
         player->m_clientGUIDs.clear();
 
     player->UpdateObjectVisibility(false);
@@ -416,6 +421,7 @@ bool Map::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     if (player->IsAlive())
         ConvertCorpseToBones(player->GetGUID());
 
+    sLayerMgr->OnPlayerEnter(GetId(), m_worldLayer);
     sScriptMgr->OnPlayerEnterMap(this, player);
     return true;
 }
@@ -966,6 +972,7 @@ void Map::RemovePlayerFromMap(Player* player, bool remove)
 {
     // Before leaving map, update zone/area for stats
     player->UpdateZone(MAP_INVALID_ZONE, 0);
+    sLayerMgr->OnPlayerLeave(GetId(), m_worldLayer);
     sScriptMgr->OnPlayerLeaveMap(this, player);
 
     GetMultiPersonalPhaseTracker().MarkAllPhasesForDeletion(player->GetGUID());

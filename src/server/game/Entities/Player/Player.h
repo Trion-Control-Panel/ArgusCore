@@ -853,7 +853,8 @@ enum TeleportToOptions
     TELE_TO_SPELL               = 0x10,
     TELE_TO_TRANSPORT_TELEPORT  = 0x20, // 3.3.5 only
     TELE_REVIVE_AT_TELEPORT     = 0x40,
-    TELE_TO_SEAMLESS            = 0x80
+    TELE_TO_SEAMLESS            = 0x80,
+    TELE_TO_LAYER_MIGRATION     = 0x100  // world-layer hop: forces far-teleport path, keeps seamless
 };
 
 DEFINE_ENUM_FLAG(TeleportToOptions);

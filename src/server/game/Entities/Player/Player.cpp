@@ -81,6 +81,7 @@
 #include "LootItemStorage.h"
 #include "LootMgr.h"
 #include "LootPackets.h"
+#include "LayerManager.h"
 #include "Mail.h"
 #include "MailPackets.h"
 #include "MapManager.h"
@@ -1338,7 +1339,9 @@ bool Player::TeleportTo(TeleportLocation const& teleportLocation, TeleportToOpti
     if (duel && GetMapId() != teleportLocation.Location.GetMapId() && GetMap()->GetGameObject(GetGuidValue(PLAYER_DUEL_ARBITER)))
         DuelComplete(DUEL_FLED);
 
-    if (GetMapId() == teleportLocation.Location.GetMapId() && (!teleportLocation.InstanceId || GetInstanceId() == teleportLocation.InstanceId))
+    // Layer migration must take the far-teleport path even though mapId is identical,
+    // so that HandleMoveWorldportAck calls CreateMap and picks up the pending layer.
+    if (GetMapId() == teleportLocation.Location.GetMapId() && (!teleportLocation.InstanceId || GetInstanceId() == teleportLocation.InstanceId) && !(options & TELE_TO_LAYER_MIGRATION))
     {
         //lets reset far teleport flag if it wasn't reset during chained teleport
         SetSemaphoreTeleportFar(false);
@@ -1402,11 +1405,15 @@ bool Player::TeleportTo(TeleportLocation const& teleportLocation, TeleportToOpti
             return false;
         }
 
-        // Seamless teleport can happen only if cosmetic maps match
-        if (!oldmap ||
-            (oldmap->GetEntry()->CosmeticParentMapID != int32(teleportLocation.Location.GetMapId()) && int32(GetMapId()) != mEntry->CosmeticParentMapID &&
-            !((oldmap->GetEntry()->CosmeticParentMapID != -1) ^ (oldmap->GetEntry()->CosmeticParentMapID != mEntry->CosmeticParentMapID))))
-            options &= ~TELE_TO_SEAMLESS;
+        // Seamless teleport can happen only if cosmetic maps match.
+        // Layer migration never sets TELE_TO_SEAMLESS so this check is a no-op for it.
+        if (!(options & TELE_TO_LAYER_MIGRATION))
+        {
+            if (!oldmap ||
+                (oldmap->GetEntry()->CosmeticParentMapID != int32(teleportLocation.Location.GetMapId()) && int32(GetMapId()) != mEntry->CosmeticParentMapID &&
+                !((oldmap->GetEntry()->CosmeticParentMapID != -1) ^ (oldmap->GetEntry()->CosmeticParentMapID != mEntry->CosmeticParentMapID))))
+                options &= ~TELE_TO_SEAMLESS;
+        }
 
         //lets reset near teleport flag if it wasn't reset during chained teleports
         SetSemaphoreTeleportNear(false);
@@ -17208,6 +17215,7 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
         uint32 prestigeLevel;
         PlayerRestState honorRestState;
         float honorRestBonus;
+        uint32 world_layer;
 
         explicit PlayerLoadData(Field const* fields)
         {
@@ -17293,6 +17301,7 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
             prestigeLevel = fields[i++].GetUInt32();
             honorRestState = PlayerRestState(fields[i++].GetUInt8());
             honorRestBonus = fields[i++].GetFloat();
+            world_layer    = fields[i++].GetUInt32();
         }
 
     } fields(result->Fetch());
@@ -18015,6 +18024,12 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
     _InitHonorLevelOnLoadFromDB(fields.honor, fields.honorLevel, fields.prestigeLevel);
 
     _restMgr->LoadRestBonus(REST_TYPE_HONOR, fields.honorRestState, fields.honorRestBonus);
+
+    // Seed the layer cooldown state so the 30-min anti-farm timer survives restarts.
+    // AssignLayer will still run full population-balancing rules on zone entry;
+    // this only pre-populates _playerStates so Rule 2 (cooldown) has data to check.
+    if (fields.world_layer != 0)
+        sLayerMgr->RecordPlayerLayer(GetGUID(), fields.map, fields.world_layer);
     if (time_diff > 0)
     {
         //speed collect rest bonus in offline, in logout, far from tavern, city (section/in hour)
@@ -19868,6 +19883,8 @@ void Player::SaveToDB(LoginDatabaseTransaction loginTransaction, CharacterDataba
         stmt->setUInt32(index++, GetPrestigeLevel());
         stmt->setUInt8(index++, uint8(GetUInt32Value(PLAYER_FIELD_REST_INFO + AsUnderlyingType(REST_STATE_HONOR))));
         stmt->setFloat(index++, finiteAlways(_restMgr->GetRestBonus(REST_TYPE_HONOR)));
+        // Save the open-world layer; store 0 for instanced maps (irrelevant there).
+        stmt->setUInt32(index++, GetMap() && !GetMap()->Instanceable() ? GetMap()->GetWorldLayer() : 0);
         if (std::shared_ptr<Realm const> currentRealm = sRealmList->GetCurrentRealm())
             stmt->setUInt32(index++, ClientBuild::GetMinorMajorBugfixVersionForBuild(currentRealm->Build));
         else

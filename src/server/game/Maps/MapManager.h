@@ -53,7 +53,8 @@ class TC_GAME_API MapManager
         static MapManager* instance();
 
         Map* CreateMap(uint32 mapId, Player* player, Optional<uint32> lfgDungeonsId = {});
-        Map* FindMap(uint32 mapId, uint32 instanceId) const;
+        Map* FindMap(uint32 mapId, uint32 instanceId) const;                          // layerId = 0
+        Map* FindMap(uint32 mapId, uint32 instanceId, uint32 layerId) const;
         uint32 FindInstanceIdForPlayer(uint32 mapId, Player const* player) const;
 
         void Initialize();
@@ -133,13 +134,29 @@ class TC_GAME_API MapManager
         void AddSC_BuiltInScripts();
 
     private:
-        using MapKey = std::pair<uint32, uint32>;
+        // Three-component key: mapId + instanceId (faction/instance) + layerId
+        // (open-world layer copy).  For all non-world maps layerId is always 0.
+        // Using a named struct keeps the semantics explicit and avoids the
+        // pair<uint32,uint32> ambiguity that existed before layering.
+        struct MapKey
+        {
+            uint32 mapId      = 0;
+            uint32 instanceId = 0;
+            uint32 layerId    = 0;
+
+            bool operator<(MapKey const& o) const noexcept
+            {
+                if (mapId      != o.mapId)      return mapId      < o.mapId;
+                if (instanceId != o.instanceId) return instanceId < o.instanceId;
+                return layerId < o.layerId;
+            }
+        };
         using MapMapType = std::map<MapKey, Trinity::unique_trackable_ptr<Map>>;
         using InstanceIds = boost::dynamic_bitset<size_t>;
 
-        Map* FindMap_i(uint32 mapId, uint32 instanceId) const;
+        Map* FindMap_i(uint32 mapId, uint32 instanceId, uint32 layerId = 0) const;
 
-        Map* CreateWorldMap(uint32 mapId, uint32 instanceId);
+        Map* CreateWorldMap(uint32 mapId, uint32 instanceId, uint32 layerId = 0);
         InstanceMap* CreateInstance(uint32 mapId, uint32 instanceId, InstanceLock* instanceLock, Difficulty difficulty, TeamId team, Group* group,
             Optional<uint32> lfgDungeonsId);
         BattlegroundMap* CreateBattleground(uint32 mapId, uint32 instanceId, Battleground* bg);
@@ -175,8 +192,8 @@ void MapManager::DoForAllMapsWithMapId(uint32 mapId, Worker&& worker)
     std::shared_lock<std::shared_mutex> lock(_mapsLock);
 
     auto range = Trinity::Containers::MakeIteratorPair(
-        i_maps.lower_bound({ mapId, 0 }),
-        i_maps.upper_bound({ mapId, std::numeric_limits<uint32>::max() })
+        i_maps.lower_bound({ mapId, 0, 0 }),
+        i_maps.upper_bound({ mapId, std::numeric_limits<uint32>::max(), std::numeric_limits<uint32>::max() })
     );
 
     for (auto const& [key, map] : range)
