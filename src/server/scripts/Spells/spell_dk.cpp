@@ -1453,12 +1453,12 @@ class spell_dk_pillar_of_frost : public AuraScript
 {
     void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
-        GetTarget()->ApplySpellImmune(SPELL_DK_PILLAR_OF_FROST, IMMUNITY_MECHANIC, MECHANIC_INCAPACITATE, true);
+        GetTarget()->ApplySpellImmune(SPELL_DK_PILLAR_OF_FROST, IMMUNITY_MECHANIC, MECHANIC_KNOCKOUT, true);
     }
 
     void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
-        GetTarget()->ApplySpellImmune(SPELL_DK_PILLAR_OF_FROST, IMMUNITY_MECHANIC, MECHANIC_INCAPACITATE, false);
+        GetTarget()->ApplySpellImmune(SPELL_DK_PILLAR_OF_FROST, IMMUNITY_MECHANIC, MECHANIC_KNOCKOUT, false);
     }
 
     void Register() override
@@ -1607,7 +1607,7 @@ class spell_dk_gorefiends_grasp : public SpellScript
 
         Position const* dest = GetExplTargetDest();
         centralTarget->CastSpell(hitTarget, SPELL_DK_GOREFIENDS_GRASP_PULL, true);
-        hitTarget->CastSpell(dest->GetPositionX(), dest->GetPositionY(), dest->GetPositionZ(), SPELL_DK_GOREFIENDS_GRASP_JUMP, true);
+        hitTarget->CastSpell(*dest, SPELL_DK_GOREFIENDS_GRASP_JUMP, TRIGGERED_FULL_MASK);
     }
 
     void Register() override
@@ -1659,7 +1659,7 @@ class spell_dk_death_gate_teleport : public SpellScript
     void Register() override
     {
         OnCheckCast += SpellCheckCastFn(spell_dk_death_gate_teleport::CheckClass);
-        OnEffectHitTarget += SpellEffectFn(spell_dk_death_gate_teleport::HandleTeleport, EFFECT_0, SPELL_EFFECT_TELEPORT_L);
+        OnEffectHitTarget += SpellEffectFn(spell_dk_death_gate_teleport::HandleTeleport, EFFECT_0, SPELL_EFFECT_TELEPORT_UNITS);
     }
 };
 
@@ -1854,7 +1854,7 @@ class spell_dk_necrotic_strike : public AuraScript
         if (!caster)
             return;
 
-        if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(223829))
+        if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(223829, DIFFICULTY_NONE))
             amount = CalculatePct(int32(caster->GetTotalAttackPowerValue(BASE_ATTACK)),
                                   spellInfo->GetEffect(EFFECT_0).CalcValue(caster));
     }
