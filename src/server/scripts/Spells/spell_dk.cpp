@@ -107,7 +107,6 @@ enum DeathKnightSpells
     SPELL_DK_UNHOLY_VIGOR                       = 196263,
     SPELL_DH_VORACIOUS_LEECH                    = 274009,
     SPELL_DH_VORACIOUS_TALENT                   = 273953,
-    // Legion-era spells ported from LegionCore
     SPELL_DK_PURGATORY_STACKS                   = 116888,
     SPELL_DK_PURGATORY_DEATH                    = 123982,
     SPELL_DK_PURGATORY_MARKER                   = 123981,

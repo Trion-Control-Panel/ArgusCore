@@ -215,7 +215,6 @@ enum DemonHunterSpells
     SPELL_DH_VENGEFUL_RETREAT                      = 198813,
     SPELL_DH_VENGEFUL_RETREAT_TRIGGER              = 198793,
 
-    // Ported from LegionCore
     SPELL_DH_ANGUISH                            = 202443,
     SPELL_DH_ANGUISH_DAMAGE                     = 202446,
     SPELL_DH_DESPERATE_INSTINCTS_TALENT         = 205478,
@@ -939,27 +938,22 @@ class spell_dh_fel_rush : public SpellScript
     {
         Unit* caster = GetCaster();
 
-        // Cancel any player movement so W-key motion doesn't inflate the computed destination.
+        // Cancel any active walking/running movement so W-key momentum doesn't add to the
+        // charge velocity (most visible in the air where there's no ground collision).
         caster->StopMoving();
 
-        // Pick the variant based on whether the caster is on the ground or in air/water.
-        // Both variants have SPELL_EFFECT_CHARGE_DEST, which requires an explicit destTarget.
-        // Without this script that dest is never set and the effect silently returns early.
+        // 197922/197923 both use SPELL_EFFECT_CHARGE_DEST which requires an explicit destination;
+        // without one the effect returns early and no movement happens.
         uint32 spellId = (caster->IsInWater() || caster->IsFlying() || caster->IsFalling())
             ? SPELL_DH_FEL_RUSH_WATER_AIR
             : SPELL_DH_FEL_RUSH_GROUND;
 
-        // 15-yard dash straight forward, snapped to the first geometry collision point.
         Position dest = caster->GetFirstCollisionPosition(15.0f, 0.0f);
 
-        CastSpellExtraArgs dashArgs;
-        dashArgs.TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR;
-        dashArgs.SetTriggeringSpell(GetSpell());
-
-        caster->CastSpell(dest, spellId, dashArgs);
-        // Damage is cast from the landing sub-spell scripts (spell_dh_fel_rush_ground /
-        // spell_dh_fel_rush_water_air) in their OnEffectHit handler, which fires after
-        // EffectChargeDest's HIT phase — i.e. after the player has actually arrived.
+        caster->CastSpell(dest, spellId, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = GetSpell()
+        });
     }
 
     void Register() override
@@ -1064,15 +1058,14 @@ class spell_dh_fiery_brand : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_DH_FIERY_BRAND_DEBUFF_RANK_1, SPELL_DH_FIERY_BRAND_DEBUFF_RANK_2, SPELL_DH_FIERY_BRAND_RANK_2 });
+        return ValidateSpellInfo({ SPELL_DH_FIERY_BRAND_DEBUFF_RANK_1 });
     }
 
     void HandleDamage(SpellEffIndex /*effIndex*/) const
     {
-        GetCaster()->CastSpell(GetHitUnit(), GetCaster()->HasAura(SPELL_DH_FIERY_BRAND_RANK_2) ? SPELL_DH_FIERY_BRAND_DEBUFF_RANK_2 : SPELL_DH_FIERY_BRAND_DEBUFF_RANK_1,
-            CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringSpell = GetSpell()
+        GetCaster()->CastSpell(GetHitUnit(), SPELL_DH_FIERY_BRAND_DEBUFF_RANK_1, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = GetSpell()
         });
     }
 
@@ -1369,10 +1362,11 @@ class spell_dh_blade_dance_damage : public SpellScript
     {
         int32 damage = GetHitDamage();
 
-        if (AuraEffect* aurEff = GetCaster()->GetAuraEffect(SPELL_DH_FIRST_BLOOD, EFFECT_0))
-            if (spell_dh_first_blood* script = aurEff->GetBase()->GetScript<spell_dh_first_blood>())
-                if (GetHitUnit()->GetGUID() == script->GetFirstTarget())
-                    AddPct(damage, aurEff->GetAmount());
+        // First Blood: bonus damage to the caster's selected target (same logic as LegionCore reference).
+        // Using GetTarget() is reliable regardless of whether spell_dh_blade_dance fired on the main cast.
+        if (AuraEffect const* aurEff = GetCaster()->GetAuraEffect(SPELL_DH_FIRST_BLOOD, EFFECT_0))
+            if (GetHitUnit()->GetGUID() == GetCaster()->GetTarget())
+                AddPct(damage, aurEff->GetAmount());
 
         SetHitDamage(damage);
     }
@@ -2292,7 +2286,6 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellAndAuraScriptPair(spell_dh_glide, spell_dh_glide_AuraScript);
     RegisterSpellScript(spell_dh_glide_timer);
 
-    // Ported from LegionCore
     RegisterSpellScript(spell_dh_anguish);
     RegisterSpellScript(spell_dh_anguish_damage);
     RegisterSpellScript(spell_dh_nemesis);
