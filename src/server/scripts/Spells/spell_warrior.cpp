@@ -680,18 +680,69 @@ class spell_warr_enrage_proc : public AuraScript
     }
 };
 
-// 260798 - Execute (Arms, Protection)
-class spell_warr_execute_damage : public SpellScript
+// 163201 - Execute (Arms), 217955 - Execute (PvP talent variant)
+// This class previously ("spell_warr_execute_damage") was bound to spell 260798, a verbatim
+// copy of TrinityCore-master's modern-retail Execute (identical comment,
+// "tooltip has 2 multiplier hardcoded in it $damage=${2.0*$260798s1}", found in both files) -
+// confirmed forward drift, not Legion 7.3.5 content. Both DestinyCore and LegionCore
+// independently confirm 163201 as the actual Legion-era Execute id, and the real Legion 7.2.5
+// tooltip (user-confirmed) reads: "Attempts to finish off a foe, causing 202% Physical damage,
+// and consuming up to 10 additional Rage to deal up to 202% additional damage (i.e. up to
+// double the base damage). Only usable on enemies that have less than 20% health. If your foe
+// survives, 30% of the Rage spent is refunded."
+// The 10-extra-rage/30%-refund numbers are hardcoded from that tooltip rather than derived
+// from this spell's own effect base points (DestinyCore's reference derives them dynamically
+// via EFFECT_3/EFFECT_4, but that can't be independently verified here without Legion 7.3.5
+// DB2 data, and a wrong effect-index guess would silently miscalculate the scaling).
+// ArgusCore's engine also has no OnTakePower/power-cost-interception hook (unlike DestinyCore's
+// SpellOnTakePowerFn), so the extra rage is deducted manually via ModifyPower rather than
+// through the cost pipeline; the base rage cost is still paid normally by the existing system.
+class spell_warr_execute : public SpellScript
 {
-    static void CalculateExecuteDamage(SpellScript const&, SpellEffectInfo const& /*spellEffectInfo*/, Unit const* /*victim*/, int32 const& /*damageOrHealing*/, int32 const& /*flatMod*/, float& pctMod)
+    static constexpr int32 MaxExtraRage = 10;
+    static constexpr int32 RefundPct = 30;
+
+    int32 _extraRageSpent = 0;
+
+    bool Load() override
     {
-        // tooltip has 2 multiplier hardcoded in it $damage=${2.0*$260798s1}
-        pctMod *= 2.0f;
+        _extraRageSpent = std::max(std::min(int32(GetCaster()->GetPower(POWER_RAGE)), MaxExtraRage), 0);
+        return true;
+    }
+
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        if (_extraRageSpent <= 0)
+            return;
+
+        float ratio = float(_extraRageSpent) / float(MaxExtraRage);
+        SetHitDamage(CalculatePct(GetHitDamage(), 100.f + ratio * 100.f));
+    }
+
+    void HandleAfterHit()
+    {
+        if (_extraRageSpent <= 0)
+            return;
+
+        Unit* caster = GetCaster();
+        caster->ModifyPower(POWER_RAGE, -_extraRageSpent);
+
+        Unit* target = GetHitUnit();
+        if (target && target->IsAlive())
+        {
+            int32 baseRageCost = 0;
+            for (SpellPowerCost const& cost : GetSpell()->GetPowerCost())
+                if (cost.Power == POWER_RAGE)
+                    baseRageCost = cost.Amount;
+
+            caster->ModifyPower(POWER_RAGE, CalculatePct(baseRageCost + _extraRageSpent, RefundPct));
+        }
     }
 
     void Register() override
     {
-        CalcDamage += SpellCalcDamageFn(spell_warr_execute_damage::CalculateExecuteDamage);
+        OnEffectHitTarget += SpellEffectFn(spell_warr_execute::HandleDamage, EFFECT_1, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
+        AfterHit += SpellHitFn(spell_warr_execute::HandleAfterHit);
     }
 };
 
@@ -1617,7 +1668,7 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_devastator);
     RegisterSpellScript(spell_warr_dragon_roar);
     RegisterSpellScript(spell_warr_enrage_proc);
-    RegisterSpellScript(spell_warr_execute_damage);
+    RegisterSpellScript(spell_warr_execute);
     RegisterSpellScript(spell_warr_fueled_by_violence);
     RegisterSpellScript(spell_warr_heroic_leap);
     RegisterSpellScript(spell_warr_heroic_leap_jump);

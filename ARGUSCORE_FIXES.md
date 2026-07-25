@@ -1666,6 +1666,113 @@ guess is wrong.
 into Second Wind, get stunned or rooted and confirm a heal-over-time
 noticeably restores health afterward, scaling with max health.
 
+### [DONE] Warrior/Arms - Execute was modern-retail content, and ArgusCore's engine lacked the hook DestinyCore's version needed
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Problem:** Discovered while investigating Massacre (a separate, still-open
+candidate — see below): ArgusCore's `spell_warr_execute_damage` was bound to
+spell 260798 with the comment `// tooltip has 2 multiplier hardcoded in it
+$damage=${2.0*$260798s1}`. The **identical** class, spell id, and comment
+verbatim exist in TrinityCore-master (modern retail) — confirmed forward
+drift, the same pattern as the earlier Scorch fix. DestinyCore and
+LegionCore independently agree Legion 7.3.5's actual Execute id is 163201 (a
+completely different mechanic: base damage plus scaling bonus damage from
+spending extra Rage, with a partial refund on survival — not a flat 2x
+multiplier).
+
+**Reference:** DestinyCore's implementation is clean and self-consistent,
+but depends on an `OnTakePower`/`SpellOnTakePowerFn` hook to intercept and
+modify the spell's rage cost dynamically — **ArgusCore's `SpellScript.h` has
+no such hook at all**, confirmed by a thorough search of the file. This
+isn't an API naming difference; it's a missing engine capability. Flagged
+to the user before proceeding rather than guessing at a workaround.
+**Ground truth for the exact numbers came directly from the user**, who
+provided the real Legion 7.2.5 tooltip: "Attempts to finish off a foe,
+causing 202% Physical damage, and consuming up to 10 additional Rage to
+deal up to 202% additional damage. Only usable on enemies that have less
+than 20% health. If your foe survives, 30% of the Rage spent is refunded."
+This also corrected a formula mismatch: DestinyCore's own code implied a
+larger (+300%) bonus-damage ratio than the tooltip supports (+100%/doubling
+at most) — the tooltip numbers were used as authoritative over DestinyCore's
+formula where they disagreed.
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Fix:** Replaced `spell_warr_execute_damage` (260798) with a new
+`spell_warr_execute` class bound to 163201 (Arms) and 217955 (PvP talent
+variant). Rather than intercepting the cost pipeline (not possible in this
+engine), the base rage cost is still paid normally through the existing
+system, and only the *additional* rage is handled manually: `Load()` reads
+available rage (capped at 10), `HandleDamage` scales bonus damage
+proportionally (up to +100%, i.e. doubling), and `HandleAfterHit` deducts
+the extra rage spent and refunds 30% of the total (base + extra) if the
+target survived. The 10-rage-cap and 30%-refund numbers are hardcoded from
+the user-provided tooltip rather than derived from this spell's own effect
+base points (DestinyCore's approach), since Legion 7.3.5 DB2 data isn't
+available here to verify which raw effect fields correspond to which value.
+
+**Flagged, not touched — a related but separate concern:** ArgusCore
+already has `SPELL_WARRIOR_EXECUTE = 20647` (unrelated to this fix),
+referenced by `spell_warr_sweeping_strikes` to detect when a Sweeping
+Strikes proc came from an Execute cast. TrinityCore-master uses the
+identical constant name and value (20647) in its own structurally-matching
+Sweeping-Strikes-equivalent class, while DestinyCore doesn't reference 20647
+anywhere at all. Whether 20647 is a legitimate, stable "spell family"
+identifier distinct from whichever id is the currently-live cast spell
+(163201 for Legion, 260798 for modern retail), or itself another instance of
+copied-from-master drift, wasn't resolved — it's a separate, more uncertain
+question than Execute's own core mechanic and was deliberately kept out of
+scope for this fix. Worth a dedicated look later.
+
+**Risk:** Moderate-high — this is a structural reinvention (not a direct
+port) working around a genuine engine capability gap, and the exact numbers,
+while now grounded in a real tooltip rather than guesswork, haven't been
+tested in-game. The old 260798-bound version was already wrong-expansion
+content, so this cannot regress correct behavior — worst case it's a
+different-but-still-wrong implementation.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — as Arms, use Execute
+on a target below 20% health at varying Rage levels (e.g. exactly at the
+base cost vs. with 10+ extra Rage available) and confirm damage scales up
+with more Rage spent, extra Rage is consumed, and ~30% of Rage spent is
+refunded if the target survives the hit.
+
+### [VERIFIED — no fix needed] Warrior - Berserker Rage / Enrage Aura / Unshackled Fury do not need scripts
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Investigated as a candidate gap, concluded no code change is needed.**
+DestinyCore has scripts for all three (`spell_warr_berzerker_rage`,
+`spell_warr_enrage_aura`, `spell_warr_unshackled_fury`), but tracing
+through ArgusCore's actual engine code
+(`Unit::ModifyAuraState`, `src/server/game/Entities/Unit/Unit.cpp:5956`)
+showed this is handled automatically: when a unit gains/loses an aura-state
+flag (e.g. `AURA_STATE_ENRAGED`), the engine itself automatically
+casts/removes any passive spell on that unit whose own `CasterAuraState`
+DB2 field matches that flag. Unshackled Fury (a "gain bonus damage while
+Enraged" passive) is exactly the kind of spell this mechanism exists for —
+its apply/remove lifecycle is already fully engine/DB2-driven, needing no
+script at all. DestinyCore's `spell_warr_unshackled_fury` only duplicates
+this (and uses the constant name `AURA_STATE_ENRAGE`, which doesn't even
+exist in ArgusCore — the real name here is `AURA_STATE_ENRAGED`). Its
+`Register()` isn't reachable if the passive is already applying with the
+correct value in the first place. Similarly, Berserker Rage's and Enrage
+Aura's `RemoveAurasDueToSpell(SPELL_WARRIOR_UNCHACKLED_FURY)` calls on
+removal are redundant with what `ModifyAuraState` already does when the
+Enrage aura-state flag clears — worse, since neither class re-applies
+Unshackled Fury anywhere, porting that removal call as written would
+strip the buff with no code path to bring it back, which would be a
+regression, not a fix.
+
+**Decision:** implemented nothing for this trio. If in-game testing later
+shows Unshackled Fury's damage bonus doesn't actually track Enrage state
+correctly, that would mean spell 76856's own DB2 data doesn't have
+`CasterAuraState` set as assumed — a data question, not a scripting one,
+and worth revisiting only if that's confirmed.
+
 ---
 
 ## P4 — Performance / Cleanup
