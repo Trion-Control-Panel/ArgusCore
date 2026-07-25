@@ -5449,7 +5449,10 @@ void AuraEffect::HandlePeriodicDamageAurasTick(Unit* target, Unit* caster) const
         {
             WeaponAttackType attackType = GetSpellInfo()->GetAttackType();
 
-            damage = CalculatePct(caster->CalculateDamage(attackType, false, true), GetAmount());
+            // Weapon damage requires a live caster; if the caster has left the map since
+            // this aura was applied (GetCaster() returns null), skip this tick's damage
+            // instead of crashing - the aura keeps ticking harmlessly until it expires.
+            damage = caster ? CalculatePct(caster->CalculateDamage(attackType, false, true), GetAmount()) : 0;
 
             // Add melee damage bonuses (also check for negative)
             if (caster)

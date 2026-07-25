@@ -114,6 +114,85 @@ be charged and delivered.
 
 ## P1 — Stability
 
+### [DONE] Core/Spells - Null-caster crash in weapon-percent DoT tick
+
+**Subsystem:** Spells/Auras (SpellAuraEffects)
+
+**Problem:** `AuraEffect::HandlePeriodicDamageAurasTick`'s
+`SPELL_AURA_PERIODIC_WEAPON_PERCENT_DAMAGE` case dereferenced `caster`
+unconditionally (`caster->CalculateDamage(...)`), while the `SPELL_AURA_PERIODIC_DAMAGE`
+case immediately above it, and every other `caster` use later in the same function,
+correctly guards with `if (caster)`. Traced the call chain: `Aura::UpdateOwner`
+assigns `Unit* caster = GetCaster();` and explicitly handles the null case a few
+lines later — `GetCaster()` returns null once the original caster is no longer on
+the same map (logged out, zoned, disconnected). Non-channeled DoTs are
+deliberately *not* removed when the caster leaves. Any weapon-percent-damage DoT
+(a bleed-type effect) still ticking on a target after its caster leaves the map
+hits this line and crashes the world thread on the next tick — reachable through
+ordinary gameplay timing, no exploit needed.
+
+**Files:** `src/server/game/Spells/Auras/SpellAuraEffects.cpp`
+
+**Reference:** Same unguarded line exists in DestinyCore and upstream
+TrinityCore-master — a long-standing latent bug in the whole TrinityCore lineage,
+not an ArgusCore regression, but a live crash path here regardless.
+
+**Fix:** Guarded the `caster->CalculateDamage(...)` call with the same
+`caster ? ... : 0` pattern implied by the sibling case — if the caster is gone,
+this tick deals no damage (weapon data is inherently caster-derived, so there's no
+way to compute a meaningful value without it) rather than crashing; the aura
+continues ticking harmlessly until it expires.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
+
+### [ ] Core/Spells - Client-triggerable ASSERT in SelectImplicitTargetDestTargets
+
+**Subsystem:** Spells/Spell
+
+**Problem:** `Spell::SelectImplicitTargetDestTargets` (`Spell.cpp:1629-1634`) has
+`ASSERT(m_targets.GetObjectTarget() || ...DontFailSpellOnTargetingFailure, ...)`
+immediately followed by `if (!target) return;` on the very next line. `ASSERT` in
+this codebase is not compiled out in release builds — it aborts the whole
+process. The redundant null check right after the assert suggests the null case
+is in fact reachable at runtime for some `TARGET_DEST_TARGET_*` spell effect
+combinations, which would mean a spell missing the
+`DontFailSpellOnTargetingFailure` attribute could abort the server via normal
+(or crafted) cast target resolution. Not yet proven to trigger end-to-end against
+current spell data — flagged as medium-confidence per the audit that found it.
+
+**Files:** `src/server/game/Spells/Spell.cpp`
+
+**Reference:** Same code exists upstream in TrinityCore-master; not an ArgusCore
+regression. Matches the same class of bug as the already-fixed VehicleHandler
+seat asserts (client-reachable path asserting on a value instead of gracefully
+rejecting it).
+
+**Status:** Not started. Needs confirming whether the null case is actually
+reachable with current spell_effect data before deciding between "replace assert
+with early return" vs. "leave as an internal invariant."
+
+### [ ] Core/Spells - EffectUntrainTalents checks caster type instead of target type
+
+**Subsystem:** Spells/SpellEffects
+
+**Problem:** `Spell::EffectUntrainTalents` (`SpellEffects.cpp:2243-2252`) guards
+with `if (!unitTarget || m_caster->GetTypeId() == TYPEID_PLAYER) return;` then
+unconditionally calls `unitTarget->ToPlayer()->SendRespecWipeConfirm(...)` — the
+type check is on `m_caster`, not `unitTarget`, so if `unitTarget` were ever a
+non-player unit, `ToPlayer()` would return null and crash.
+
+**Files:** `src/server/game/Spells/SpellEffects.cpp`
+
+**Severity:** Low/likely unreachable — `SPELL_EFFECT_UNTRAIN_TALENTS` is only used
+by trainer spells server-cast at the interacting player, so `unitTarget` isn't
+normally client-controlled. Same pattern exists in DestinyCore. Flagged for
+completeness.
+
+**Status:** Not started. Cheap one-line fix
+(`unitTarget->GetTypeId() != TYPEID_PLAYER`) whenever picked up.
+
 ### [DONE] Core/Unit - TriggerAuraHeartbeat iterator invalidation
 
 **Subsystem:** Entities/Unit, Spells/Auras
