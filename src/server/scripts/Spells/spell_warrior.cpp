@@ -48,6 +48,7 @@ enum WarriorSpells
     SPELL_WARRIOR_COLOSSUS_SMASH                    = 167105,
     SPELL_WARRIOR_COLOSSUS_SMASH_AURA               = 208086,
     SPELL_WARRIOR_CRITICAL_THINKING_ENERGIZE        = 392776,
+    SPELL_WARRIOR_DRAGON_ROAR_KNOCK_BACK            = 118895,
     SPELL_WARRIOR_EXECUTE                           = 20647,
     SPELL_WARRIOR_ENRAGE                            = 184362,
     SPELL_WARRIOR_FRESH_MEAT_DEBUFF                 = 316044,
@@ -561,6 +562,33 @@ class spell_warr_devastator : public AuraScript
     void Register() override
     {
         OnEffectProc += AuraEffectProcFn(spell_warr_devastator::OnProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
+
+// 118000 - Dragon Roar
+// Knocks the target back on hit. Spell id confirmed via DestinyCore's own committed
+// spell_script_names data (DB_world_735.02.sql), since the C++ file itself never names
+// Dragon Roar's own id in an enum constant (only the knockback sub-spell is named there).
+class spell_warr_dragon_roar : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_DRAGON_ROAR_KNOCK_BACK });
+    }
+
+    void HandleOnHit()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+
+        if (Unit* target = GetHitUnit())
+            caster->CastSpell(target, SPELL_WARRIOR_DRAGON_ROAR_KNOCK_BACK, true);
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_warr_dragon_roar::HandleOnHit);
     }
 };
 
@@ -1518,6 +1546,7 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_colossus_smash);
     RegisterSpellScript(spell_warr_critical_thinking);
     RegisterSpellScript(spell_warr_devastator);
+    RegisterSpellScript(spell_warr_dragon_roar);
     RegisterSpellScript(spell_warr_enrage_proc);
     RegisterSpellScript(spell_warr_execute_damage);
     RegisterSpellScript(spell_warr_fueled_by_violence);

@@ -1573,6 +1573,41 @@ use Whirlwind/Colossus Smash/Mortal Strike/Slam repeatedly and confirm
 Overpower occasionally becomes usable/highlighted without needing a target
 to dodge your attack.
 
+### [DONE] Warrior - Dragon Roar missing entirely
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Problem:** Dragon Roar, a Warrior cooldown, had no implementation
+anywhere in ArgusCore. Without a script it would deal its direct damage
+(data-driven) but never knock the target back.
+
+**Reference:** DestinyCore's implementation — simple and self-contained,
+single `OnHit` handler, no talent-tier ambiguity. Its own spell id is never
+named in an enum constant anywhere in DestinyCore's C++ (only the knockback
+sub-spell is), so it was confirmed independently via DestinyCore's own
+committed `spell_script_names` data (`DB_world_735.02.sql`:
+`(118000,'spell_warr_dragon_roar')`) rather than guessed.
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Fix:** Added `SPELL_WARRIOR_DRAGON_ROAR_KNOCK_BACK` (118895) and a new
+`spell_warr_dragon_roar` `SpellScript` (`OnHit`) that casts the knockback on
+the target — ported directly from DestinyCore's logic with no structural
+changes needed, matching the same `OnHit`/`SpellHitFn` idiom already used
+for Thunder Clap in this file.
+
+**Database dependency:** searched ArgusCore's committed SQL for an existing
+`spell_script_names` binding on spell 118000 — found none. Added its own
+dedicated file, `sql/updates/world/master/2026_07_25_10_world.sql`.
+
+**Risk:** Low — small, self-contained, matches DestinyCore's reference
+exactly.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — cast Dragon Roar and
+confirm nearby enemies are knocked back in addition to taking damage.
+
 ---
 
 ## P4 — Performance / Cleanup
