@@ -394,7 +394,7 @@ should block queuing at all is presumably already handled by the existing
 
 **Test:** Pending manual build/runtime verification.
 
-### [ ] Core/Battleground - Unguarded PlayerScores lookup in EndBattleground
+### [DONE] Core/Battleground - Unguarded PlayerScores lookup in EndBattleground
 
 **Subsystem:** Battlegrounds (Battleground)
 
@@ -412,7 +412,13 @@ server for the whole battleground's population.
 
 **Files:** `src/server/game/Battlegrounds/Battleground.cpp`
 
-**Status:** Not started. Small, safe, one-guard fix whenever picked up.
+**Fix:** Wrapped the PvP-stats DB insert in `if (score != PlayerScores.end())`,
+matching the guard `UpdatePlayerScore()` already uses for the identical lookup.
+No change to the normal (found) path.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
 
 ### [DONE] Core/Bank - AutoStoreBankReagent reads Slot/PackSlot in wrong wire order
 
