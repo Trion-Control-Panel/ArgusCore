@@ -1875,6 +1875,125 @@ exactly.
 on a target with an active immunity shield (Divine Shield, Ice Block, etc.)
 and confirm the shield is removed.
 
+### [DONE] Warrior/Fury - Frenzy missing entirely
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Problem:** Frenzy (206313), a Fury stacking haste buff, had no
+implementation anywhere in ArgusCore.
+
+**Reference:** DestinyCore's implementation — a simple filter-only aura,
+matching the same self-contained pattern as Chain Reaction and Massacre.
+Confirmed via Wowhead/WoWDB that Frenzy is the passive buff Furious Slash
+(100130) applies/stacks (up to 3 stacks, 2% haste each, 15 sec duration) —
+stable, long-lived Fury mechanic, not something flagged as changed between
+Legion and later expansions.
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Fix:** Added `SPELL_WARRIOR_FURIOUS_SLASH = 100130` and a new
+`spell_warr_frenzy` `AuraScript` whose `CheckProc` restricts the aura to
+only proc from Furious Slash — ported directly from DestinyCore's logic
+with no changes needed. The stacking/haste/duration behavior itself is left
+to spell 206313's own DB2-defined effect data.
+
+**Database dependency:** searched ArgusCore's committed SQL for an existing
+`spell_script_names` binding on spell 206313 — found none. Added its own
+dedicated file, `sql/updates/world/master/2026_07_25_15_world.sql`.
+
+**Risk:** Low — small, self-contained, matches DestinyCore's reference
+exactly.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — as Fury, use Furious
+Slash repeatedly and confirm the Frenzy buff stacks up to 3 times.
+
+### [DONE] Warrior/Arms - Tactician missing entirely
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Problem:** Tactician (184783), an Arms talent giving rage-spending
+abilities a chance to reset Colossus Smash and Mortal Strike's cooldowns,
+had no implementation anywhere in ArgusCore.
+
+**Reference:** DestinyCore's implementation. Verified via web search that
+Legion 7.3.5's Tactician resets Colossus Smash/Mortal Strike specifically —
+**not** Overpower, which is what the same-named, same-numbered talent does
+in modern retail (confirmed by checking TrinityCore-master's own
+`spell_warr_tactician`, which uses a charge-restore system tied to
+Overpower). Same pattern as Massacre and Execute: a talent name/id staying
+stable across expansions while its actual effect is redesigned.
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Fix:** Added `SPELL_WARRIOR_TACTICIAN_CD = 199854` and a new
+`spell_warr_tactician` `AuraScript` that computes the rage cost of the
+triggering spell and rolls a chance (0.75% per point of Rage spent) to
+reset both cooldowns and cast the "Tactician" glow marker — ported directly
+from DestinyCore's logic.
+
+**Residual uncertainty flagged, not resolved:** the 0.75%-per-rage constant
+is DestinyCore's own hardcoded value. A web search surfaced a slightly
+different figure (0.65%) for the same patch, but it came from an aggregated
+snippet rather than a direct tooltip quote, so DestinyCore's value was kept
+as the more directly-sourced reference. This is a minor tuning discrepancy,
+not a mechanic difference — worth revisiting only if it turns out to matter
+in practice (e.g. if in-game testing shows the proc rate feels clearly off).
+
+**Database dependency:** searched ArgusCore's committed SQL for an existing
+`spell_script_names` binding on spell 184783 — found none. Added its own
+dedicated file, `sql/updates/world/master/2026_07_25_16_world.sql`.
+
+**Risk:** Low-moderate — structure and target cooldowns are well-confirmed;
+only the exact proc-chance percentage carries residual uncertainty, and
+being wrong there would just mean a slightly different proc frequency, not
+a broken mechanic.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — as Arms, use
+rage-spending abilities repeatedly and confirm Colossus Smash/Mortal
+Strike's cooldowns occasionally reset early, with a visible "Tactician"
+proc indicator.
+
+### [DONE] Warrior/Arms - Executioner's Precision missing entirely
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Problem:** Executioner's Precision (238147), a Legion artifact trait, had
+no implementation anywhere in ArgusCore.
+
+**Reference:** DestinyCore's implementation — a simple filter-only aura,
+matching the same self-contained pattern as Chain Reaction, Massacre, and
+Frenzy. Confirmed via Wowhead/Wowpedia that this is the Legion-era version
+of the mechanic (Execute makes the next Mortal Strike deal bonus damage,
+stacking up to 2 times) — a later expansion redesigned it into a
+differently-tuned talent, same drift pattern as Massacre/Execute/Tactician.
+Directly benefited from the `SPELL_WARRIOR_EXECUTE` correction made in the
+Massacre fix (163201, not the WotLK-era 20647) — this class reuses that
+same constant rather than needing its own.
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Fix:** Added a new `spell_warr_executioners_precision` `AuraScript` whose
+`CheckProc` restricts the aura to only proc from Execute — ported directly
+from DestinyCore's logic with no changes needed. The stacking bonus-damage
+behavior itself is left to spell 238147's own DB2-defined effect data.
+
+**Database dependency:** searched ArgusCore's committed SQL for an existing
+`spell_script_names` binding on spell 238147 — found none. Added its own
+dedicated file, `sql/updates/world/master/2026_07_25_17_world.sql`.
+
+**Risk:** Low — small, self-contained, matches DestinyCore's reference
+exactly.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — as Arms, use Execute
+and confirm your next Mortal Strike deals bonus damage, stacking up to 2
+times with repeated Execute casts.
+
 ---
 
 ## P4 — Performance / Cleanup

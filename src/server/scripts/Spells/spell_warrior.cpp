@@ -54,6 +54,7 @@ enum WarriorSpells
     SPELL_WARRIOR_FRESH_MEAT_DEBUFF                 = 316044,
     SPELL_WARRIOR_FRESH_MEAT_TALENT                 = 215568,
     SPELL_WARRIOR_FUELED_BY_VIOLENCE_HEAL           = 383104,
+    SPELL_WARRIOR_FURIOUS_SLASH                     = 100130,
     SPELL_WARRIOR_GLYPH_OF_THE_BLAZING_TRAIL        = 123779,
     SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP              = 159708,
     SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP_BUFF         = 133278,
@@ -91,6 +92,7 @@ enum WarriorSpells
     SPELL_WARRIOR_SUDDEN_DEATH                      = 52437,
     SPELL_WARRIOR_SWEEPING_STRIKES_EXTRA_ATTACK_1   = 12723,
     SPELL_WARRIOR_SWEEPING_STRIKES_EXTRA_ATTACK_2   = 26654,
+    SPELL_WARRIOR_TACTICIAN_CD                      = 199854,
     SPELL_WARRIOR_TAUNT                             = 355,
     SPELL_WARRIOR_THUNDER_CLAP                      = 6343,
     SPELL_WARRIOR_THUNDERSTRUCK                     = 199045,
@@ -744,6 +746,45 @@ class spell_warr_execute : public SpellScript
     {
         OnEffectHitTarget += SpellEffectFn(spell_warr_execute::HandleDamage, EFFECT_1, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
         AfterHit += SpellHitFn(spell_warr_execute::HandleAfterHit);
+    }
+};
+
+// 238147 - Executioner's Precision
+// Legion artifact trait: Execute makes the next Mortal Strike deal bonus damage, stacking up
+// to 2 times (confirmed via Wowhead/Wowpedia - the Legion-era version of this mechanic, before
+// a later-expansion redesign turned it into a talent with different numbers). This filter-only
+// aura's job is restricting the proc to Execute casts; the stacking bonus-damage effect itself
+// is left to this spell's own DB2-defined aura effect data, matching the same self-contained
+// pattern used elsewhere in this file (e.g. Chain Reaction, Massacre, Frenzy).
+class spell_warr_executioners_precision : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_WARRIOR_EXECUTE;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_warr_executioners_precision::CheckProc);
+    }
+};
+
+// 206313 - Frenzy
+// Stacking haste buff (up to 3 stacks, confirmed via Wowhead/WoWDB) that only Furious Slash
+// (100130) can trigger/refresh. This filter-only aura's job is restricting which spell counts
+// as the trigger; the stacking/haste/duration behavior itself is left to this spell's own
+// DB2-defined aura effect data, matching the same self-contained pattern used elsewhere in
+// this file (e.g. Chain Reaction, Massacre).
+class spell_warr_frenzy : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_WARRIOR_FURIOUS_SLASH;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_warr_frenzy::CheckProc);
     }
 };
 
@@ -1531,6 +1572,52 @@ class spell_warr_t3_prot_8p_bonus : public AuraScript
     }
 };
 
+// 184783 - Tactician
+// Chance per Rage spent to reset Colossus Smash and Mortal Strike's cooldowns. Confirmed via
+// community-sourced Legion 7.3.5 data that Tactician resets these two specific cooldowns (not
+// Overpower, which is what the equivalent modern-retail talent by the same name/id does instead -
+// a later redesign, same pattern as Massacre/Execute drifting between expansions under a stable
+// name or id). The per-rage proc-chance constant (0.75% per point of Rage spent) is
+// DestinyCore's own hardcoded value; a community source suggested a slightly different figure
+// (0.65%) for the same patch, but that number came from an aggregated snippet rather than a
+// direct tooltip quote, so DestinyCore's reference value was kept - this is a minor tuning
+// difference, not a mechanic difference, and worth revisiting only if the discrepancy turns out
+// to matter in practice.
+class spell_warr_tactician : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_COLOSSUS_SMASH, SPELL_WARRIOR_MORTAL_STRIKE, SPELL_WARRIOR_TACTICIAN_CD });
+    }
+
+    void HandleEffectProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+    {
+        PreventDefaultAction();
+
+        Unit* caster = GetCaster();
+        SpellInfo const* procSpell = eventInfo.GetSpellInfo();
+        if (!caster || !procSpell)
+            return;
+
+        int32 rageSpent = 0;
+        for (SpellPowerCost const& cost : procSpell->CalcPowerCost(caster, procSpell->GetSchoolMask()))
+            if (cost.Power == POWER_RAGE)
+                rageSpent = cost.Amount;
+
+        if (roll_chance_f(float(rageSpent) / 10.f * 0.75f))
+        {
+            caster->GetSpellHistory()->ResetCooldown(SPELL_WARRIOR_COLOSSUS_SMASH, true);
+            caster->GetSpellHistory()->ResetCooldown(SPELL_WARRIOR_MORTAL_STRIKE, true);
+            caster->CastSpell(caster, SPELL_WARRIOR_TACTICIAN_CD, true);
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_warr_tactician::HandleEffectProc, EFFECT_1, SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
+
 // 6343 - Thunder Clap
 // Applies Weakened Blows (a flat physical-damage-done reduction debuff that replaced the
 // older attack-speed-slow version of this mechanic pre-Legion) to the target on every hit, and
@@ -1717,6 +1804,8 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_dragon_roar);
     RegisterSpellScript(spell_warr_enrage_proc);
     RegisterSpellScript(spell_warr_execute);
+    RegisterSpellScript(spell_warr_executioners_precision);
+    RegisterSpellScript(spell_warr_frenzy);
     RegisterSpellScript(spell_warr_fueled_by_violence);
     RegisterSpellScript(spell_warr_heroic_leap);
     RegisterSpellScript(spell_warr_heroic_leap_jump);
@@ -1745,6 +1834,7 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_sweeping_strikes);
     RegisterSpellScript(spell_warr_trauma);
     RegisterSpellScript(spell_warr_t3_prot_8p_bonus);
+    RegisterSpellScript(spell_warr_tactician);
     RegisterSpellScript(spell_warr_thunder_clap);
     RegisterSpellScript(spell_warr_victorious_state);
     RegisterSpellScript(spell_warr_victory_rush);
