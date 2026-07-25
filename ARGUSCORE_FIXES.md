@@ -189,7 +189,7 @@ for the normal case (object target present) is unchanged.
 
 **Test:** Pending manual build/runtime verification.
 
-### [ ] Core/Spells - EffectUntrainTalents checks caster type instead of target type
+### [DONE] Core/Spells - EffectUntrainTalents checks caster type instead of target type
 
 **Subsystem:** Spells/SpellEffects
 
@@ -206,8 +206,14 @@ by trainer spells server-cast at the interacting player, so `unitTarget` isn't
 normally client-controlled. Same pattern exists in DestinyCore. Flagged for
 completeness.
 
-**Status:** Not started. Cheap one-line fix
-(`unitTarget->GetTypeId() != TYPEID_PLAYER`) whenever picked up.
+**Fix:** Added `unitTarget->GetTypeId() != TYPEID_PLAYER` to the existing guard
+condition (kept the original `m_caster` check as-is rather than replacing it, to
+avoid removing any pre-existing intent behind it). `unitTarget->ToPlayer()` is now
+guaranteed non-null when reached.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
 
 ### [DONE] Core/Unit - TriggerAuraHeartbeat iterator invalidation
 
