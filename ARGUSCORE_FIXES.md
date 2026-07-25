@@ -9,6 +9,65 @@ Legend: `[ ]` open · `[WIP]` in progress · `[DONE]` shipped
 
 ## P0 — Security / Corruption
 
+### [DONE] Core/Guild - Arbitrary rank assignment via CMSG_GUILD_ASSIGN_MEMBER_RANK
+
+**Subsystem:** Guilds/Guild, Handlers/GuildHandler
+
+**Problem:** `Guild::HandleSetMemberRank` (invoked from
+`WorldSession::HandleGuildAssignRank`, `CMSG_GUILD_ASSIGN_MEMBER_RANK`) only
+checked that the acting player's rank has the boolean `GR_RIGHT_PROMOTE`/
+`GR_RIGHT_DEMOTE` right and that the target isn't themself. It never compared the
+target's current rank or the requested new rank against the acting player's own
+rank order. Its sibling function `HandleUpdateMemberRank` (the classic
+promote/demote-by-one-step path) correctly enforces both: you can't act on a
+member who already outranks or equals you, and you can't grant a rank at or above
+your own. `HandleSetMemberRank` (the "set to an arbitrary rank" path used by the
+guild rank-management UI, which lets an officer drag a member directly to a
+specific rank) had neither check.
+
+**Files:** `src/server/game/Guilds/Guild.cpp` (`HandleSetMemberRank`)
+
+**Exploit:** Any member whose rank has `GR_RIGHT_PROMOTE` (a right commonly given
+to trusted-but-non-leader officer ranks) could send
+`CMSG_GUILD_ASSIGN_MEMBER_RANK` targeting any other non-self member with the
+target rank order set to 0 (Guild Master), instantly making that member (e.g. a
+colluding alt) the guild leader. Symmetrically, with `GR_RIGHT_DEMOTE`, an officer
+could demote the actual Guild Master or any other higher-ranked member down to an
+arbitrary lower rank, since the function never checked that the target's *current*
+rank was below the actor's own.
+
+**Reference:** Same missing check exists in DestinyCore's equivalent function —
+inherited from upstream, not ArgusCore-specific, but concretely exploitable here.
+Fix is precedented in-tree: `HandleUpdateMemberRank` (same file, ~line 1804)
+already implements the correct rank-order comparisons for the step-wise
+promote/demote path.
+
+**Fix:** Added the same two rank-order checks `HandleUpdateMemberRank` already
+uses, generalized for an arbitrary target rank: reject if the target's current
+rank is at-or-above the actor's own rank, or if the requested new rank is
+at-or-above the actor's own rank.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
+
+### [ ] Core/Guild - HandleSetBankTabInfo missing rank-right check
+
+**Subsystem:** Guilds/Guild, Handlers/GuildHandler
+
+**Problem:** `Guild::HandleSetBankTabInfo` (`CMSG_GUILD_BANK_UPDATE_TAB`) has no
+rank-right check at all, unlike its siblings `HandleSetRankInfo`/`HandleBuyBankTab`
+which gate on `_IsLeader()`. Any guild member within interaction range of the
+guild bank object can rename bank tabs and change their icons — no deposit/
+withdraw/tab-management rights required.
+
+**Files:** `src/server/game/Guilds/Guild.cpp` (`HandleSetBankTabInfo`)
+
+**Severity:** Low — cosmetic/griefing (tab name/icon), not a theft or data-integrity
+issue. Same gap exists in DestinyCore.
+
+**Status:** Not started. Lower priority than the rank-assignment bug above.
+
 ### [DONE] Core/Player - Vendor purchase quantity desync (validate-vs-deliver truncation)
 
 **Subsystem:** Entities/Player, item vendor purchase
@@ -138,22 +197,38 @@ already-rare case where no eligible recipient exists.
 
 ## P2 — Core Correctness
 
-### [ ] Core/Bank - Slot/PackSlot argument order inconsistency
+### [DONE] Core/Bank - AutoStoreBankReagent reads Slot/PackSlot in wrong wire order
 
-**Subsystem:** Handlers/BankHandler
+**Subsystem:** Server/Packets (BankPackets), Handlers/BankHandler
 
 **Problem:** `HandleAutoBankReagentOpcode` calls
 `GetItemByPos(autoBankReagent.PackSlot, autoBankReagent.Slot)` while
 `HandleAutoStoreBankReagentOpcode` calls
 `GetItemByPos(autoStoreBankReagent.Slot, autoStoreBankReagent.PackSlot)` — reversed
-argument order relative to its sibling. Each packet's `Read()` implementation reads
-the two fields in different wire order, so this may be self-consistent and not an
-actual bug — needs verification against a real client packet capture before
-touching it.
+argument order relative to its sibling. Root cause traced to
+`AutoStoreBankReagent::Read()` in `BankPackets.cpp`, which reads the wire fields
+`Slot` then `PackSlot`, the opposite order from `AutoBankReagent::Read()`'s
+`PackSlot` then `Slot`. The handler itself is internally self-consistent with its
+own (wrongly-ordered) `Read()`, which is why this wasn't a crash — just a
+functional bug where the reagent-bank auto-store action resolves the wrong
+bag/slot pair.
 
-**Files:** `src/server/game/Handlers/BankHandler.cpp`
+**Files:** `src/server/game/Server/Packets/BankPackets.cpp`
 
-**Status:** Needs verification, not confirmed as a bug. Low priority.
+**Reference:** DestinyCore's equivalent packets (`Bag`/`Slot` naming) read both
+`AutoBankReagent::Read()` and `AutoStoreBankReagent::Read()` in the identical
+`Bag, Slot` order, and both of its handlers call `GetItemByPos(Bag, Slot)`
+consistently — corroborating that ArgusCore's `AutoStoreBankReagent::Read()` has
+the swapped order, not `AutoBankReagent::Read()`.
+
+**Fix:** Swapped the two lines in `AutoStoreBankReagent::Read()` to read
+`PackSlot` before `Slot`, matching `AutoBankReagent::Read()`. This is the single
+root-cause fix; no changes needed in `BankHandler.cpp` since its field usage was
+already internally consistent — it will now use the correctly-parsed values.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
 
 ---
 

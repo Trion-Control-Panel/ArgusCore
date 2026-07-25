@@ -1896,6 +1896,19 @@ void Guild::HandleSetMemberRank(WorldSession* session, ObjectGuid targetGuid, Ob
         return;
     }
 
+    // Player can only act on members ranked below them, and can only assign a rank
+    // below their own - having GR_RIGHT_PROMOTE/GR_RIGHT_DEMOTE does not by itself
+    // permit touching same-or-higher ranked members or granting same-or-higher ranks
+    // (see the equivalent checks in HandleUpdateMemberRank).
+    Member const* memberMe = GetMember(player->GetGUID());
+    ASSERT(memberMe);
+    RankInfo const* myRank = GetRankInfo(memberMe->GetRankId());
+    if (oldRank->GetOrder() <= myRank->GetOrder() || newRank->GetOrder() <= myRank->GetOrder())
+    {
+        SendCommandResult(session, type, ERR_GUILD_RANK_TOO_HIGH_S, member->GetName());
+        return;
+    }
+
     SendGuildRanksUpdate(setterGuid, targetGuid, newRank->GetId());
 }
 

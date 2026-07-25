@@ -49,8 +49,8 @@ void AutoBankReagent::Read()
 void AutoStoreBankReagent::Read()
 {
     _worldPacket >> Inv;
-    _worldPacket >> Slot;
     _worldPacket >> PackSlot;
+    _worldPacket >> Slot;
 }
 
 void ReagentBank::Read()
