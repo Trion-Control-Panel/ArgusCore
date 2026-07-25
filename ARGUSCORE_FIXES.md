@@ -1712,18 +1712,15 @@ the user-provided tooltip rather than derived from this spell's own effect
 base points (DestinyCore's approach), since Legion 7.3.5 DB2 data isn't
 available here to verify which raw effect fields correspond to which value.
 
-**Flagged, not touched — a related but separate concern:** ArgusCore
-already has `SPELL_WARRIOR_EXECUTE = 20647` (unrelated to this fix),
-referenced by `spell_warr_sweeping_strikes` to detect when a Sweeping
-Strikes proc came from an Execute cast. TrinityCore-master uses the
-identical constant name and value (20647) in its own structurally-matching
-Sweeping-Strikes-equivalent class, while DestinyCore doesn't reference 20647
-anywhere at all. Whether 20647 is a legitimate, stable "spell family"
-identifier distinct from whichever id is the currently-live cast spell
-(163201 for Legion, 260798 for modern retail), or itself another instance of
-copied-from-master drift, wasn't resolved — it's a separate, more uncertain
-question than Execute's own core mechanic and was deliberately kept out of
-scope for this fix. Worth a dedicated look later.
+**Flagged uncertainty, resolved in a follow-up fix (see the Massacre entry
+below):** ArgusCore's `SPELL_WARRIOR_EXECUTE = 20647`, referenced by
+`spell_warr_sweeping_strikes`, was left untouched here pending investigation.
+Confirmed via Wowhead/community-database lookup (per the user's suggestion
+to check Wowhead when uncertain) that 20647 is genuine **Wrath of the Lich
+King**-era Execute — a third instance of expansion drift in this file (after
+Scorch's forward-drift and this fix's own 260798), this time backward
+drift, the same direction as the earlier Unrelenting Assault finding.
+Corrected to 163201 alongside the Massacre fix below.
 
 **Risk:** Moderate-high — this is a structural reinvention (not a direct
 port) working around a genuine engine capability gap, and the exact numbers,
@@ -1772,6 +1769,69 @@ shows Unshackled Fury's damage bonus doesn't actually track Enrage state
 correctly, that would mean spell 76856's own DB2 data doesn't have
 `CasterAuraState` set as assumed — a data question, not a scripting one,
 and worth revisiting only if that's confirmed.
+
+### [DONE] Warrior/Fury - Massacre missing entirely, plus a WotLK-era backward-drift constant corrected
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Problem:** Massacre (206315), a Fury talent, had no implementation
+anywhere in ArgusCore.
+
+**Investigation history (kept for context on a self-corrected mistake):**
+initially suspected DestinyCore's `spell_warr_massacre` was another
+authoring bug, similar to Overpower Proc Enabler — its `CheckProc` (filter
+for Execute crits) didn't match what the *current-retail* Massacre talent
+does (extends Execute's usable health range). Per the user's suggestion to
+check Wowhead when uncertain rather than guess, looked up the talent's
+actual Legion 7.3.5 behavior via a patch-specific community guide: "Execute
+critical hits reduce the Rage cost of your next Rampage by 100%." This is a
+completely different mechanic from the later-expansion redesign — Massacre
+was substantially reworked after Legion. DestinyCore's `CheckProc` (filter
+on Execute crits) is *correct* for the Legion version; the earlier "bug"
+suspicion was wrong, caused by unknowingly comparing against the wrong
+expansion's version of the same talent name.
+
+**Also resolved while investigating:** confirming Massacre's spell id
+(206315) required checking what `SPELL_WARRIOR_EXECUTE` actually pointed to
+in DestinyCore vs. ArgusCore. Found ArgusCore's existing `SPELL_WARRIOR_EXECUTE`
+constant (flagged as uncertain in the Execute fix above) was **20647 — a
+genuine Wrath of the Lich King-era spell id**, confirmed via Wowhead/community
+database lookup. This is backward drift (same direction as the earlier
+Unrelenting Assault finding), the third distinct expansion-drift instance
+found in this file this session (after Scorch's forward-drift and this
+session's other Execute fix). Corrected the constant to 163201 (Legion's
+real Execute, matching the value already used for the main Execute fix),
+which also fixes `spell_warr_sweeping_strikes`'s own Execute-crit detection
+as a side effect — it was comparing against the wrong id too.
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Fix:** Corrected `SPELL_WARRIOR_EXECUTE` from 20647 to 163201. Added
+`SPELL_WARRIOR_MASSACRE = 206315` and a new `spell_warr_massacre`
+`AuraScript` whose `CheckProc` filters for Execute crits — ported directly
+from DestinyCore's logic with no changes needed, now that its correctness
+for Legion 7.3.5 specifically has been confirmed. The actual "next Rampage
+free" grant is left to spell 206315's own DB2-defined proc-trigger-spell
+effect data, matching the same self-contained pattern used for Chain
+Reaction and other filter-only auras in this file.
+
+**Database dependency:** searched ArgusCore's committed SQL for an existing
+`spell_script_names` binding on spell 206315 — found none. Added its own
+dedicated file, `sql/updates/world/master/2026_07_25_13_world.sql`.
+
+**Risk:** Low — small, self-contained, matches DestinyCore's reference
+exactly once cross-verified against the correct expansion's mechanic. The
+`SPELL_WARRIOR_EXECUTE` correction only has one other call site
+(`spell_warr_sweeping_strikes`), and can only improve its accuracy (WotLK's
+Execute id could never have matched a real Legion Execute cast anyway).
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — as Fury, land a
+critical Execute and confirm your next Rampage costs no Rage. Separately,
+as any spec with Sweeping Strikes talented, confirm an Execute hit still
+triggers Sweeping Strikes' extra attack correctly (this should already have
+been broken before this fix, now corrected as a side effect).
 
 ---
 

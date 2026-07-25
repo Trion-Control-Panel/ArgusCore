@@ -49,7 +49,7 @@ enum WarriorSpells
     SPELL_WARRIOR_COLOSSUS_SMASH_AURA               = 208086,
     SPELL_WARRIOR_CRITICAL_THINKING_ENERGIZE        = 392776,
     SPELL_WARRIOR_DRAGON_ROAR_KNOCK_BACK            = 118895,
-    SPELL_WARRIOR_EXECUTE                           = 20647,
+    SPELL_WARRIOR_EXECUTE                           = 163201,
     SPELL_WARRIOR_ENRAGE                            = 184362,
     SPELL_WARRIOR_FRESH_MEAT_DEBUFF                 = 316044,
     SPELL_WARRIOR_FRESH_MEAT_TALENT                 = 215568,
@@ -65,6 +65,7 @@ enum WarriorSpells
     SPELL_WARRIOR_IMPENDING_VICTORY                 = 202168,
     SPELL_WARRIOR_IMPENDING_VICTORY_HEAL            = 202166,
     SPELL_WARRIOR_IMPROVED_HEROIC_LEAP              = 157449,
+    SPELL_WARRIOR_MASSACRE                          = 206315,
     SPELL_WARRIOR_MORTAL_STRIKE                     = 12294,
     SPELL_WARRIOR_MORTAL_WOUNDS                     = 213667,
     SPELL_WARRIOR_OVERPOWER                         = 7384,
@@ -968,6 +969,35 @@ class spell_warr_item_t10_prot_4p_bonus : public AuraScript
     }
 };
 
+// 206315 - Massacre
+// Legion 7.3.5 (confirmed via a patch-specific community guide, since this talent was
+// substantially redesigned in later expansions to instead extend Execute's usable health
+// range - not what it did in Legion): "Execute critical hits reduce the Rage cost of your
+// next Rampage by 100%." This filter-only aura's job is just identifying Execute crits; the
+// actual "next Rampage free" grant is left to this spell's own DB2-defined proc-trigger-spell
+// effect data, matching the same self-contained pattern used elsewhere in this file (e.g.
+// Chain Reaction, Brain Freeze).
+// NOTE: initially suspected this was a DestinyCore authoring bug (the CheckProc didn't look
+// like it matched what the modern-retail version of Massacre does), but that was based on
+// assuming the current-retail mechanic applied to Legion too, without checking. Verified via
+// Wowhead/community guides that Legion's version is the Rampage-rage-refund design described
+// above, and DestinyCore's CheckProc is actually correct for it - ported as-is instead of
+// "fixing" a bug that didn't exist.
+class spell_warr_massacre : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() &&
+            eventInfo.GetSpellInfo()->Id == SPELL_WARRIOR_EXECUTE &&
+            (eventInfo.GetHitMask() & PROC_HIT_CRITICAL) != 0;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_warr_massacre::CheckProc);
+    }
+};
+
 // 12294 - Mortal Strike
 class spell_warr_mortal_strike : public SpellScript
 {
@@ -1677,6 +1707,7 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_improved_whirlwind);
     RegisterSpellScript(spell_warr_intimidating_shout);
     RegisterSpellScript(spell_warr_item_t10_prot_4p_bonus);
+    RegisterSpellScript(spell_warr_massacre);
     RegisterSpellScript(spell_warr_mortal_strike);
     RegisterSpellScript(spell_warr_overpower_proc);
     RegisterSpellScript(spell_warr_rallying_cry);
