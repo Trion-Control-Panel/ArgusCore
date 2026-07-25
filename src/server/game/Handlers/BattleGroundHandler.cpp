@@ -542,8 +542,9 @@ void WorldSession::HandleBattlemasterJoinArena(WorldPackets::Battleground::Battl
         return;
 
     // get the team rating for queuing
-    uint32 arenaRating = 1; //at->GetRating();
-    uint32 matchmakerRating = 1; //at->GetAverageMMR(grp);
+    ArenaTeam* at = sArenaTeamMgr->GetArenaTeamById(_player->GetArenaTeamId(packet.TeamSizeIndex));
+    uint32 arenaRating = at ? at->GetRating() : 1;
+    uint32 matchmakerRating = at ? at->GetAverageMMR(grp) : 1;
 
     if (arenaRating <= 0)
         arenaRating = 1;

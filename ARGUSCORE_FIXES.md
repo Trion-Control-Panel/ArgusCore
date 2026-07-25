@@ -362,7 +362,7 @@ logic removed or altered, only the two null pointers replaced with real lookups)
 arena match (2v2/3v3/5v5) played to completion and a separate one abandoned
 mid-match, on registered arena teams, with rating checked before/after both.
 
-### [ ] Core/Arena - Rated queue MMR hardcoded to 1 for all groups
+### [DONE] Core/Arena - Rated queue MMR hardcoded to 1 for all groups
 
 **Subsystem:** Battlegrounds / Handlers/BattleGroundHandler
 
@@ -381,7 +381,18 @@ rating-aware), but not a security/corruption issue by itself. Interacts with the
 rating fix above (now that rating actually changes, feeding it real MMR at queue
 time becomes more valuable to fix).
 
-**Status:** Not started. Next candidate in this subsystem.
+**Fix:** Resolved `ArenaTeam* at` via `sArenaTeamMgr->GetArenaTeamById(_player->GetArenaTeamId(packet.TeamSizeIndex))`
+— the exact same pattern already used elsewhere in this same file for the
+queue-leave penalty path — and used `at->GetRating()`/`at->GetAverageMMR(grp)`
+when a team is found. Deliberately kept the existing `= 1` fallback for the case
+where no team resolves, rather than adding a new rejection/error path — minimal,
+scoped purely to "use real rating when available"; whether a missing arena team
+should block queuing at all is presumably already handled by the existing
+`CanJoinBattlegroundQueue` call just below, which this change doesn't touch.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
 
 ### [ ] Core/Battleground - Unguarded PlayerScores lookup in EndBattleground
 
