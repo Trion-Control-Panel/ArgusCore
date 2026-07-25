@@ -70,6 +70,7 @@ enum WarriorSpells
     SPELL_WARRIOR_RAMPAGE                           = 184367,
     SPELL_WARRIOR_RAVAGER                           = 228920,
     SPELL_WARRIOR_RECKLESSNESS                      = 1719,
+    SPELL_WARRIOR_REVENGE                           = 6572,
     SPELL_WARRIOR_RUMBLING_EARTH                    = 275339,
     SPELL_WARRIOR_SHIELD_BLOCK_AURA                 = 132404,
     SPELL_WARRIOR_SHIELD_CHARGE_EFFECT              = 385953,
@@ -972,6 +973,33 @@ class spell_warr_rampage : public SpellScript
     }
 };
 
+// 5301 - Revenge (Protection's innate trigger passive, not the 6572 ability itself)
+// Resets Revenge's own cooldown whenever this passive procs (off dodge/parry/block, per its
+// own DB2-defined proc data), making it repeatedly castable for free after avoidance - the
+// core of Protection's threat/rotation loop.
+class spell_warr_revenge_trigger : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_REVENGE });
+    }
+
+    bool Load() override
+    {
+        return GetUnitOwner()->GetClass() == CLASS_WARRIOR;
+    }
+
+    void HandleProc(ProcEventInfo& /*eventInfo*/)
+    {
+        GetCaster()->GetSpellHistory()->ResetCooldown(SPELL_WARRIOR_REVENGE, true);
+    }
+
+    void Register() override
+    {
+        OnProc += AuraProcFn(spell_warr_revenge_trigger::HandleProc);
+    }
+};
+
 // 275339 - (attached to 46968 - Shockwave)
 class spell_warr_rumbling_earth : public SpellScript
 {
@@ -1417,6 +1445,7 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_mortal_strike);
     RegisterSpellScript(spell_warr_rallying_cry);
     RegisterSpellScript(spell_warr_rampage);
+    RegisterSpellScript(spell_warr_revenge_trigger);
     RegisterSpellScript(spell_warr_rumbling_earth);
     RegisterSpellScript(spell_warr_shield_block);
     RegisterSpellScript(spell_warr_shield_charge);

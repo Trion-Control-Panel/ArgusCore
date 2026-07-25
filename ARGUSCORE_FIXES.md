@@ -1414,6 +1414,51 @@ in-game effect before this binding was added, so any earlier "it didn't seem
 to do anything" observation is explained by this, not a logic bug in the
 scripts themselves.
 
+### [DONE] Warrior/Protection - Revenge Trigger passive entirely missing
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Problem:** The Revenge trigger passive (5301) — Protection's core mechanic
+that resets Revenge's (6572) own cooldown whenever it procs off dodge/parry/
+block — had no implementation anywhere in ArgusCore. Without it, Revenge is
+stuck on its normal cooldown and never becomes the spammable, avoidance-
+rewarding ability it's meant to be; effectively Protection's core
+threat/rotation loop was inert.
+
+**Reference:** DestinyCore's implementation, explicitly marked "7.3.5" —
+a single self-contained `AuraScript` bound to 5301 with no talent-tier
+ambiguity, unlike several other candidate Warrior gaps considered alongside
+it (Overpower Proc Enabler's own `CheckProc` logic looked backwards/uncertain
+and was deliberately not picked for this reason).
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Fix:** Added `SPELL_WARRIOR_REVENGE = 6572` and a new
+`spell_warr_revenge_trigger` `AuraScript` (bound to 5301) that resets
+Revenge's cooldown `OnProc`, ported directly from DestinyCore's logic.
+Adapted two API differences to ArgusCore's modern conventions: `GetClass()`
+instead of the legacy lowercase `getClass()`, and dropped the old
+`SpellScriptLoader`/`PrepareAuraScript` wrapper boilerplate in favor of a
+plain `AuraScript` registered via `RegisterSpellScript`, matching every other
+script already in this file.
+
+**Database dependency:** searched ArgusCore's committed SQL for an existing
+`spell_script_names` binding on spell 5301 — found none. Same gap as every
+other fix this session: added to
+`sql/updates/world/master/2026_07_25_00_world.sql` (same shared file, now
+auto-applied on startup).
+
+**Risk:** Low — small, self-contained, single proc-reset with no side
+effects on other mechanics. Needs in-game verification that Revenge's
+cooldown actually resets on dodge/parry/block as a Protection Warrior.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — as Protection, tank
+something that dodges/parries/blocks your attacks and confirm Revenge (6572)
+becomes available again immediately rather than waiting out its normal
+cooldown.
+
 ---
 
 ## P4 — Performance / Cleanup
