@@ -1464,6 +1464,53 @@ something that dodges/parries/blocks your attacks and confirm Revenge (6572)
 becomes available again immediately rather than waiting out its normal
 cooldown.
 
+### [DONE] Warrior - Thunder Clap missing entirely (baseline AoE, all specs)
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Problem:** Thunder Clap (6343), the baseline AoE ability used by all three
+Warrior specs, had no implementation anywhere in ArgusCore. Without a
+script, it would deal its direct damage (data-driven, needs no script) but
+never apply Weakened Blows — the Legion-era debuff that reduces the
+target's physical damage done, which replaced the older attack-speed-slow
+version of this mechanic from earlier expansions — nor the Thunderstruck
+talent's bonus stun.
+
+**Reference:** DestinyCore's implementation. Cross-checked both
+`SPELL_WARRIOR_THUNDERSTRUCK` (199045) and its stun (199042) against
+TrinityCore-master specifically because they're talent-tier, not baseline —
+found **no match at all**, meaning this talent doesn't exist in modern
+retail's simplified Warrior tree. Same positive-evidence pattern as the
+earlier Valarjar Berserkers finding: absence from modern retail here is
+evidence of genuine Legion-only content, not forward drift. LegionCore has
+no Thunder Clap content at all to cross-check against (consistent with it
+being an incomplete leak, not a red flag against DestinyCore).
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Fix:** Added `SPELL_WARRIOR_THUNDER_CLAP` (6343),
+`SPELL_WARRIOR_THUNDERSTRUCK` (199045), `SPELL_WARRIOR_THUNDERSTRUCK_STUN`
+(199042), and `SPELL_WARRIOR_WEAKENED_BLOWS` (115798) constants, plus a new
+`spell_warr_thunder_clap` `SpellScript` (`OnHit`) that casts Weakened Blows
+on the target every hit, and additionally casts the Thunderstruck stun if
+the caster has that talent's aura — ported directly from DestinyCore's
+logic with no structural changes needed.
+
+**Database dependency:** searched ArgusCore's committed SQL for an existing
+`spell_script_names` binding on spell 6343 — found none. Added its own
+dedicated file, `sql/updates/world/master/2026_07_25_08_world.sql`.
+
+**Risk:** Low — small, self-contained, matches DestinyCore's reference
+exactly with no talent-rank ambiguity. Needs in-game verification that
+Weakened Blows applies on hit and that Thunderstruck's stun only triggers
+when that talent is actually selected.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — cast Thunder Clap on a
+target and confirm Weakened Blows applies; if speced into Thunderstruck,
+confirm the target is also stunned.
+
 ---
 
 ## P4 — Performance / Cleanup

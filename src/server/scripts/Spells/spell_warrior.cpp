@@ -87,10 +87,14 @@ enum WarriorSpells
     SPELL_WARRIOR_SWEEPING_STRIKES_EXTRA_ATTACK_1   = 12723,
     SPELL_WARRIOR_SWEEPING_STRIKES_EXTRA_ATTACK_2   = 26654,
     SPELL_WARRIOR_TAUNT                             = 355,
+    SPELL_WARRIOR_THUNDER_CLAP                      = 6343,
+    SPELL_WARRIOR_THUNDERSTRUCK                     = 199045,
+    SPELL_WARRIOR_THUNDERSTRUCK_STUN                = 199042,
     SPELL_WARRIOR_TRAUMA_EFFECT                     = 215537,
     SPELL_WARRIOR_VICTORIOUS                        = 32216,
     SPELL_WARRIOR_VICTORY_RUSH_HEAL                 = 118779,
     SPELL_WARRIOR_WARBREAKER                        = 262161,
+    SPELL_WARRIOR_WEAKENED_BLOWS                    = 115798,
     SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA             = 85739,
     SPELL_WARRIOR_WHIRLWIND_ENERGIZE                = 280715,
 
@@ -1280,6 +1284,37 @@ class spell_warr_t3_prot_8p_bonus : public AuraScript
     }
 };
 
+// 6343 - Thunder Clap
+// Applies Weakened Blows (a flat physical-damage-done reduction debuff that replaced the
+// older attack-speed-slow version of this mechanic pre-Legion) to the target on every hit, and
+// additionally stuns via the Thunderstruck talent if the caster has that talent's aura.
+// Confirmed genuine Legion 7.3.5 content: absent from TrinityCore-master (the talent doesn't
+// exist in modern retail's simplified Warrior talent tree), consistent with other
+// Legion-specific talents found and kept in this file (e.g. Valarjar Berserkers).
+class spell_warr_thunder_clap : public SpellScript
+{
+    void HandleOnHit()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+
+        Unit* target = GetHitUnit();
+        if (!target)
+            return;
+
+        caster->CastSpell(target, SPELL_WARRIOR_WEAKENED_BLOWS, true);
+
+        if (caster->HasAura(SPELL_WARRIOR_THUNDERSTRUCK))
+            caster->CastSpell(target, SPELL_WARRIOR_THUNDERSTRUCK_STUN, true);
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_warr_thunder_clap::HandleOnHit);
+    }
+};
+
 // 32215 - Victorious State
 class spell_warr_victorious_state : public AuraScript
 {
@@ -1457,6 +1492,7 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_sweeping_strikes);
     RegisterSpellScript(spell_warr_trauma);
     RegisterSpellScript(spell_warr_t3_prot_8p_bonus);
+    RegisterSpellScript(spell_warr_thunder_clap);
     RegisterSpellScript(spell_warr_victorious_state);
     RegisterSpellScript(spell_warr_victory_rush);
 }
