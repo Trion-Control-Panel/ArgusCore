@@ -9,6 +9,58 @@ Legend: `[ ]` open · `[WIP]` in progress · `[DONE]` shipped
 
 ## P0 — Security / Corruption
 
+### [DONE] Core/BlackMarket - Auction minimum starting bid never enforced
+
+**Subsystem:** BlackMarket/BlackMarketMgr
+
+**Problem:** `BlackMarketEntry::ValidateBid` checked the bid against
+`_currentBid + GetMinIncrement()`, but `GetMinIncrement()` (`(_currentBid/20) -
+(...)`) evaluates to `0` while `_currentBid` is still `0` (no bids placed yet).
+The auction template's actual starting price (`BlackMarketTemplate::MinBid`)
+was only ever used for the client-facing display value
+(`BlackMarketMgr::BuildItemsResponse`) — never consulted in bid validation. Any
+player could bid as little as 1 copper on a fresh, unbid Black Market auction
+(potentially a rare item intended to start at thousands of gold) and win it
+outright if uncontested.
+
+**Files:** `src/server/game/BlackMarket/BlackMarketMgr.cpp`
+
+**Reference:** Identical gap confirmed in DestinyCore — inherited upstream
+TrinityCore issue, not ArgusCore-introduced, but live and exploitable here.
+
+**Fix:** Added a check against `GetTemplate()->MinBid` (null-checked, since
+`GetTemplate()` can theoretically return null for an orphaned market entry) in
+`ValidateBid`. Once an auction has at least one valid bid, `_currentBid` is
+already at or above `MinBid`, so this only actually changes behavior for the
+"no bids yet" case — no change to normal bidding-war behavior.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
+
+### [DONE] Core/VoidStorage - Unlock cost never charged/verified
+
+**Subsystem:** Handlers/VoidStorageHandler
+
+**Problem:** `HandleVoidStorageUnlock` called
+`_player->ModifyMoney(-int64(VOID_STORAGE_UNLOCK_COST))` with no preceding
+`HasEnoughMoney` check, unlike the sibling deposit path in
+`HandleVoidStorageTransfer`, which does check. `Player::ModifyMoney` clamps to
+0 rather than failing when the deduction would go negative, and its return
+value was ignored here — so a player with less than the unlock cost got void
+storage unlocked for free (or for whatever gold they had).
+
+**Files:** `src/server/game/Handlers/VoidStorageHandler.cpp`
+
+**Reference:** Same gap exists in DestinyCore — inherited, not ArgusCore-specific.
+
+**Fix:** Added the same `HasEnoughMoney` guard already used by the deposit
+path, matching its style, before charging the unlock cost.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
+
 ### [DONE] Core/Petition - Missing owner check on three petition opcodes
 
 **Subsystem:** Handlers/PetitionsHandler
