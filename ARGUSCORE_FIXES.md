@@ -69,11 +69,11 @@ pointer, advance the iterator, *then* invoke the hook).
 **Fix:** Convert `TriggerAuraHeartbeat`'s loop to the same erase-safe idiom already
 used by `AtEnterCombat`/`AtExitCombat`.
 
-**Commit:** `<pending>`
+**Commit:** `6e532be2`
 
 **Test:** Pending manual build/runtime verification.
 
-### [ ] Core/Vehicle - Null seat dereference in VehicleHandler
+### [DONE] Core/Vehicle - Null seat dereference in VehicleHandler
 
 **Subsystem:** Handlers/VehicleHandler, Entities/Vehicle
 
@@ -91,7 +91,17 @@ race window is a plausible client-triggerable null deref.
 TrinityCore, not ArgusCore-specific. Lower priority than the heartbeat bug since
 it's long-standing and shared across forks, but still a live crash bug.
 
-**Status:** Not started.
+**Fix:** Added `if (!seat) return;` immediately after each `GetSeatForPassenger()`
+call, before the existing `seat->CanSwitchFromSeat()` dereference, in all four
+handlers. `GetVehicleBase()`/`GetVehicle()` share the same underlying `m_vehicle`
+pointer (verified via `Unit::GetVehicleBase()`), so the already-present
+`vehicle_base` null check does not guarantee `GetSeatForPassenger()` succeeds —
+only that the player is attached to *a* vehicle, not that they're currently
+registered in its `Seats` map.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
 
 ### [ ] Core/Loot - Unguarded division in HandleLootMoneyOpcode
 

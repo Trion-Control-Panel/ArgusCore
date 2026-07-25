@@ -47,6 +47,9 @@ void WorldSession::HandleRequestVehiclePrevSeat(WorldPackets::Vehicle::RequestVe
         return;
 
     VehicleSeatEntry const* seat = GetPlayer()->GetVehicle()->GetSeatForPassenger(GetPlayer());
+    if (!seat)
+        return;
+
     if (!seat->CanSwitchFromSeat())
     {
         TC_LOG_ERROR("network", "HandleRequestVehiclePrevSeat: {} tried to switch seats but current seatflags {} don't permit that.",
@@ -64,6 +67,9 @@ void WorldSession::HandleRequestVehicleNextSeat(WorldPackets::Vehicle::RequestVe
         return;
 
     VehicleSeatEntry const* seat = GetPlayer()->GetVehicle()->GetSeatForPassenger(GetPlayer());
+    if (!seat)
+        return;
+
     if (!seat->CanSwitchFromSeat())
     {
         TC_LOG_ERROR("network", "HandleRequestVehicleNextSeat: {} tried to switch seats but current seatflags {} don't permit that.",
@@ -81,6 +87,9 @@ void WorldSession::HandleMoveChangeVehicleSeats(WorldPackets::Vehicle::MoveChang
         return;
 
     VehicleSeatEntry const* seat = GetPlayer()->GetVehicle()->GetSeatForPassenger(GetPlayer());
+    if (!seat)
+        return;
+
     if (!seat->CanSwitchFromSeat())
     {
         TC_LOG_ERROR("network", "HandleMoveChangeVehicleSeats: Player {} tried to switch seats but current seatflags {} don't permit that.",
@@ -110,6 +119,9 @@ void WorldSession::HandleRequestVehicleSwitchSeat(WorldPackets::Vehicle::Request
         return;
 
     VehicleSeatEntry const* seat = GetPlayer()->GetVehicle()->GetSeatForPassenger(GetPlayer());
+    if (!seat)
+        return;
+
     if (!seat->CanSwitchFromSeat())
     {
         TC_LOG_ERROR("network", "HandleRequestVehicleSwitchSeat: {} tried to switch seats but current seatflags {} don't permit that.",
