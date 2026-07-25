@@ -9,6 +9,42 @@ Legend: `[ ]` open · `[WIP]` in progress · `[DONE]` shipped
 
 ## P0 — Security / Corruption
 
+### [DONE] Core/Petition - Missing owner check on three petition opcodes
+
+**Subsystem:** Handlers/PetitionsHandler
+
+**Problem:** Three petition (guild charter) opcode handlers looked up a
+petition by client-supplied GUID and acted on it without verifying the caller
+is the petition's owner, unlike `HandleTurnInPetition` which already does
+(`if (_player->GetGUID() != petition->OwnerGuid) return;`):
+- `HandlePetitionShowSignatures` — only checked the petition exists and the
+  requester has no guild; any player could view any petition's signer list by
+  GUID (minor info disclosure).
+- `HandlePetitionRenameGuild` — only checked the caller physically possesses
+  *an* item with that GUID (`GetItemByGuid`), not that they own the petition.
+  Since a charter is legitimately handed to other players during the signing
+  round-trip (trade/mail), any temporary holder could rename the
+  soon-to-be-created guild out from under the actual owner.
+- `HandleOfferPetition` — no check at all; any player could push the
+  sign-petition UI for any petition onto any online target, regardless of
+  their relationship to that petition.
+
+**Files:** `src/server/game/Handlers/PetitionsHandler.cpp`
+
+**Reference:** Same gaps exist in DestinyCore/upstream TrinityCore — not an
+ArgusCore regression, but live and exploitable here. Verified that the
+double-signature exploit, turn-in signature forgery, and petition fee are all
+already correctly guarded (account-scoped signature check, server-collected
+signature list, fixed config-driven cost) — only these three specific
+handlers were missing the ownership check.
+
+**Fix:** Added `if (_player->GetGUID() != petition->OwnerGuid) return;` to all
+three handlers, matching `HandleTurnInPetition`'s existing style exactly.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
+
 ### [DONE] Core/Calendar - Missing owner/moderator authorization on event mutation opcodes
 
 **Subsystem:** Handlers/CalendarHandler

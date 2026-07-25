@@ -122,6 +122,10 @@ void WorldSession::HandlePetitionShowSignatures(WorldPackets::Petition::Petition
         return;
     }
 
+    // Only the petition owner can view its signatures
+    if (_player->GetGUID() != petition->OwnerGuid)
+        return;
+
     // if has guild => error, return;
     if (_player->GetGuildId())
         return;
@@ -197,6 +201,10 @@ void WorldSession::HandlePetitionRenameGuild(WorldPackets::Petition::PetitionRen
         TC_LOG_DEBUG("network", "CMSG_PETITION_QUERY failed for petition {}", packet.PetitionGuid.ToString());
         return;
     }
+
+    // Only the petition owner can rename it
+    if (_player->GetGUID() != petition->OwnerGuid)
+        return;
 
     if (sGuildMgr->GetGuildByName(packet.NewGuildName))
     {
@@ -327,6 +335,10 @@ void WorldSession::HandleOfferPetition(WorldPackets::Petition::OfferPetition& pa
 
     Petition const* petition = sPetitionMgr->GetPetition(packet.ItemGUID);
     if (!petition)
+        return;
+
+    // Only the petition owner can offer it to be signed
+    if (_player->GetGUID() != petition->OwnerGuid)
         return;
 
     TC_LOG_DEBUG("network", "OFFER PETITION: {}, to {}", packet.ItemGUID.ToString(), packet.TargetPlayer.ToString());
