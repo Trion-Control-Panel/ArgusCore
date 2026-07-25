@@ -74,6 +74,7 @@ enum WarriorSpells
     SPELL_WARRIOR_RECKLESSNESS                      = 1719,
     SPELL_WARRIOR_REVENGE                           = 6572,
     SPELL_WARRIOR_RUMBLING_EARTH                    = 275339,
+    SPELL_WARRIOR_SECOND_WIND_HEAL                  = 202147,
     SPELL_WARRIOR_SHIELD_BLOCK_AURA                 = 132404,
     SPELL_WARRIOR_SHIELD_CHARGE_EFFECT              = 385953,
     SPELL_WARRIOR_SHIELD_SLAM                       = 23922,
@@ -1118,6 +1119,74 @@ class spell_warr_rumbling_earth : public SpellScript
     }
 };
 
+// 29838 - Second Wind
+// "When you become Stunned or Incapacitated, you regenerate health over time." Procs when hit
+// by an effect whose mechanic is Stun or Root, then immediately grants the heal-over-time (202147).
+// NOTE: DestinyCore's reference implementation routes this through an intermediate marker aura
+// (202149, "Second Wind Damaged") whose OnApply *removes* the heal and OnRemove re-casts it -
+// meaning the heal wouldn't start until the marker itself expires, and any already-active heal
+// gets cancelled the moment a new stun/root proc happens. That's backwards from "gain health
+// over time when stunned" and would delay/interrupt the healing rather than deliver it. Cross-
+// checked against TrinityCore-Cata's implementation of this same long-lived, structurally
+// unchanged mechanic (an older expansion's version, kept only as a structural reference, not a
+// Legion content source): there, the proc aura's CheckProc filters on the incoming damage's
+// mechanic mask (Root/Stun) via GetAllEffectsMechanicMask, and HandleProc casts the heal
+// directly and immediately with no intermediate marker at all. Implemented that direct,
+// immediate-cast structure instead of porting DestinyCore's marker indirection, since the
+// marker's only observed effect looks like a copy-paste-type authoring bug (the second such
+// bug found this session, after the Overpower Proc Enabler fix) rather than intentional design.
+class spell_warr_second_wind : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_SECOND_WIND_HEAL });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        if (eventInfo.GetProcTarget() == GetTarget())
+            return false;
+
+        DamageInfo const* damageInfo = eventInfo.GetDamageInfo();
+        if (!damageInfo || !damageInfo->GetSpellInfo())
+            return false;
+
+        return (damageInfo->GetSpellInfo()->GetAllEffectsMechanicMask() & ((1 << MECHANIC_ROOT) | (1 << MECHANIC_STUN))) != 0;
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+    {
+        GetTarget()->CastSpell(GetTarget(), SPELL_WARRIOR_SECOND_WIND_HEAL, true);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_warr_second_wind::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_warr_second_wind::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 202147 - Second Wind (heal)
+// SPELL_AURA_PERIODIC_HEAL's amount is a flat value by default; this converts it to the
+// intended percentage of max health per tick, matching the equivalent older-expansion
+// implementation's CalcAmount pattern (this engine has no PERIODIC_HEAL_PCT aura type).
+// NOTE: EFFECT_0 is assumed for the periodic heal effect (the older-expansion reference used
+// EFFECT_1, but that was a different spell id with its own effect layout) - not independently
+// verified against Legion 7.3.5 DB2 data. If the hook doesn't fire, this index is the first
+// thing to check.
+class spell_warr_second_wind_heal : public AuraScript
+{
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = int32(GetUnitOwner()->CountPctFromMaxHealth(amount));
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_warr_second_wind_heal::CalculateAmount, EFFECT_0, SPELL_AURA_PERIODIC_HEAL);
+    }
+};
+
 // 2565 - Shield Block
 class spell_warr_shield_block : public SpellScript
 {
@@ -1563,6 +1632,8 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_rampage);
     RegisterSpellScript(spell_warr_revenge_trigger);
     RegisterSpellScript(spell_warr_rumbling_earth);
+    RegisterSpellScript(spell_warr_second_wind);
+    RegisterSpellScript(spell_warr_second_wind_heal);
     RegisterSpellScript(spell_warr_shield_block);
     RegisterSpellScript(spell_warr_shield_charge);
     RegisterSpellScript(spell_warr_shockwave);

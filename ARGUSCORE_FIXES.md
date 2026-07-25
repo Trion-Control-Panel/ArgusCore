@@ -1608,6 +1608,64 @@ exactly.
 **Test:** Pending manual build/runtime verification — cast Dragon Roar and
 confirm nearby enemies are knocked back in addition to taking damage.
 
+### [DONE] Warrior - Second Wind missing, and DestinyCore's reference had an inverted apply/remove bug
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Problem:** Second Wind (29838) — "When you become Stunned or Incapacitated,
+you regenerate health over time" — had no implementation anywhere in
+ArgusCore.
+
+**Reference:** DestinyCore has an implementation, but it routes through an
+intermediate marker aura (202149, "Second Wind Damaged"): the proc passive
+(29838) casts 202149 on proc; 202149's `OnApply` **removes** the heal
+(202147) and its `OnRemove` **re-casts** it. Net effect: the heal wouldn't
+start until the marker itself expires, and any already-active heal gets
+cancelled the instant a new stun/root proc happens — backwards from "gain
+health over time when stunned." This is the second apparent authoring bug
+found in DestinyCore's Warrior file this session (after the Overpower Proc
+Enabler), so it was investigated rather than ported or skipped. Cross-checked
+against TrinityCore-Cata's implementation of this exact mechanic (structurally
+unchanged across many expansions, including a `Rank_1`/`Rank_2` legacy-talent
+form — used here only as a structural reference for how the pieces fit
+together, not as Legion content): there, the proc aura's `CheckProc` filters
+the incoming damage's mechanic mask for Root/Stun via
+`GetAllEffectsMechanicMask()`, and `HandleProc` casts the heal directly and
+immediately, with no marker aura involved at all. That confirmed the marker
+indirection in DestinyCore's Legion version is very likely a copy-paste-type
+slip, not intentional redesign.
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Fix:** Added `SPELL_WARRIOR_SECOND_WIND_HEAL` (202147) and two new classes:
+`spell_warr_second_wind` (`AuraScript` on 29838) whose `CheckProc` filters on
+Root/Stun mechanic damage (matching the Cata reference's structure) and
+whose `OnEffectProc` immediately casts the heal on self — no marker aura;
+and `spell_warr_second_wind_heal` (`AuraScript` on 202147) with a
+`DoEffectCalcAmount` that converts the periodic heal's flat amount into a
+percentage of max health, since this engine has no `PERIODIC_HEAL_PCT` aura
+type (same technique the Cata reference used for the equivalent spell).
+
+**Residual uncertainty flagged, not resolved:** the heal's `CalcAmount` hook
+is registered on `EFFECT_0` — the Cata reference used `EFFECT_1` for its
+equivalent spell, but that was a different spell id (29841/29842) with its
+own effect layout, not something transferable to Legion's 202147. Not
+independently verified against Legion 7.3.5 DB2 data; if the heal amount
+doesn't scale as expected, this index is the first thing to check.
+
+**Risk:** Moderate-high — this is the second reference-code correction this
+session (not just an API/structural port), and the effect-index guess above
+is unverified. However, DestinyCore's own version was already fully
+non-functional (net effect: no working heal, ever), so this cannot regress
+anything — worst case it remains equally non-functional if the effect index
+guess is wrong.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — as a Warrior speced
+into Second Wind, get stunned or rooted and confirm a heal-over-time
+noticeably restores health afterward, scaling with max health.
+
 ---
 
 ## P4 — Performance / Cleanup
