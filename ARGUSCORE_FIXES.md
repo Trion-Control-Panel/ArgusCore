@@ -914,6 +914,12 @@ which likely isn't even a valid Legion spell, was already producing no
 effect). It cannot become *more* broken than its prior state. If correct, it
 starts working for the first time.
 
+**Database dependency (found retroactively, see the SQL binding entry near
+the end of this file):** `spell_mage_chain_reaction` is a brand-new class
+name with no `spell_script_names` row anywhere, so it was silently inert
+until a binding was added in
+`sql/pending/world/2026_07_25_00_world.sql`.
+
 **Commit:** `<pending>`
 
 **Test:** Pending manual build/runtime verification — this one specifically
@@ -981,6 +987,13 @@ implemented this session (touches an existing, already-functioning script for
 a different purpose). Needs careful in-game testing, particularly that Thermal
 Void/Chain Reaction/Fingers of Frost interactions with Ice Lance are unaffected.
 
+**Database dependency (found retroactively, see the SQL binding entry near
+the end of this file):** `spell_mage_brain_freeze` is a brand-new class name
+with no `spell_script_names` row anywhere, so it was silently inert until a
+binding was added in `sql/pending/world/2026_07_25_00_world.sql`. (The
+extension to the existing `spell_mage_ice_lance` class is unaffected — that
+class's own binding was untouched.)
+
 **Commit:** `<pending>`
 
 **Test:** Pending manual build/runtime verification.
@@ -1033,6 +1046,11 @@ compound the bonus on every stat recalculation. This matches the existing
 cooldown; needs in-game verification that the crit boost applies/expires
 correctly, and the team should be aware the refresh-on-crit behavior is
 intentionally absent pending further verification.
+
+**Database dependency (found retroactively, see the SQL binding entry near
+the end of this file):** `spell_mage_combustion` is a brand-new class name
+with no `spell_script_names` row anywhere, so it was silently inert until a
+binding was added in `sql/pending/world/2026_07_25_00_world.sql`.
 
 **Commit:** `<pending>`
 
@@ -1137,6 +1155,14 @@ instant Pyroblasts/Flamestrikes instead of the one cast it earned. Added
 Omitted DestinyCore's "Pyromaniac" re-proc-on-cast modifier for the same
 reason as "Controlled Burn" above — could not confirm it matches Legion
 7.3.5's actual talent design rather than a later expansion's version.
+
+**Database dependency (found retroactively, see the SQL binding entry near
+the end of this file):** `spell_mage_pyroblast_clearcasting_driver` is a
+brand-new class name with no `spell_script_names` row anywhere, so it was
+silently inert until a binding was added in
+`sql/pending/world/2026_07_25_00_world.sql`. (`spell_mage_pyroblast` and
+`spell_mage_flamestrike` keep their original names/bindings — only the new
+driver class needed one.)
 
 **Risk:** Moderate — this is new gameplay behavior (not a bug fix to existing
 code), so it needs real in-game verification that Fire Mages actually receive
@@ -1341,6 +1367,49 @@ steps (cast Bladestorm as both Arms and Fury; confirm the spin/periodic
 damage tick fires instead of a single instant hit; confirm only Fury deals
 offhand damage during the channel; confirm the base spell produces no direct
 aura/damage/heal of its own).
+
+### [DONE] Mage - four earlier scripts found missing spell_script_names bindings retroactively
+
+**Subsystem:** Scripts/Spells (spell_mage), SQL
+
+**Problem:** The `spell_script_names` binding requirement (a `RegisterSpellScript`
+call alone does not bind a script to a spell id — a separate SQL row is
+required) was only discovered partway through the Warrior work, *after* four
+Mage scripts had already been implemented and committed. Never went back to
+check them until directly asked "do the mage spells not need SQL files
+too?" — checked, and confirmed they do. All four are brand-new class names
+introduced this session (never existed under any name before), so none of
+them could have an existing binding anywhere (repo SQL or the external TDB):
+
+- `spell_mage_pyroblast_clearcasting_driver` (44448) — Hot Streak generation
+- `spell_mage_combustion` (190319) — Combustion crit-rating double
+- `spell_mage_brain_freeze` (190447) — Brain Freeze proc generation
+- `spell_mage_chain_reaction` (195419) — Chain Reaction stacking
+
+All four have been silently inert since being written. By contrast, the
+classes that were only *extended* in the same commits
+(`spell_mage_pyroblast`, `spell_mage_flamestrike`, `spell_mage_ice_lance`)
+kept their original names, so whatever binding already made them fire is
+unaffected.
+
+**Files:** `sql/pending/world/2026_07_25_00_world.sql`
+
+**Fix:** Added `spell_script_names` bindings for all four spell ids to the
+same shared pending file used for the Warrior bindings above (per your
+preference to keep appending to one file). Each affected Mage entry earlier
+in this file now has a "Database dependency" note cross-referencing this one.
+
+**Risk:** Low — pure additive SQL, same idempotent DELETE-then-INSERT pattern
+as the Warrior bindings; the actual gameplay risk was already assessed in
+each mechanic's own entry above and is unchanged by this fix.
+
+**Commit:** `<pending>`
+
+**Test:** Same as each individual mechanic's own test notes above — none of
+Hot Streak, Combustion, Brain Freeze, or Chain Reaction could have shown any
+in-game effect before this binding was added, so any earlier "it didn't seem
+to do anything" observation is explained by this, not a logic bug in the
+scripts themselves.
 
 ---
 

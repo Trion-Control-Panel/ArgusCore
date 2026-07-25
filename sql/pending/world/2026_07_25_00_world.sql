@@ -36,3 +36,22 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (227847, 'spell_warr_bladestorm'),        -- Bladestorm
 (222634, 'spell_warr_bladestorm_new'),    -- New Bladestorm (periodic driver)
 (95738, 'spell_warr_bladestorm_offhand'); -- Bladestorm Offhand
+
+-- Bind four Mage C++ spell scripts added earlier this session, before the
+-- spell_script_names binding requirement above was discovered. All four are
+-- brand-new class names (never existed under any name before this session),
+-- so unlike spell_mage_pyroblast/spell_mage_flamestrike/spell_mage_ice_lance
+-- (which were only extended, not renamed, and keep whatever binding already
+-- made them fire), these four have had no binding at all since being written
+-- and have been silently inert:
+--   spell_mage_pyroblast_clearcasting_driver (44448)  - Hot Streak generation
+--   spell_mage_combustion                    (190319) - Combustion crit-rating double
+--   spell_mage_brain_freeze                  (190447) - Brain Freeze proc generation
+--   spell_mage_chain_reaction                (195419) - Chain Reaction stacking
+
+DELETE FROM `spell_script_names` WHERE `ScriptName` IN ('spell_mage_pyroblast_clearcasting_driver', 'spell_mage_combustion', 'spell_mage_brain_freeze', 'spell_mage_chain_reaction');
+INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+(44448, 'spell_mage_pyroblast_clearcasting_driver'), -- Hot Streak driver
+(190319, 'spell_mage_combustion'),                   -- Combustion
+(190447, 'spell_mage_brain_freeze'),                 -- Brain Freeze
+(195419, 'spell_mage_chain_reaction');                -- Chain Reaction
