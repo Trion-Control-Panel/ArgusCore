@@ -1545,6 +1545,14 @@ void Guild::HandleSetNewGuildMaster(WorldSession* session, std::string_view name
 
 void Guild::HandleSetBankTabInfo(WorldSession* session, uint8 tabId, std::string_view name, std::string_view icon)
 {
+    // Only the guild leader may rename/re-icon bank tabs (same restriction as buying a new tab)
+    if (!_IsLeader(session->GetPlayer()))
+    {
+        TC_LOG_ERROR("guild", "Guild::HandleSetBankTabInfo: Player {} without leader rights tried to change bank tab info for tab {}.",
+                       session->GetPlayerInfo(), tabId);
+        return;
+    }
+
     BankTab* tab = GetBankTab(tabId);
     if (!tab)
     {

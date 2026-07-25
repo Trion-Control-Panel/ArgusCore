@@ -51,7 +51,7 @@ at-or-above the actor's own rank.
 
 **Test:** Pending manual build/runtime verification.
 
-### [ ] Core/Guild - HandleSetBankTabInfo missing rank-right check
+### [DONE] Core/Guild - HandleSetBankTabInfo missing rank-right check
 
 **Subsystem:** Guilds/Guild, Handlers/GuildHandler
 
@@ -66,7 +66,16 @@ withdraw/tab-management rights required.
 **Severity:** Low — cosmetic/griefing (tab name/icon), not a theft or data-integrity
 issue. Same gap exists in DestinyCore.
 
-**Status:** Not started. Lower priority than the rank-assignment bug above.
+**Fix:** Gated `HandleSetBankTabInfo` on `_IsLeader(session->GetPlayer())`,
+matching the restriction already used by the closely-related `HandleBuyBankTab`
+(tab purchase) and `HandleSetRankInfo` (rank editor) — both leader-only. Chosen
+deliberately over guessing at a specific rank-right flag: restricting to
+leader-only cannot introduce a new vulnerability, and tab creation/branding is
+leader-only in the adjacent, already-correct `HandleBuyBankTab` path.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
 
 ### [DONE] Core/Player - Vendor purchase quantity desync (validate-vs-deliver truncation)
 
