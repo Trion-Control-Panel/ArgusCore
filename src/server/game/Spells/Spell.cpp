@@ -1626,12 +1626,17 @@ void Spell::SelectImplicitCasterDestTargets(SpellEffectInfo const& spellEffectIn
 
 void Spell::SelectImplicitTargetDestTargets(SpellEffectInfo const& spellEffectInfo, SpellImplicitTargetInfo const& targetType, SpellTargetIndex targetIndex)
 {
-    ASSERT(m_targets.GetObjectTarget() || spellEffectInfo.EffectAttributes.HasFlag(SpellEffectAttributes::DontFailSpellOnTargetingFailure),
-        "Spell::SelectImplicitTargetDestTargets - no explicit object target available!");
-
     WorldObject* target = m_targets.GetObjectTarget();
     if (!target)
+    {
+        // Effects without DontFailSpellOnTargetingFailure are expected to always have an
+        // explicit object target by this point; log instead of hard-aborting the process,
+        // since a bad/incomplete spell_effect data row shouldn't be able to crash the server.
+        if (!spellEffectInfo.EffectAttributes.HasFlag(SpellEffectAttributes::DontFailSpellOnTargetingFailure))
+            TC_LOG_ERROR("spells", "Spell::SelectImplicitTargetDestTargets: spell {} effect {} has no explicit object target and is missing DontFailSpellOnTargetingFailure; skipping destination target selection.",
+                m_spellInfo->Id, uint32(spellEffectInfo.EffectIndex));
         return;
+    }
 
     SpellDestination dest(*target);
 

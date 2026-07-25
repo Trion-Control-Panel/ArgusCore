@@ -147,7 +147,7 @@ continues ticking harmlessly until it expires.
 
 **Test:** Pending manual build/runtime verification.
 
-### [ ] Core/Spells - Client-triggerable ASSERT in SelectImplicitTargetDestTargets
+### [DONE] Core/Spells - Client-triggerable ASSERT in SelectImplicitTargetDestTargets
 
 **Subsystem:** Spells/Spell
 
@@ -169,9 +169,25 @@ regression. Matches the same class of bug as the already-fixed VehicleHandler
 seat asserts (client-reachable path asserting on a value instead of gracefully
 rejecting it).
 
-**Status:** Not started. Needs confirming whether the null case is actually
-reachable with current spell_effect data before deciding between "replace assert
-with early return" vs. "leave as an internal invariant."
+**Confirmed:** `ASSERT` in this codebase compiles to `WPAssert`/`Trinity::Assert`
+in all non-`PERFORMANCE_PROFILING` builds (`Errors.h:64-70`) — including the
+project's standard RelWithDebInfo build — so it does abort a live server, not
+just debug builds. Whether the null case is reachable with *current* spell_effect
+data wasn't fully proven, but given ArgusCore is actively porting new Legion
+spell scripts/effects from LegionCore (see `ROADMAP.md` Phase 12), a
+misconfigured `spell_effect` row on any newly-ported spell is a realistic way to
+hit this, and the very next line already handled the null case gracefully before
+this fix — the assert was strictly more fragile than the code around it.
+
+**Fix:** Removed the `ASSERT`; the null-target case now logs a `TC_LOG_ERROR`
+(only when `DontFailSpellOnTargetingFailure` is absent, i.e. exactly the
+condition that used to trigger the assert) and returns, skipping destination
+target selection for that one effect instead of aborting the process. Behavior
+for the normal case (object target present) is unchanged.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
 
 ### [ ] Core/Spells - EffectUntrainTalents checks caster type instead of target type
 
