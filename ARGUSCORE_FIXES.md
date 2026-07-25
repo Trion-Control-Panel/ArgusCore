@@ -875,6 +875,44 @@ already internally consistent — it will now use the correctly-parsed values.
 
 ## P3 — Blizzlike Gameplay
 
+### [DONE] Mage/Fire - Scorch implemented post-Legion "Frenetic Speed" execute mechanic
+
+**Subsystem:** Scripts/Spells (spell_mage)
+
+**Problem:** `spell_mage_scorch` gave Scorch a guaranteed crit against targets
+below a health threshold and cast `SPELL_MAGE_FRENETIC_SPEED` (236060, a
+movement-speed buff) on the caster whenever that execute condition landed.
+Cross-checked against both Legion 7.3.5 reference cores (DestinyCore and
+LegionCore-7.3.5-merged) — **neither implements any custom Scorch script at
+all**, meaning Legion's actual Scorch is a plain filler spell needing no
+special server-side behavior. Checked TrinityCore-master (current retail) and
+found this exact mechanic (execute-crit + Frenetic Speed, later versions also
+reference `SPELL_MAGE_HEAT_SHIMMER` and other clearly-modern spell IDs like
+`SPELL_MAGE_MOLTEN_FURY = 458910`) — confirming `spell_mage_scorch` was copied
+from a modern retail TrinityCore baseline and never adapted for Legion. This
+is the first confirmed instance of the "broader observation" flagged in the
+Hot Streak fix above (non-Legion content present in this file).
+
+**Files:** `src/server/scripts/Spells/spell_mage.cpp`
+
+**Reference:** DestinyCore, LegionCore-7.3.5-merged (both show zero custom
+Scorch behavior — the correct Legion baseline); TrinityCore-master (source of
+the incorrect, anachronistic mechanic being removed).
+
+**Fix:** Removed the `spell_mage_scorch` class, its registration, and the
+now-unused `SPELL_MAGE_FRENETIC_SPEED` enum entry. Left `SPELL_MAGE_SCORCH`
+itself in place — still needed by the Hot Streak driver fix above, which
+correctly treats Scorch as one of the spells that can trigger Heating Up.
+
+**Risk:** Low — pure removal of code that shouldn't have been running for
+this expansion; worst case if I'm wrong about Legion's Scorch being crit-plain
+is that Scorch reverts to guaranteed-normal-hit-chance-only behavior, which is
+easy to spot and revert.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
+
 ### [DONE] Mage/Fire - Hot Streak mechanic entirely unimplemented
 
 **Subsystem:** Scripts/Spells (spell_mage)
