@@ -6951,7 +6951,12 @@ void Player::ModifyCurrency(uint32 id, int32 amount, CurrencyGainSource gainSour
     {
         // Weekly cap
         if (weeklyCap && amount > 0 && (itr->second.WeeklyQuantity + amount) > weeklyCap)
-            amount = weeklyCap - itr->second.WeeklyQuantity;
+        {
+            // WeeklyQuantity can already be at or above weeklyCap (e.g. the cap was lowered,
+            // or was computed rather than enforced at grant time); clamp to 0 remaining
+            // allowance instead of letting an unsigned underflow turn this gain into a loss.
+            amount = weeklyCap > itr->second.WeeklyQuantity ? int32(weeklyCap - itr->second.WeeklyQuantity) : 0;
+        }
 
         // Max cap
         uint32 maxCap = GetCurrencyMaxQuantity(currency, false, gainSource == CurrencyGainSource::UpdatingVersion);

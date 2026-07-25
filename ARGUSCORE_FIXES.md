@@ -467,7 +467,7 @@ just a null-check bypass), so this is a small feature-completion fix rather than
 a one-line guard — picking it up requires first identifying what the "computed"
 formula should be (likely tied to character level or a related DB2 field).
 
-### [ ] Core/Currency - Negative amount not clamped when WeeklyQuantity exceeds cap
+### [DONE] Core/Currency - Negative amount not clamped when WeeklyQuantity exceeds cap
 
 **Subsystem:** Entities/Player (currency)
 
@@ -484,7 +484,20 @@ instead of clamping to 0.
 trigger. Cheap defensive fix (`std::max(0, ...)`) whenever picked up, ideally
 alongside the finding above.
 
-**Status:** Not started.
+**Note found during fix:** both `weeklyCap` and `WeeklyQuantity` are `uint32`, so
+the original `weeklyCap - itr->second.WeeklyQuantity` wasn't just "a small
+negative number" when `WeeklyQuantity > weeklyCap` — it was an unsigned
+underflow that wraps to a huge value before converting to the `int32 amount`,
+producing an arbitrary large negative (in practice), not a bounded-small one.
+
+**Fix:** Compare in unsigned space first (`weeklyCap > itr->second.WeeklyQuantity`)
+and only compute the subtraction when it's safe (non-negative), otherwise clamp
+to `0`. An `amount` of `0` is already handled safely by the existing
+`if (!amount) return;` a few lines below — no gain, no loss, no crash.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
 
 ### [DONE] Core/Battleground - Unguarded PlayerScores lookup in EndBattleground
 
