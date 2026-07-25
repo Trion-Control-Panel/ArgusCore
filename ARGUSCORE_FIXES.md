@@ -914,11 +914,10 @@ which likely isn't even a valid Legion spell, was already producing no
 effect). It cannot become *more* broken than its prior state. If correct, it
 starts working for the first time.
 
-**Database dependency (found retroactively, see the SQL binding entry near
-the end of this file):** `spell_mage_chain_reaction` is a brand-new class
-name with no `spell_script_names` row anywhere, so it was silently inert
-until a binding was added in
-`sql/updates/world/master/2026_07_25_00_world.sql`.
+**Database dependency (found retroactively):** `spell_mage_chain_reaction` is
+a brand-new class name with no `spell_script_names` row anywhere, so it was
+silently inert until a binding was added in
+`sql/updates/world/master/2026_07_25_06_world.sql`.
 
 **Commit:** `<pending>`
 
@@ -987,12 +986,12 @@ implemented this session (touches an existing, already-functioning script for
 a different purpose). Needs careful in-game testing, particularly that Thermal
 Void/Chain Reaction/Fingers of Frost interactions with Ice Lance are unaffected.
 
-**Database dependency (found retroactively, see the SQL binding entry near
-the end of this file):** `spell_mage_brain_freeze` is a brand-new class name
-with no `spell_script_names` row anywhere, so it was silently inert until a
-binding was added in `sql/updates/world/master/2026_07_25_00_world.sql`. (The
-extension to the existing `spell_mage_ice_lance` class is unaffected — that
-class's own binding was untouched.)
+**Database dependency (found retroactively):** `spell_mage_brain_freeze` is a
+brand-new class name with no `spell_script_names` row anywhere, so it was
+silently inert until a binding was added in
+`sql/updates/world/master/2026_07_25_05_world.sql`. (The extension to the
+existing `spell_mage_ice_lance` class is unaffected — that class's own
+binding was untouched.)
 
 **Commit:** `<pending>`
 
@@ -1047,10 +1046,10 @@ cooldown; needs in-game verification that the crit boost applies/expires
 correctly, and the team should be aware the refresh-on-crit behavior is
 intentionally absent pending further verification.
 
-**Database dependency (found retroactively, see the SQL binding entry near
-the end of this file):** `spell_mage_combustion` is a brand-new class name
-with no `spell_script_names` row anywhere, so it was silently inert until a
-binding was added in `sql/updates/world/master/2026_07_25_00_world.sql`.
+**Database dependency (found retroactively):** `spell_mage_combustion` is a
+brand-new class name with no `spell_script_names` row anywhere, so it was
+silently inert until a binding was added in
+`sql/updates/world/master/2026_07_25_04_world.sql`.
 
 **Commit:** `<pending>`
 
@@ -1156,13 +1155,12 @@ Omitted DestinyCore's "Pyromaniac" re-proc-on-cast modifier for the same
 reason as "Controlled Burn" above — could not confirm it matches Legion
 7.3.5's actual talent design rather than a later expansion's version.
 
-**Database dependency (found retroactively, see the SQL binding entry near
-the end of this file):** `spell_mage_pyroblast_clearcasting_driver` is a
-brand-new class name with no `spell_script_names` row anywhere, so it was
-silently inert until a binding was added in
-`sql/updates/world/master/2026_07_25_00_world.sql`. (`spell_mage_pyroblast` and
-`spell_mage_flamestrike` keep their original names/bindings — only the new
-driver class needed one.)
+**Database dependency (found retroactively):** `spell_mage_pyroblast_clearcasting_driver`
+is a brand-new class name with no `spell_script_names` row anywhere, so it
+was silently inert until a binding was added in
+`sql/updates/world/master/2026_07_25_03_world.sql`. (`spell_mage_pyroblast`
+and `spell_mage_flamestrike` keep their original names/bindings — only the
+new driver class needed one.)
 
 **Risk:** Moderate — this is new gameplay behavior (not a bug fix to existing
 code), so it needs real in-game verification that Fire Mages actually receive
@@ -1205,9 +1203,12 @@ stringified class name; the actual spell-id-to-script binding happens via the
 migration history and found the binding for `spell_warr_sudden_death` was
 deleted at some point with no replacement (and Rampage's equivalent binding,
 under a different old name, was added then deleted again) — meaning neither
-fix takes effect without a fresh SQL row. Added both to
-`sql/updates/world/master/2026_07_25_00_world.sql` so the core's DB updater
-applies it automatically on next startup.
+fix takes effect without a fresh SQL row. Added to its own dedicated file,
+`sql/updates/world/master/2026_07_25_00_world.sql`, so the core's DB updater
+applies it automatically on next startup. (Each fix now gets its own SQL
+file rather than sharing one — the updater tracks applied files by name and
+never re-runs one it's already applied, so appending new bindings to an
+already-applied file would silently never take effect.)
 
 **Risk:** Low — small, self-contained, matches an already-verified-working
 reference exactly. (The SQL dependency above is the only reason this doesn't
@@ -1271,10 +1272,10 @@ redundant Enrage application on every Rampage cast.
 migration history and found spell 184367 had a `spell_script_names` binding
 added under the name `spell_warr_rampage_enrage` (presumably from earlier,
 never-finished work) and then deleted again with no replacement — so this
-fix needs a fresh binding to take effect. Added to
-`sql/updates/world/master/2026_07_25_00_world.sql` (same file as the Sudden Death
-fix above) rather than reusing the old dangling name, since that name implied
-Enrage-application specifically, which this script doesn't handle.
+fix needs a fresh binding to take effect. Added its own dedicated file,
+`sql/updates/world/master/2026_07_25_01_world.sql`, rather than reusing the
+old dangling name, since that name implied Enrage-application specifically,
+which this script doesn't handle.
 
 **Residual uncertainty flagged, not resolved:** `184367` is DestinyCore's
 spell ID for Rampage; a comment in LegionCore's Rampage class header lists
@@ -1353,8 +1354,8 @@ DestinyCore, adapted to ArgusCore's modern API where it differs:
 (`sql/updates/world/master/*.sql`, `sql/base/dev/world_database.sql`) for
 existing `spell_script_names` bindings on 227847, 222634, or 95738 — found
 none. Same gap as Rampage/Sudden Death: without a fresh binding, none of the
-three new scripts would ever fire. Added to
-`sql/updates/world/master/2026_07_25_00_world.sql` (same shared migration file).
+three new scripts would ever fire. Added its own dedicated file,
+`sql/updates/world/master/2026_07_25_02_world.sql`.
 
 **Risk:** Moderate — three interacting scripts rather than one, and it's new
 gameplay behavior for a shared Arms/Fury cooldown, so it needs real in-game
@@ -1393,14 +1394,19 @@ classes that were only *extended* in the same commits
 kept their original names, so whatever binding already made them fire is
 unaffected.
 
-**Files:** `sql/updates/world/master/2026_07_25_00_world.sql`
+**Files:**
+`sql/updates/world/master/2026_07_25_03_world.sql` (Hot Streak driver),
+`2026_07_25_04_world.sql` (Combustion),
+`2026_07_25_05_world.sql` (Brain Freeze),
+`2026_07_25_06_world.sql` (Chain Reaction)
 
-**Fix:** Added `spell_script_names` bindings for all four spell ids to the
-same shared migration file used for the Warrior bindings above (per your
-preference to keep appending to one file, now moved to
-`sql/updates/world/master/` so the core applies it automatically on next
-startup instead of waiting for manual review). Each affected Mage entry earlier
-in this file now has a "Database dependency" note cross-referencing this one.
+**Fix:** Added a `spell_script_names` binding for each of the four spell ids,
+one dedicated SQL file per fix (not one shared file — the DB updater tracks
+applied migrations by filename and never re-runs one it's already applied,
+so appending new bindings to an already-applied file would silently never
+take effect; each fix gets its own file going forward). Each affected Mage
+entry earlier in this file now has a "Database dependency" note
+cross-referencing its own specific file.
 
 **Risk:** Low — pure additive SQL, same idempotent DELETE-then-INSERT pattern
 as the Warrior bindings; the actual gameplay risk was already assessed in
@@ -1444,9 +1450,8 @@ script already in this file.
 
 **Database dependency:** searched ArgusCore's committed SQL for an existing
 `spell_script_names` binding on spell 5301 — found none. Same gap as every
-other fix this session: added to
-`sql/updates/world/master/2026_07_25_00_world.sql` (same shared file, now
-auto-applied on startup).
+other fix this session: added its own dedicated file,
+`sql/updates/world/master/2026_07_25_07_world.sql`, auto-applied on startup.
 
 **Risk:** Low — small, self-contained, single proc-reset with no side
 effects on other mechanics. Needs in-game verification that Revenge's
