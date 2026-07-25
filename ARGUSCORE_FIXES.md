@@ -875,9 +875,63 @@ already internally consistent — it will now use the correctly-parsed values.
 
 ## P3 — Blizzlike Gameplay
 
-(Not populated by this pass — see `ROADMAP.md` / `plans/00-arguscore-analysis-and-roadmap.md`
-for the active class-spell-porting and content workstreams, which are tracked
-separately from this security/stability backlog.)
+### [DONE] Mage/Fire - Hot Streak mechanic entirely unimplemented
+
+**Subsystem:** Scripts/Spells (spell_mage)
+
+**Problem:** Hot Streak (spell 48108) and Heating Up (48107) — the core Fire
+Mage "2 consecutive crits = free instant Pyroblast/Flamestrike" mechanic — had
+zero implementation anywhere in ArgusCore: no script class, no reference to
+either spell ID in any script or SQL file. Confirmed via `logs/DestinyCore`
+(also Legion 7.3.5) that the mechanic works there via a dedicated passive
+"driver" aura (44448, "Pyroblast!") that Fire Mage characters carry
+innately: `DoCheckProc` gates which Fire spells (Scorch/Fireball/Fire Blast/
+Flamestrike/Pyroblast/Phoenix Flames/Dragon's Breath-with-Alexstrasza's-Fury)
+can trigger it, and `OnEffectProc` on its `SPELL_AURA_DUMMY` effect escalates
+Heating Up -> Hot Streak on a second consecutive crit, or resets on a non-crit.
+ArgusCore's own file already uses this exact idiom successfully for Ignite
+(`spell_mage_ignite`, a similarly-innate Fire Mage passive), which gave
+confidence the same technique (passive dummy-aura proc driver) works correctly
+in this codebase/data.
+
+**Files:** `src/server/scripts/Spells/spell_mage.cpp`
+
+**Reference:** DestinyCore's implementation ported for logic; deliberately
+omitted one DestinyCore modifier ("Controlled Burn" — a chance for a single
+crit to skip straight to Hot Streak) since I could not verify it's genuine
+Legion 7.3.5 content rather than a later-expansion mechanic bolted onto
+DestinyCore's own codebase — kept the fix to the unambiguous, universally-
+documented core 2-crit mechanic only.
+
+**Broader observation (not fixed, flagged for a separate pass):** while
+investigating, several *other* existing spell classes in this same file
+reference spell IDs/mechanics that postdate Legion 7.3.5 (e.g. Frenetic Speed
+236060 and Radiant Spark, both Shadowlands/Dragonflight-era; Winters Chill,
+Chain Reaction, Feel the Burn, Ethereal Blink, Master of Time). This suggests
+`spell_mage.cpp` was substantially sourced from a modern TrinityCore-master
+baseline rather than adapted for Legion, independent of the Hot Streak gap.
+Whether these are genuinely harmful (actively firing wrong-expansion behavior)
+or inert (present but never triggered because the underlying spell/talent
+doesn't exist in Legion's DB2 data) wasn't determined — that requires either
+in-game testing per mechanic or DB2 data inspection I don't have tooling for
+here. Not attempted as part of this fix; flagging as a candidate for a
+dedicated "verify spell_mage.cpp against Legion 7.3.5 talent trees" pass.
+
+**Fix:** Added the `SPELL_MAGE_PYROBLAST_CLEARCASTING_DRIVER` (44448) driver
+aura script (`spell_mage_pyroblast_clearcasting_driver`), matching the file's
+existing conventions (same idiom as `spell_mage_ignite`), plus the supporting
+spell ID constants that weren't already defined (`SPELL_MAGE_FIREBALL`,
+`SPELL_MAGE_FLAMESTRIKE`, `SPELL_MAGE_PYROBLAST`, `SPELL_MAGE_PHOENIX_FLAMES`,
+`SPELL_MAGE_DRAGONS_BREATH`, `SPELL_MAGE_ALEXSTRASZAS_FURY`,
+`SPELL_MAGE_HEATING_UP`, `SPELL_MAGE_HOT_STREAK`, `SPELL_MAGE_SCORCH`).
+
+**Risk:** Moderate — this is new gameplay behavior (not a bug fix to existing
+code), so it needs real in-game verification that Fire Mages actually receive
+the driver aura and see Heating Up/Hot Streak procs, not just a compile check.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
 
 ---
 

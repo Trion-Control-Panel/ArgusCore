@@ -58,23 +58,33 @@ enum MageSpells
     SPELL_MAGE_CONJURE_REFRESHMENT               = 116136,
     SPELL_MAGE_CONJURE_REFRESHMENT_TABLE         = 167145,
     SPELL_MAGE_DRAGONHAWK_FORM                   = 32818,
+    SPELL_MAGE_DRAGONS_BREATH                    = 31661,
+    SPELL_MAGE_ALEXSTRASZAS_FURY                 = 235870,
     SPELL_MAGE_ETHEREAL_BLINK                    = 410939,
     SPELL_MAGE_EVERWARM_SOCKS                    = 320913,
     SPELL_MAGE_FEEL_THE_BURN                     = 383391,
     SPELL_MAGE_FINGERS_OF_FROST                  = 44544,
     SPELL_MAGE_FIRE_BLAST                        = 108853,
+    SPELL_MAGE_FIREBALL                          = 133,
     SPELL_MAGE_FIRESTARTER                       = 205026,
     SPELL_MAGE_FLAME_PATCH_AREATRIGGER           = 205470,
     SPELL_MAGE_FLAME_PATCH_DAMAGE                = 205472,
     SPELL_MAGE_FLAME_PATCH_TALENT                = 205037,
+    SPELL_MAGE_FLAMESTRIKE                       = 2120,
     SPELL_MAGE_FLURRY_DAMAGE                     = 228596,
     SPELL_MAGE_FRENETIC_SPEED                    = 236060,
     SPELL_MAGE_FROST_NOVA                        = 122,
     SPELL_MAGE_GIRAFFE_FORM                      = 32816,
+    SPELL_MAGE_HEATING_UP                        = 48107,
+    SPELL_MAGE_HOT_STREAK                        = 48108,
     SPELL_MAGE_ICE_BARRIER                       = 11426,
     SPELL_MAGE_ICE_BLOCK                         = 45438,
     SPELL_MAGE_IGNITE                            = 12654,
     SPELL_MAGE_INCANTERS_FLOW                    = 116267,
+    SPELL_MAGE_PHOENIX_FLAMES                    = 194466,
+    SPELL_MAGE_PYROBLAST                         = 11366,
+    SPELL_MAGE_PYROBLAST_CLEARCASTING_DRIVER     = 44448,
+    SPELL_MAGE_SCORCH                            = 2948,
     SPELL_MAGE_LIVING_BOMB_EXPLOSION             = 44461,
     SPELL_MAGE_LIVING_BOMB_PERIODIC              = 217694,
     SPELL_MAGE_MANA_SURGE                        = 37445,
@@ -1129,6 +1139,79 @@ class spell_mage_ignite : public AuraScript
     }
 };
 
+// 44448 - Pyroblast! (Hot Streak driver)
+// Two consecutive crits from a qualifying Fire spell grant Hot Streak (instant, free Pyroblast/
+// Flamestrike); an intervening non-crit resets progress back to no stacks.
+class spell_mage_pyroblast_clearcasting_driver : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo
+        ({
+            SPELL_MAGE_SCORCH,
+            SPELL_MAGE_FIREBALL,
+            SPELL_MAGE_FIRE_BLAST,
+            SPELL_MAGE_FLAMESTRIKE,
+            SPELL_MAGE_PYROBLAST,
+            SPELL_MAGE_PHOENIX_FLAMES,
+            SPELL_MAGE_DRAGONS_BREATH,
+            SPELL_MAGE_HEATING_UP,
+            SPELL_MAGE_HOT_STREAK
+        });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
+        if (!spellInfo)
+            return false;
+
+        switch (spellInfo->Id)
+        {
+            case SPELL_MAGE_SCORCH:
+            case SPELL_MAGE_FIREBALL:
+            case SPELL_MAGE_FIRE_BLAST:
+            case SPELL_MAGE_FLAMESTRIKE:
+            case SPELL_MAGE_PYROBLAST:
+            case SPELL_MAGE_PHOENIX_FLAMES:
+                return true;
+            case SPELL_MAGE_DRAGONS_BREATH:
+                // Only procs from Dragon's Breath while talented into Alexstrasza's Fury
+                return GetCaster()->HasAura(SPELL_MAGE_ALEXSTRASZAS_FURY);
+            default:
+                return false;
+        }
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        // A non-critical qualifying hit resets Heating Up progress.
+        if (eventInfo.GetHitMask() & PROC_HIT_NORMAL)
+        {
+            caster->RemoveAurasDueToSpell(SPELL_MAGE_HEATING_UP);
+            return;
+        }
+
+        if (!caster->HasAura(SPELL_MAGE_HEATING_UP) && !caster->HasAura(SPELL_MAGE_HOT_STREAK))
+            caster->CastSpell(caster, SPELL_MAGE_HEATING_UP, true);
+        else if (caster->HasAura(SPELL_MAGE_HEATING_UP) && !caster->HasAura(SPELL_MAGE_HOT_STREAK))
+        {
+            caster->RemoveAurasDueToSpell(SPELL_MAGE_HEATING_UP);
+            caster->CastSpell(caster, SPELL_MAGE_HOT_STREAK, true);
+        }
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_mage_pyroblast_clearcasting_driver::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_mage_pyroblast_clearcasting_driver::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
 // 37447 - Improved Mana Gems
 // 61062 - Improved Mana Gems
 class spell_mage_imp_mana_gems : public AuraScript
@@ -1680,6 +1763,7 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_living_bomb_periodic);
     RegisterSpellScript(spell_mage_polymorph_visual);
     RegisterSpellScript(spell_mage_prismatic_barrier);
+    RegisterSpellScript(spell_mage_pyroblast_clearcasting_driver);
     RegisterSpellScript(spell_mage_radiant_spark);
     RegisterSpellAndAuraScriptPair(spell_mage_ray_of_frost, spell_mage_ray_of_frost_aura);
     RegisterSpellScript(spell_mage_ring_of_frost);
