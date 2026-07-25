@@ -72,6 +72,34 @@ trusting it fully.
 
 **Test:** Pending manual build/runtime verification.
 
+### [DONE] Core/LFG - HandleLfgLeaveOpcode lets a solo player spoof the leave target
+
+**Subsystem:** Handlers/LFGHandler
+
+**Problem:** `HandleLfgLeaveOpcode` (`CMSG_DF_LEAVE`) correctly restricts grouped
+players to only leaving via their own group leader's ticket
+(`group->GetLeaderGUID() == dfLeave.Ticket.RequesterGuid`), matching its own
+"only leader can leave the queue" comment — but when the *caller* isn't
+currently in a group, the code accepted `dfLeave.Ticket.RequesterGuid` as-is
+with no check that it's the caller's own GUID: `if (!group || ...)`. Any solo
+(non-grouped) player could pass an arbitrary victim's GUID and force that
+victim out of their LFG queue/role-check, regardless of the victim's own group
+state.
+
+**Files:** `src/server/game/Handlers/LFGHandler.cpp`
+
+**Reference:** Confirmed identical logic in DestinyCore — pre-existing upstream
+gap, not ArgusCore-introduced.
+
+**Fix:** Changed the condition so the solo-player branch requires
+`GetPlayer()->GetGUID() == dfLeave.Ticket.RequesterGuid`, mirroring the existing
+grouped-player check instead of skipping validation entirely. Single-line,
+behavior for the grouped-leader case is completely unchanged.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
+
 ### [DONE] Core/Instance - One-packet server crash via CMSG_SET_SAVED_INSTANCE_EXTEND
 
 **Subsystem:** Handlers/CalendarHandler, Instances/InstanceLockMgr
