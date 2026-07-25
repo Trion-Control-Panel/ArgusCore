@@ -21,6 +21,8 @@
 #include "ArenaScore.h"
 #include "Battleground.h"
 
+class ArenaTeam;
+
 enum ArenaBroadcastTexts
 {
     ARENA_TEXT_START_ONE_MINUTE             = 15740,
@@ -71,6 +73,11 @@ class TC_GAME_API Arena : public Battleground
         void RemovePlayerAtLeave(ObjectGuid guid, bool transport, bool sendPacket) override;
         void CheckWinConditions() override;
         void EndBattleground(Team winner) override;
+
+        // Finds the persistent ArenaTeam registered for the given match side, by looking up
+        // the arena team id of any still-tracked participant (online or pending-offline-removal)
+        // on that side. Returns nullptr if no such participant/team can be resolved.
+        ArenaTeam* GetArenaTeamForTeam(Team team) const;
 
         ArenaTeamScore _arenaTeamScores[PVP_TEAMS_COUNT];
 };

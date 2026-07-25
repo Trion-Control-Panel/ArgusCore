@@ -307,6 +307,102 @@ already-rare case where no eligible recipient exists.
 
 ## P2 — Core Correctness
 
+### [DONE] Core/Arena - Rated arena rating never changes on match completion
+
+**Subsystem:** Battlegrounds (Arena)
+
+**Problem:** `Arena::EndBattleground` and `Arena::RemovePlayerAtLeave` both declared
+`ArenaTeam* winnerArenaTeam = nullptr;` / `ArenaTeam* loserArenaTeam = nullptr;`
+and never assigned them before the `if (winnerArenaTeam && loserArenaTeam && ...)`
+guard around all the rating-adjustment logic — so the entire rating-calculation
+block (which is otherwise complete and correct-looking: `WonAgainst`/
+`LostAgainst`/`MemberWon`/`MemberLost`/`FinishGame`, achievement criteria, guild
+news, postmatch rating for the results screen) was unreachable dead code. Winning
+a rated arena match granted no rating; losing — including deliberately
+disconnecting/leaving mid-match — lost none either, since `RemovePlayerAtLeave`'s
+leave-penalty path had the identical bug.
+
+**Files:** `src/server/game/Battlegrounds/Arena.h`,
+`src/server/game/Battlegrounds/Arena.cpp`
+
+**Exploit angle:** a player losing a rated match could leave with zero rating
+loss, while winning conferred no gain either — rated arena had no functioning
+progression or consequence at all.
+
+**Reference:** DestinyCore's equivalent code is structurally different — it uses
+per-match `Group` objects with rating attached directly (`GetBgRaid(team)`),
+consistent with a redesigned/non-persistent-team model, not ArgusCore's
+`ArenaTeam`/`ArenaTeamMgr` persistent-team architecture (which ArgusCore's own
+queue-leave-penalty path in `BattleGroundHandler.cpp` and `BattlegroundQueue.cpp`
+already correctly resolves via `sArenaTeamMgr->GetArenaTeamById(...)`). Ported the
+fix, not the implementation: kept ArgusCore's own `ArenaTeam` architecture and
+found a way to resolve it using infrastructure already present in this codebase.
+
+**Fix:** Added `Arena::GetArenaTeamForTeam(Team team) const`, a small helper that
+walks the match's tracked participants (via the already-existing, base-class
+`Battleground::_GetPlayerForTeam`, which correctly handles online and
+pending-offline-removal players) and resolves the persistent `ArenaTeam*` from
+the first participant's registered `GetArenaTeamId(slot)` for the current arena
+bracket (`ArenaTeam::GetSlotByType(GetArenaType())`). Used this helper to
+correctly populate `winnerArenaTeam`/`loserArenaTeam` in both functions, matching
+the exact team-mapping logic (including the `winner == TEAM_OTHER` draw case)
+already established by the surrounding, previously-dead code. No new per-match
+state or wiring through `BattlegroundMgr.cpp` was needed — this stayed a
+2-file, additive change once the right existing accessor
+(`_GetPlayerForTeam`) was found.
+
+**Risk:** Moderate — this restores previously-nonfunctional behavior across a
+real gameplay system (rated arena rating), so it needs live-match verification
+before being trusted, but the diff itself is small and additive (no existing
+logic removed or altered, only the two null pointers replaced with real lookups).
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — needs an actual rated
+arena match (2v2/3v3/5v5) played to completion and a separate one abandoned
+mid-match, on registered arena teams, with rating checked before/after both.
+
+### [ ] Core/Arena - Rated queue MMR hardcoded to 1 for all groups
+
+**Subsystem:** Battlegrounds / Handlers/BattleGroundHandler
+
+**Problem:** `HandleBattlemasterJoinArena` (`BattleGroundHandler.cpp:545-546`) has
+`uint32 arenaRating = 1; //at->GetRating();` and
+`uint32 matchmakerRating = 1; //at->GetAverageMMR(grp);` — the real lookups are
+commented out, so every queued group's MMR is 1 regardless of actual team rating.
+This feeds into `BattlegroundQueue`'s matchmaking rating window, making
+matchmaking effectively rating-blind (any two teams can be paired regardless of
+real skill).
+
+**Files:** `src/server/game/Handlers/BattleGroundHandler.cpp`
+
+**Severity:** Medium — a real Blizzlike-behavior bug (matchmaking should be
+rating-aware), but not a security/corruption issue by itself. Interacts with the
+rating fix above (now that rating actually changes, feeding it real MMR at queue
+time becomes more valuable to fix).
+
+**Status:** Not started. Next candidate in this subsystem.
+
+### [ ] Core/Battleground - Unguarded PlayerScores lookup in EndBattleground
+
+**Subsystem:** Battlegrounds (Battleground)
+
+**Problem:** `Battleground::EndBattleground` (~line 702-717, only reached when
+`isBattleground() && CONFIG_BATTLEGROUND_STORE_STATISTICS_ENABLE`) does
+`BattlegroundScoreMap::const_iterator score = PlayerScores.find(player->GetGUID());`
+then dereferences `score->second` directly with no `end()` check. `m_Players` and
+`PlayerScores` are currently kept 1:1 by `AddPlayer`/`RemovePlayerAtLeave`, so
+this isn't trivially reachable today, but the sibling function
+`UpdatePlayerScore()` explicitly guards the identical lookup a few lines below
+(`if (itr == PlayerScores.end()) return false;`), showing the codebase itself
+treats this as an unsafe assumption elsewhere. Worth hardening defensively so a
+future desync (modified BG script, offline-queue race) can't crash the world
+server for the whole battleground's population.
+
+**Files:** `src/server/game/Battlegrounds/Battleground.cpp`
+
+**Status:** Not started. Small, safe, one-guard fix whenever picked up.
+
 ### [DONE] Core/Bank - AutoStoreBankReagent reads Slot/PackSlot in wrong wire order
 
 **Subsystem:** Server/Packets (BankPackets), Handlers/BankHandler

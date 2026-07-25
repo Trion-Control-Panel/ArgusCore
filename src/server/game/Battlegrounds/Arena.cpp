@@ -106,6 +106,17 @@ void Arena::BuildPvPLogDataPacket(WorldPackets::Battleground::PVPMatchStatistics
     }
 }
 
+ArenaTeam* Arena::GetArenaTeamForTeam(Team team) const
+{
+    uint8 slot = ArenaTeam::GetSlotByType(GetArenaType());
+    for (BattlegroundPlayerMap::const_iterator itr = GetPlayers().begin(); itr != GetPlayers().end(); ++itr)
+        if (Player* player = _GetPlayerForTeam(team, itr, "Arena::GetArenaTeamForTeam"))
+            if (uint32 arenaTeamId = player->GetArenaTeamId(slot))
+                return sArenaTeamMgr->GetArenaTeamById(arenaTeamId);
+
+    return nullptr;
+}
+
 void Arena::RemovePlayerAtLeave(ObjectGuid guid, bool transport, bool sendPacket)
 {
     if (isRated() && GetStatus() == STATUS_IN_PROGRESS)
@@ -116,8 +127,8 @@ void Arena::RemovePlayerAtLeave(ObjectGuid guid, bool transport, bool sendPacket
             // if the player was a match participant, calculate rating
             Team team = itr->second.Team;
 
-            ArenaTeam* winnerArenaTeam = nullptr;
-            ArenaTeam* loserArenaTeam = nullptr;
+            ArenaTeam* winnerArenaTeam = GetArenaTeamForTeam(GetOtherTeam(team));
+            ArenaTeam* loserArenaTeam = GetArenaTeamForTeam(team);
 
             // left a rated match while the encounter was in progress, consider as loser
             if (winnerArenaTeam && loserArenaTeam && winnerArenaTeam != loserArenaTeam)
@@ -159,8 +170,8 @@ void Arena::EndBattleground(Team winner)
 
         // In case of arena draw, follow this logic:
         // winnerArenaTeam => ALLIANCE, loserArenaTeam => HORDE
-        ArenaTeam* winnerArenaTeam = nullptr;
-        ArenaTeam* loserArenaTeam = nullptr;
+        ArenaTeam* winnerArenaTeam = GetArenaTeamForTeam(winner == TEAM_OTHER ? ALLIANCE : winner);
+        ArenaTeam* loserArenaTeam = GetArenaTeamForTeam(winner == TEAM_OTHER ? HORDE : GetOtherTeam(winner));
 
         if (winnerArenaTeam && loserArenaTeam && winnerArenaTeam != loserArenaTeam)
         {
