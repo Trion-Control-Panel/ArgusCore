@@ -65,6 +65,7 @@ enum WarriorSpells
     SPELL_WARRIOR_MORTAL_STRIKE                     = 12294,
     SPELL_WARRIOR_MORTAL_WOUNDS                     = 213667,
     SPELL_WARRIOR_RALLYING_CRY                      = 97463,
+    SPELL_WARRIOR_RAMPAGE                           = 184367,
     SPELL_WARRIOR_RAVAGER                           = 228920,
     SPELL_WARRIOR_RECKLESSNESS                      = 1719,
     SPELL_WARRIOR_RUMBLING_EARTH                    = 275339,
@@ -847,6 +848,49 @@ class spell_warr_rallying_cry : public SpellScript
     }
 };
 
+// 184367 - Rampage
+// Consumes the Whirlwind Cleave Aura (85739, granted by Whirlwind via ApplyWhirlwindCleaveAura
+// above - the same spell DestinyCore names "Meat Cleaver Proc") so Rampage also hits nearby
+// enemies alongside its primary target; secondary targets take half damage. Enrage generation
+// from Rampage is already handled by spell_warr_enrage_proc elsewhere in this file and is
+// intentionally untouched here.
+class spell_warr_rampage : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA });
+    }
+
+    void ConsumeCleaveAura()
+    {
+        if (Unit* caster = GetCaster())
+            caster->RemoveAurasDueToSpell(SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA);
+    }
+
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        if (caster == target)
+        {
+            SetHitDamage(0);
+            return;
+        }
+
+        if (target->GetGUID() != caster->GetTarget())
+            SetHitDamage(GetHitDamage() / 2);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_warr_rampage::ConsumeCleaveAura);
+        OnEffectHitTarget += SpellEffectFn(spell_warr_rampage::HandleDamage, EFFECT_1, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
+    }
+};
+
 // 275339 - (attached to 46968 - Shockwave)
 class spell_warr_rumbling_earth : public SpellScript
 {
@@ -1266,6 +1310,7 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_item_t10_prot_4p_bonus);
     RegisterSpellScript(spell_warr_mortal_strike);
     RegisterSpellScript(spell_warr_rallying_cry);
+    RegisterSpellScript(spell_warr_rampage);
     RegisterSpellScript(spell_warr_rumbling_earth);
     RegisterSpellScript(spell_warr_shield_block);
     RegisterSpellScript(spell_warr_shield_charge);

@@ -1146,6 +1146,89 @@ the driver aura and see Heating Up/Hot Streak procs, not just a compile check.
 
 **Test:** Pending manual build/runtime verification.
 
+### [DONE] Warrior/Fury - Rampage missing entirely (Whirlwind's cleave buff was never consumed)
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Investigation history (kept for context on how this was reached):**
+initially compared registered-script counts and found ArgusCore's
+`spell_warrior.cpp` (32 scripts) far short of DestinyCore's (~90+, mostly via
+an older `SpellScriptLoader` pattern a naive grep missed at first), and framed
+this as a huge gap. Then compared against `logs/LegionCore-7.3.5-merged` (a
+smaller, ~1180-line file, closer to ArgusCore's own ~1280) and, seeing several
+DestinyCore pieces reference unidentified hardcoded spell IDs, prematurely
+concluded DestinyCore's larger file had drifted toward later-expansion
+content the way its Mage file had at the edges (Scorch/Chain Reaction).
+
+**That conclusion was wrong, and worth recording why:** "I can't identify
+this spell ID" and "this is confirmed wrong-expansion content" are different
+confidence levels, and they got conflated. Checked one of the "unidentified"
+pieces (spell 248120, "Valarjar Berserkers") against TrinityCore-master and
+found **no match at all** — the opposite of what was found for Scorch. The
+Valarjar are Odyn's warriors from Legion's Warrior Order Hall (Skyhold)
+storyline specifically; that's not drift, it's positive evidence of genuine,
+unique Legion content that simply doesn't exist in any later expansion. The
+file-size argument was also weaker than treated: LegionCore is an admittedly
+rough 2020 community leak per its own README, so it being smaller plausibly
+means *incomplete*, not that DestinyCore padded itself with wrong content.
+
+**What was actually found once DestinyCore was properly treated as primary
+reference:** `SPELL_WARRIOR_MEAT_CLEAVER_PROC` (85739) in DestinyCore is the
+exact same spell ID as ArgusCore's own, already-implemented
+`SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA` — same spell, two different names.
+ArgusCore already correctly grants this stacking cleave buff from Whirlwind
+(Fury-specific, via `spell_improved_whirlwind`/`ApplyWhirlwindCleaveAura`),
+and already correctly generates Enrage from Rampage/Bloodthirst/Bloodbath
+crits (`spell_warr_enrage_proc`). What was missing was Rampage itself:
+**no spell script or spell ID constant for Rampage existed at all**, so the
+cleave buff Whirlwind grants was never consumed by anything — Fury's core
+spender ability was entirely absent.
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Fix:** Added `SPELL_WARRIOR_RAMPAGE = 184367` and a new
+`spell_warr_rampage` script that consumes the *existing*
+`SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA` on cast (ported DestinyCore's logic,
+adapted to reference ArgusCore's own existing constant rather than
+introducing a duplicate parallel system) and halves damage to non-primary
+targets hit by the cleave (matching DestinyCore's `HandleDamage` exactly).
+Deliberately did **not** touch Enrage generation — that's already correctly
+handled elsewhere in this file and re-implementing it here risked duplicate/
+redundant Enrage application on every Rampage cast.
+
+**Residual uncertainty flagged, not resolved:** `184367` is DestinyCore's
+spell ID for Rampage; a comment in LegionCore's Rampage class header lists
+different-looking IDs (218617, 184707, 184709, 201364, 201363) for
+"Rampage," though the actual LegionCore code never uses any of them directly
+(likely rank/hit-variant IDs bound via SQL to the same script, not something
+the C++ logic itself needs to branch on). Proceeded with reasonable
+confidence in 184367 given it matches general knowledge of this spell's
+historical ID stability, but this specific ID was not independently verified
+against Legion 7.3.5 client data.
+
+**Risk:** Moderate — new gameplay behavior for Fury's core spender, and the
+one open uncertainty (spell ID) would make the whole fix inert (not
+crash-prone, just a no-op) if wrong, similar to the pre-fix Chain Reaction
+situation.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — see chat for detailed
+steps (Whirlwind should grant a stacking cleave buff as a Fury Warrior;
+Rampage should consume it and cleave to nearby enemies at half damage on
+secondary targets; if Rampage produces no effect at all, the spell ID is
+likely the unresolved uncertainty above, not a logic bug).
+
+**Also still open, correctly re-framed:** Sudden Death and a handful of other
+DestinyCore Warrior pieces remain unimplemented — not because they're
+suspected wrong-expansion content (that assumption was the error above), but
+because their specific mechanics weren't yet independently confirmed with
+enough confidence in this pass. Worth revisiting with the same "DestinyCore
+as primary reference, verify individual pieces against TrinityCore-master
+only when something looks actually suspicious" approach that worked here,
+rather than the file-size heuristic that led to the wrong conclusion
+initially.
+
 ---
 
 ## P4 — Performance / Cleanup
