@@ -1212,6 +1212,51 @@ class spell_mage_pyroblast_clearcasting_driver : public AuraScript
     }
 };
 
+// 11366 - Pyroblast
+// Consumes Hot Streak on cast; without this the aura would never be removed and Hot Streak
+// would grant unlimited free instant Pyroblasts instead of just the one it earned.
+class spell_mage_pyroblast : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_HOT_STREAK });
+    }
+
+    void ConsumeHotStreak(SpellEffIndex /*effIndex*/)
+    {
+        if (Unit* caster = GetCaster())
+            if (caster->HasAura(SPELL_MAGE_HOT_STREAK))
+                caster->RemoveAurasDueToSpell(SPELL_MAGE_HOT_STREAK);
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_mage_pyroblast::ConsumeHotStreak, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 2120 - Flamestrike
+// Same Hot Streak consumption as Pyroblast above.
+class spell_mage_flamestrike : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_HOT_STREAK });
+    }
+
+    void ConsumeHotStreak(SpellEffIndex /*effIndex*/)
+    {
+        if (Unit* caster = GetCaster())
+            if (caster->HasAura(SPELL_MAGE_HOT_STREAK))
+                caster->RemoveAurasDueToSpell(SPELL_MAGE_HOT_STREAK);
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_mage_flamestrike::ConsumeHotStreak, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
 // 37447 - Improved Mana Gems
 // 61062 - Improved Mana Gems
 class spell_mage_imp_mana_gems : public AuraScript
@@ -1747,6 +1792,7 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_flame_on);
     RegisterSpellScript(spell_mage_flame_patch);
     RegisterAreaTriggerAI(at_mage_flame_patch);
+    RegisterSpellScript(spell_mage_flamestrike);
     RegisterSpellScript(spell_mage_flurry);
     RegisterSpellScript(spell_mage_flurry_damage);
     RegisterSpellScript(spell_mage_frostbolt);
@@ -1763,6 +1809,7 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_living_bomb_periodic);
     RegisterSpellScript(spell_mage_polymorph_visual);
     RegisterSpellScript(spell_mage_prismatic_barrier);
+    RegisterSpellScript(spell_mage_pyroblast);
     RegisterSpellScript(spell_mage_pyroblast_clearcasting_driver);
     RegisterSpellScript(spell_mage_radiant_spark);
     RegisterSpellAndAuraScriptPair(spell_mage_ray_of_frost, spell_mage_ray_of_frost_aura);

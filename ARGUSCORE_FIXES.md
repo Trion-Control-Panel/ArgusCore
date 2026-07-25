@@ -925,6 +925,18 @@ spell ID constants that weren't already defined (`SPELL_MAGE_FIREBALL`,
 `SPELL_MAGE_DRAGONS_BREATH`, `SPELL_MAGE_ALEXSTRASZAS_FURY`,
 `SPELL_MAGE_HEATING_UP`, `SPELL_MAGE_HOT_STREAK`, `SPELL_MAGE_SCORCH`).
 
+**Consumption side (caught before shipping, not a separate fix):** the
+initial pass only implemented the generation half (Heating Up -> Hot Streak).
+Re-checked DestinyCore and found dedicated `OnEffectHit` handlers on Pyroblast
+and Flamestrike that remove Hot Streak once it's actually consumed — without
+this, Hot Streak would never be cleared and would grant unlimited free
+instant Pyroblasts/Flamestrikes instead of the one cast it earned. Added
+`spell_mage_pyroblast` and `spell_mage_flamestrike` (both `SpellScript`,
+`OnEffectHit` on `EFFECT_0`/`SPELL_EFFECT_SCHOOL_DAMAGE`) to close this.
+Omitted DestinyCore's "Pyromaniac" re-proc-on-cast modifier for the same
+reason as "Controlled Burn" above — could not confirm it matches Legion
+7.3.5's actual talent design rather than a later expansion's version.
+
 **Risk:** Moderate — this is new gameplay behavior (not a bug fix to existing
 code), so it needs real in-game verification that Fire Mages actually receive
 the driver aura and see Heating Up/Hot Streak procs, not just a compile check.
