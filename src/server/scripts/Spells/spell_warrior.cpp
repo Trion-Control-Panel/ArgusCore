@@ -66,6 +66,7 @@ enum WarriorSpells
     SPELL_WARRIOR_IMPROVED_HEROIC_LEAP              = 157449,
     SPELL_WARRIOR_MORTAL_STRIKE                     = 12294,
     SPELL_WARRIOR_MORTAL_WOUNDS                     = 213667,
+    SPELL_WARRIOR_OVERPOWER                         = 7384,
     SPELL_WARRIOR_RALLYING_CRY                      = 97463,
     SPELL_WARRIOR_RAMPAGE                           = 184367,
     SPELL_WARRIOR_RAVAGER                           = 228920,
@@ -79,6 +80,7 @@ enum WarriorSpells
     SPELL_WARRIOR_SHIELD_WALL                       = 871,
     SPELL_WARRIOR_SHOCKWAVE                         = 46968,
     SPELL_WARRIOR_SHOCKWAVE_STUN                    = 132168,
+    SPELL_WARRIOR_SLAM_ARMS                         = 1464,
     SPELL_WARRIOR_STOICISM                          = 70845,
     SPELL_WARRIOR_STORM_BOLT_STUN                   = 132169,
     SPELL_WARRIOR_STORM_BOLTS                       = 436162,
@@ -95,6 +97,7 @@ enum WarriorSpells
     SPELL_WARRIOR_VICTORY_RUSH_HEAL                 = 118779,
     SPELL_WARRIOR_WARBREAKER                        = 262161,
     SPELL_WARRIOR_WEAKENED_BLOWS                    = 115798,
+    SPELL_WARRIOR_WHIRLWIND_ARMS                    = 1680,
     SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA             = 85739,
     SPELL_WARRIOR_WHIRLWIND_ENERGIZE                = 280715,
 
@@ -907,6 +910,54 @@ class spell_warr_mortal_strike : public SpellScript
     }
 };
 
+// 60503 - Overpower Proc Enabler
+// "Your other melee abilities have a chance to activate Overpower." - a passive that lets
+// Whirlwind, Colossus Smash, Mortal Strike, and Slam each have a chance to enable Overpower,
+// replacing the older dodge-triggered version of this ability from earlier expansions.
+// NOTE: DestinyCore's own CheckProc for this aura checks
+// eventInfo.GetSpellInfo()->Id == SPELL_WARRIOR_OVERPOWER, i.e. it only allows the aura to proc
+// from Overpower itself - which contradicts its own comment immediately above it ("procs on
+// Whirlwind/Colossus Smash/Mortal Strike/Slam") and would make the aura permanently non-
+// functional (Overpower can't be the thing that enables casting Overpower). This looks like a
+// copy-paste-type authoring bug, not intentional Legion-specific behavior: the sibling talent
+// spell_warr_soul_of_the_slaughter in the same DestinyCore file uses the exact same "filter by
+// eventInfo.GetSpellInfo()->Id against a short list of trigger spells" idiom, correctly checking
+// the *other* abilities (Whirlwind_Arms/Cleave/Hamstring/Execute_Arms/Mortal_Strike/Slam_Arms),
+// confirming what the correct pattern here should look like. Implemented the corrected filter
+// (matching the comment's stated trigger spells) rather than porting the check verbatim.
+// The 5% proc chance and the actual "enable Overpower" effect are left to this spell's own
+// DB2-defined proc chance/effect data, consistent with how Chain Reaction's stacking and other
+// self-contained filter-only auras already work elsewhere in this file.
+class spell_warr_overpower_proc : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_OVERPOWER });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        if (!eventInfo.GetSpellInfo())
+            return false;
+
+        switch (eventInfo.GetSpellInfo()->Id)
+        {
+            case SPELL_WARRIOR_WHIRLWIND_ARMS:
+            case SPELL_WARRIOR_COLOSSUS_SMASH:
+            case SPELL_WARRIOR_MORTAL_STRIKE:
+            case SPELL_WARRIOR_SLAM_ARMS:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_warr_overpower_proc::CheckProc);
+    }
+};
+
 // 97462 - Rallying Cry
 class spell_warr_rallying_cry : public SpellScript
 {
@@ -1478,6 +1529,7 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_intimidating_shout);
     RegisterSpellScript(spell_warr_item_t10_prot_4p_bonus);
     RegisterSpellScript(spell_warr_mortal_strike);
+    RegisterSpellScript(spell_warr_overpower_proc);
     RegisterSpellScript(spell_warr_rallying_cry);
     RegisterSpellScript(spell_warr_rampage);
     RegisterSpellScript(spell_warr_revenge_trigger);

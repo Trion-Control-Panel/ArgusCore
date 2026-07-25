@@ -1511,6 +1511,68 @@ when that talent is actually selected.
 target and confirm Weakened Blows applies; if speced into Thunderstruck,
 confirm the target is also stunned.
 
+### [DONE] Warrior/Arms - Overpower Proc Enabler missing, and DestinyCore's reference had a logic-inversion bug
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Problem:** Spell 60503 ("Overpower Proc Enabler" per DestinyCore's own
+comment — "Your other melee abilities have a chance to activate Overpower")
+had no implementation anywhere in ArgusCore. Without it, none of Whirlwind,
+Colossus Smash, Mortal Strike, or Slam can grant Overpower usability, so
+Arms's random-proc version of Overpower (which replaced the older
+dodge-triggered version from earlier expansions) is inert.
+
+**Reference:** DestinyCore has an implementation, but its `CheckProc` checks
+`eventInfo.GetSpellInfo()->Id == SPELL_WARRIOR_OVERPOWER` — i.e. it only
+allows this aura to proc from **Overpower itself**, directly contradicting
+its own comment one line above ("procs on Whirlwind, Colossus Smash, Mortal
+Strike and Slam") and making the aura permanently non-functional (Overpower
+can't be the thing that enables casting Overpower — nothing would ever cast
+Overpower in the first place to trigger it). This is the first fix this
+session where DestinyCore's own code looked genuinely wrong rather than
+just uncertain/unverifiable, so it was cross-checked rather than either
+blindly ported or skipped: the sibling talent `spell_warr_soul_of_the_slaughter`
+in the same DestinyCore file uses the identical idiom (filter
+`eventInfo.GetSpellInfo()->Id` against a short list of trigger spells) and
+does it correctly there, checking the *other* abilities
+(Whirlwind_Arms/Cleave/Hamstring/Execute_Arms/Mortal_Strike/Slam_Arms) —
+confirming this is a copy-paste-type authoring slip in this one class, not
+an intentional Legion-specific mechanic.
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Fix:** Added `SPELL_WARRIOR_OVERPOWER` (7384), `SPELL_WARRIOR_SLAM_ARMS`
+(1464), and `SPELL_WARRIOR_WHIRLWIND_ARMS` (1680) constants (Colossus Smash
+and Mortal Strike constants already existed), and a new
+`spell_warr_overpower_proc` `AuraScript` whose `CheckProc` filters on
+Whirlwind_Arms/Colossus Smash/Mortal Strike/Slam_Arms — matching the
+comment's stated intent and the sibling class's correct pattern — instead of
+porting DestinyCore's inverted check verbatim. Left the 5% proc chance and
+the actual "enable Overpower" effect to spell 60503's own DB2-defined proc
+chance/effect data, consistent with how Chain Reaction's stacking and other
+self-contained filter-only auras already work elsewhere in this file.
+
+**Database dependency:** searched ArgusCore's committed SQL for an existing
+`spell_script_names` binding on spell 60503 — found none (the only existing
+reference to 60503 anywhere in this repo's SQL is an unrelated bulk
+`spell_proc` PPM-rate row). Added its own dedicated file,
+`sql/updates/world/master/2026_07_25_09_world.sql`.
+
+**Risk:** Moderate — diverges from the reference core's actual code (not
+just its structure/API), so the "corrected" trigger-spell list is my own
+inference from the comment and the sibling class's pattern, not something
+independently verified against Legion 7.3.5 client/DB2 data. If 60503's own
+proc chance/effect data doesn't actually grant Overpower usability the way
+assumed, this could still be a no-op — but it cannot be *more* broken than
+DestinyCore's already-permanently-inert version.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — as an Arms Warrior,
+use Whirlwind/Colossus Smash/Mortal Strike/Slam repeatedly and confirm
+Overpower occasionally becomes usable/highlighted without needing a target
+to dodge your attack.
+
 ---
 
 ## P4 — Performance / Cleanup
