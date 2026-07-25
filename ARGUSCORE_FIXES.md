@@ -9,6 +9,69 @@ Legend: `[ ]` open · `[WIP]` in progress · `[DONE]` shipped
 
 ## P0 — Security / Corruption
 
+### [DONE] Core/Calendar - Missing owner/moderator authorization on event mutation opcodes
+
+**Subsystem:** Handlers/CalendarHandler
+
+**Problem:** Six calendar opcode handlers looked up an event or invite purely by
+client-supplied ID and acted on it with no check that the caller owns or
+moderates it, even though the file demonstrates the correct pattern elsewhere
+(`HandleCalendarCopyEvent` already checks ownership). Event/invite IDs are
+small, sequential, trivially-enumerable integers. Affected:
+- `HandleCalendarUpdateEvent` — overwrote any event's type/flags/date/title/
+  description with no ownership check.
+- `HandleCalendarInvite` (existing-event branch) — added an invite to any event
+  found by ID with no check the caller owns/moderates it.
+- `HandleCalendarRsvp` — mutated any invite's RSVP status found by raw
+  `InviteID`, not just the caller's own.
+- `HandleCalendarEventRemoveInvite` — only blocked removing the event owner's
+  own invite; any other invite on any event could be removed by any player.
+- `HandleCalendarStatus` — set any invite's status (the "moderator changes an
+  invitee's status" opcode) with no check the caller moderates that event.
+- `HandleCalendarModeratorStatus` — granted/revoked moderator rank on any
+  invite with no check at all.
+
+**Exploit:** send `CMSG_CALENDAR_STATUS`/`CMSG_CALENDAR_MODERATOR_STATUS` with
+guessed small `InviteID`s to flip other players' RSVP status or grant/revoke
+moderator rank on events you have no relation to; send
+`CMSG_CALENDAR_UPDATE_EVENT` with a guessed `EventID` to rewrite another
+player's/guild's raid-schedule event.
+
+**Files:** `src/server/game/Handlers/CalendarHandler.cpp`
+
+**Reference:** Verified identical in DestinyCore — a pre-existing upstream
+TrinityCore-class gap, not an ArgusCore regression, but still live and
+exploitable here.
+
+**Fix:** Added a shared `CalendarEventEditableBy(event, guid)` helper (true if
+`guid` is the event owner, or an invitee holding `CALENDAR_RANK_MODERATOR`+) and
+applied it to `HandleCalendarUpdateEvent`, the invite-to-existing-event path,
+`HandleCalendarEventRemoveInvite`, and `HandleCalendarStatus`.
+`HandleCalendarRsvp` gets a narrower check (`invite->GetInviteeGUID() == guid`
+— self-RSVP only, since that opcode is for a player's own accept/decline, not
+moderator action). `HandleCalendarModeratorStatus` gets a strict owner-only
+check (deliberately *not* the shared helper) so a moderator can't promote
+allies or demote other moderators/the owner.
+
+While implementing, found and closed a follow-on gap in `HandleCalendarStatus`/
+`HandleCalendarModeratorStatus`: both fetch the target invite via
+`CalendarMgr::GetInvite(id)`, which searches *globally* across all events by
+raw ID — so authorizing against the packet's `EventID` alone wasn't sufficient;
+a moderator of event A could supply an `InviteID` belonging to event B. Added
+`invite->GetEventId() == packet.EventID` checks alongside the ownership checks
+in both handlers. (`HandleCalendarEventRemoveInvite` doesn't need this — its
+underlying `CalendarMgr::RemoveInvite(inviteId, eventId, ...)` already scopes
+the lookup to that specific event internally.)
+
+**Risk:** Low-moderate — six call sites touched, but each change is additive
+(an early-return guard) with no changes to the legitimate-request logic below
+it. Worth in-game verification of normal calendar/raid-invite workflows before
+trusting it fully.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
+
 ### [DONE] Core/Instance - One-packet server crash via CMSG_SET_SAVED_INSTANCE_EXTEND
 
 **Subsystem:** Handlers/CalendarHandler, Instances/InstanceLockMgr

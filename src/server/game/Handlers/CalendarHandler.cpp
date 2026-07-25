@@ -194,6 +194,23 @@ void WorldSession::HandleCalendarAddEvent(WorldPackets::Calendar::CalendarAddEve
     sCalendarMgr->AddEvent(calendarEvent, CALENDAR_SENDTYPE_ADD);
 }
 
+namespace
+{
+    // An event can be mutated (details edited, invites added/removed, invitee status
+    // changed on their behalf) by its owner or by an invitee holding moderator rank.
+    bool CalendarEventEditableBy(CalendarEvent const* calendarEvent, ObjectGuid guid)
+    {
+        if (calendarEvent->GetOwnerGUID() == guid)
+            return true;
+
+        for (CalendarInvite* invite : sCalendarMgr->GetEventInvites(calendarEvent->GetEventId()))
+            if (invite->GetInviteeGUID() == guid && invite->GetRank() >= CALENDAR_RANK_MODERATOR)
+                return true;
+
+        return false;
+    }
+}
+
 void WorldSession::HandleCalendarUpdateEvent(WorldPackets::Calendar::CalendarUpdateEvent& calendarUpdateEvent)
 {
     calendarUpdateEvent.EventInfo.Time -= GetTimezoneOffset();
@@ -204,6 +221,12 @@ void WorldSession::HandleCalendarUpdateEvent(WorldPackets::Calendar::CalendarUpd
 
     if (CalendarEvent* calendarEvent = sCalendarMgr->GetEvent(calendarUpdateEvent.EventInfo.EventID))
     {
+        if (!CalendarEventEditableBy(calendarEvent, _player->GetGUID()))
+        {
+            sCalendarMgr->SendCalendarCommandResult(_player->GetGUID(), CALENDAR_ERROR_PERMISSIONS);
+            return;
+        }
+
         time_t oldEventTime = calendarEvent->GetDate();
 
         calendarEvent->SetType(CalendarEventType(calendarUpdateEvent.EventInfo.EventType));
@@ -340,6 +363,12 @@ void WorldSession::HandleCalendarInvite(WorldPackets::Calendar::CalendarInvite& 
         {
             if (CalendarEvent* calendarEvent = sCalendarMgr->GetEvent(*eventId))
             {
+                if (!CalendarEventEditableBy(calendarEvent, playerGuid))
+                {
+                    sCalendarMgr->SendCalendarCommandResult(playerGuid, CALENDAR_ERROR_PERMISSIONS);
+                    return;
+                }
+
                 if (calendarEvent->IsGuildEvent() && calendarEvent->GetGuildId() == inviteeGuildId)
                 {
                     // we can't invite guild members to guild events
@@ -429,6 +458,12 @@ void WorldSession::HandleCalendarRsvp(WorldPackets::Calendar::CalendarRSVP& cale
 
         if (CalendarInvite* invite = sCalendarMgr->GetInvite(calendarRSVP.InviteID))
         {
+            if (invite->GetInviteeGUID() != guid)
+            {
+                sCalendarMgr->SendCalendarCommandResult(guid, CALENDAR_ERROR_PERMISSIONS);
+                return;
+            }
+
             invite->SetStatus(CalendarInviteStatus(calendarRSVP.Status));
             invite->SetResponseTime(GameTime::GetGameTime());
 
@@ -452,6 +487,12 @@ void WorldSession::HandleCalendarEventRemoveInvite(WorldPackets::Calendar::Calen
 
     if (CalendarEvent* calendarEvent = sCalendarMgr->GetEvent(calendarRemoveInvite.EventID))
     {
+        if (!CalendarEventEditableBy(calendarEvent, guid))
+        {
+            sCalendarMgr->SendCalendarCommandResult(guid, CALENDAR_ERROR_PERMISSIONS);
+            return;
+        }
+
         if (calendarEvent->GetOwnerGUID() == calendarRemoveInvite.Guid)
         {
             sCalendarMgr->SendCalendarCommandResult(guid, CALENDAR_ERROR_DELETE_CREATOR_FAILED);
@@ -473,8 +514,23 @@ void WorldSession::HandleCalendarStatus(WorldPackets::Calendar::CalendarStatus& 
 
     if (CalendarEvent* calendarEvent = sCalendarMgr->GetEvent(calendarStatus.EventID))
     {
+        if (!CalendarEventEditableBy(calendarEvent, guid))
+        {
+            sCalendarMgr->SendCalendarCommandResult(guid, CALENDAR_ERROR_PERMISSIONS);
+            return;
+        }
+
         if (CalendarInvite* invite = sCalendarMgr->GetInvite(calendarStatus.InviteID))
         {
+            // GetInvite() searches globally by id; make sure it actually belongs to the
+            // event we just authorized against, not some other event the invite id happens
+            // to reference.
+            if (invite->GetEventId() != calendarStatus.EventID)
+            {
+                sCalendarMgr->SendCalendarCommandResult(guid, CALENDAR_ERROR_NO_INVITE);
+                return;
+            }
+
             invite->SetStatus((CalendarInviteStatus)calendarStatus.Status);
 
             sCalendarMgr->UpdateInvite(invite);
@@ -498,8 +554,25 @@ void WorldSession::HandleCalendarModeratorStatus(WorldPackets::Calendar::Calenda
 
     if (CalendarEvent* calendarEvent = sCalendarMgr->GetEvent(calendarModeratorStatus.EventID))
     {
+        // Only the event owner may grant/revoke moderator rank - not moderators themselves,
+        // to prevent a moderator from promoting allies or demoting other moderators/the owner.
+        if (calendarEvent->GetOwnerGUID() != guid)
+        {
+            sCalendarMgr->SendCalendarCommandResult(guid, CALENDAR_ERROR_PERMISSIONS);
+            return;
+        }
+
         if (CalendarInvite* invite = sCalendarMgr->GetInvite(calendarModeratorStatus.InviteID))
         {
+            // GetInvite() searches globally by id; make sure it actually belongs to the
+            // event we just authorized against, not some other event the invite id happens
+            // to reference.
+            if (invite->GetEventId() != calendarModeratorStatus.EventID)
+            {
+                sCalendarMgr->SendCalendarCommandResult(guid, CALENDAR_ERROR_NO_INVITE);
+                return;
+            }
+
             invite->SetRank(CalendarModerationRank(calendarModeratorStatus.Status));
             sCalendarMgr->UpdateInvite(invite);
             sCalendarMgr->SendCalendarEventModeratorStatusAlert(*calendarEvent, *invite);
