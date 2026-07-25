@@ -103,7 +103,7 @@ registered in its `Seats` map.
 
 **Test:** Pending manual build/runtime verification.
 
-### [ ] Core/Loot - Unguarded division in HandleLootMoneyOpcode
+### [DONE] Core/Loot - Unguarded division in HandleLootMoneyOpcode
 
 **Subsystem:** Handlers/LootHandler
 
@@ -116,7 +116,23 @@ an unguarded integer division on a client-triggerable path (`CMSG_LOOT_MONEY`).
 
 **Reference:** Same pattern exists in DestinyCore; not ArgusCore-specific.
 
-**Status:** Not started — low priority, defensive-only.
+**Evidence this is reachable, not just theoretical:** `_allowedLooters` for
+round-robin group loot can rotate to a different player while an earlier looter's
+client still has a stale loot window open (round-robin timeout mid-interaction).
+If the current round-robin looter has since moved away from the corpse (fails
+`IsAtGroupRewardDistance`) and the player sending `CMSG_LOOT_MONEY` has already
+rotated out of `_allowedLooters`, `playersNear` ends up empty and the division
+crashes the world thread.
+
+**Fix:** Wrapped the `goldPerPlayer` division and payout loop in
+`if (!playersNear.empty())`. If nobody currently qualifies, the shared-money
+payout is skipped for that loot object; the surrounding code already removes/marks
+the loot regardless (`NotifyMoneyRemoved`, `LootMoney()`), so this only affects the
+already-rare case where no eligible recipient exists.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
 
 ---
 

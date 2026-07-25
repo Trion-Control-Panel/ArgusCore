@@ -165,17 +165,20 @@ void WorldSession::HandleLootMoneyOpcode(WorldPackets::Loot::LootMoney& /*packet
                     playersNear.push_back(member);
             }
 
-            uint32 goldPerPlayer = uint32((loot->gold) / (playersNear.size()));
-
-            for (std::vector<Player*>::const_iterator i = playersNear.begin(); i != playersNear.end(); ++i)
+            if (!playersNear.empty())
             {
-                (*i)->ModifyMoney(goldPerPlayer);
-                (*i)->UpdateCriteria(CriteriaType::MoneyLootedFromCreatures, goldPerPlayer);
+                uint32 goldPerPlayer = uint32((loot->gold) / (playersNear.size()));
 
-                WorldPackets::Loot::LootMoneyNotify packet;
-                packet.Money = goldPerPlayer;
-                packet.SoleLooter = playersNear.size() <= 1 ? true : false;
-                (*i)->SendDirectMessage(packet.Write());
+                for (std::vector<Player*>::const_iterator i = playersNear.begin(); i != playersNear.end(); ++i)
+                {
+                    (*i)->ModifyMoney(goldPerPlayer);
+                    (*i)->UpdateCriteria(CriteriaType::MoneyLootedFromCreatures, goldPerPlayer);
+
+                    WorldPackets::Loot::LootMoneyNotify packet;
+                    packet.Money = goldPerPlayer;
+                    packet.SoleLooter = playersNear.size() <= 1 ? true : false;
+                    (*i)->SendDirectMessage(packet.Write());
+                }
             }
         }
         else
