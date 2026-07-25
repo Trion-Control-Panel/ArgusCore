@@ -36,6 +36,8 @@ enum WarriorSpells
 {
     SPELL_WARRIOR_AVATAR                            = 107574,
     SPELL_WARRIOR_BLADESTORM                        = 227847,
+    SPELL_WARRIOR_BLADESTORM_NEW                    = 222634,
+    SPELL_WARRIOR_BLADESTORM_OFFHAND                = 95738,
     SPELL_WARRIOR_BLADESTORM_PERIODIC_WHIRLWIND     = 50622,
     SPELL_WARRIOR_BLOODTHIRST_HEAL                  = 117313,
     SPELL_WARRIOR_CHARGE                            = 34846,
@@ -227,6 +229,84 @@ class spell_warr_avatar : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_warr_avatar::HandleRemoveImpairingAuras, EFFECT_5, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+};
+
+// 227847 - Bladestorm
+// The base spell's own client-defined hit effects are superseded entirely by casting the
+// "New Bladestorm" periodic aura (222634) instead - this mirrors a mid-expansion Legion rework
+// of the ability (hence "new"). Blocks the original hit's aura/damage/heal so only the new
+// periodic version actually does anything.
+class spell_warr_bladestorm : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_BLADESTORM_NEW });
+    }
+
+    void HandleOnHit(SpellEffIndex effIndex)
+    {
+        PreventHitAura();
+        PreventHitDamage();
+        PreventHitDefaultEffect(effIndex);
+        PreventHitEffect(effIndex);
+        PreventHitHeal();
+    }
+
+    void CastNewBladestorm()
+    {
+        GetCaster()->CastSpell(GetCaster(), SPELL_WARRIOR_BLADESTORM_NEW, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_warr_bladestorm::HandleOnHit, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
+        OnEffectHitTarget += SpellEffectFn(spell_warr_bladestorm::HandleOnHit, EFFECT_1, SPELL_EFFECT_APPLY_AURA);
+        OnEffectHitTarget += SpellEffectFn(spell_warr_bladestorm::HandleOnHit, EFFECT_2, SPELL_EFFECT_APPLY_AURA);
+        OnCast += SpellCastFn(spell_warr_bladestorm::CastNewBladestorm);
+    }
+};
+
+// 222634 - New Bladestorm
+// Periodic aura driving Bladestorm's actual main-hand damage tick (50622, already a known,
+// independently-verified constant in this file used elsewhere for the same purpose).
+class spell_warr_bladestorm_new : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_BLADESTORM_PERIODIC_WHIRLWIND });
+    }
+
+    void HandlePeriodicDummy(AuraEffect const* /*aurEff*/)
+    {
+        GetCaster()->CastSpell(GetCaster(), SPELL_WARRIOR_BLADESTORM_PERIODIC_WHIRLWIND, true);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_warr_bladestorm_new::HandlePeriodicDummy, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
+// 95738 - Bladestorm Offhand
+// Only Fury Warriors dual-wield, so only Fury should deal offhand damage during Bladestorm.
+class spell_warr_bladestorm_offhand : public SpellScript
+{
+    void HandleOnHit(SpellEffIndex effIndex)
+    {
+        Player* caster = GetCaster()->ToPlayer();
+        if (!caster || caster->GetPrimarySpecialization() != ChrSpecialization::WarriorFury)
+        {
+            PreventHitDamage();
+            PreventHitDefaultEffect(effIndex);
+            PreventHitEffect(effIndex);
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_warr_bladestorm_offhand::HandleOnHit, EFFECT_0, SPELL_EFFECT_NORMALIZED_WEAPON_DMG);
+        OnEffectHitTarget += SpellEffectFn(spell_warr_bladestorm_offhand::HandleOnHit, EFFECT_1, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
     }
 };
 
@@ -1313,6 +1393,9 @@ void AddSC_warrior_spell_scripts()
 {
     RegisterSpellScript(spell_warr_anger_management_proc);
     RegisterSpellScript(spell_warr_avatar);
+    RegisterSpellScript(spell_warr_bladestorm);
+    RegisterSpellScript(spell_warr_bladestorm_new);
+    RegisterSpellScript(spell_warr_bladestorm_offhand);
     RegisterSpellScript(spell_warr_bloodthirst);
     RegisterSpellScript(spell_warr_brutal_vitality);
     RegisterSpellScript(spell_warr_charge);

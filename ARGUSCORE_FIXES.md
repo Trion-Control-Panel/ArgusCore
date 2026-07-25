@@ -1172,8 +1172,19 @@ on apply, ported directly from DestinyCore's logic (using the clearer
 `AuraEffectApplyFn` macro name instead of the confusing-but-equivalent
 `AuraEffectRemoveFn` DestinyCore used).
 
+**Database dependency (found after implementing, applies to this and the
+Rampage fix below):** `RegisterSpellScript` only registers a script under its
+stringified class name; the actual spell-id-to-script binding happens via the
+`spell_script_names` SQL table. Traced ArgusCore's own already-committed
+migration history and found the binding for `spell_warr_sudden_death` was
+deleted at some point with no replacement (and Rampage's equivalent binding,
+under a different old name, was added then deleted again) — meaning neither
+fix takes effect without a fresh SQL row. Added both to
+`sql/pending/world/2026_07_25_00_world.sql` for review before release.
+
 **Risk:** Low — small, self-contained, matches an already-verified-working
-reference exactly.
+reference exactly. (The SQL dependency above is the only reason this doesn't
+take effect purely from the C++ change.)
 
 **Commit:** `<pending>`
 
@@ -1229,6 +1240,15 @@ Deliberately did **not** touch Enrage generation — that's already correctly
 handled elsewhere in this file and re-implementing it here risked duplicate/
 redundant Enrage application on every Rampage cast.
 
+**Database dependency:** traced ArgusCore's own already-committed SQL
+migration history and found spell 184367 had a `spell_script_names` binding
+added under the name `spell_warr_rampage_enrage` (presumably from earlier,
+never-finished work) and then deleted again with no replacement — so this
+fix needs a fresh binding to take effect. Added to
+`sql/pending/world/2026_07_25_00_world.sql` (same file as the Sudden Death
+fix above) rather than reusing the old dangling name, since that name implied
+Enrage-application specifically, which this script doesn't handle.
+
 **Residual uncertainty flagged, not resolved:** `184367` is DestinyCore's
 spell ID for Rampage; a comment in LegionCore's Rampage class header lists
 different-looking IDs (218617, 184707, 184709, 201364, 201363) for
@@ -1261,6 +1281,66 @@ as primary reference, verify individual pieces against TrinityCore-master
 only when something looks actually suspicious" approach that worked here,
 rather than the file-size heuristic that led to the wrong conclusion
 initially.
+
+### [DONE] Warrior/Arms+Fury - Bladestorm entirely missing
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Problem:** Bladestorm (227847), the shared Arms/Fury cooldown that spins
+the Warrior through nearby enemies dealing periodic weapon damage, had no
+implementation in ArgusCore at all — no spell script, no supporting spell ID
+constants beyond the base spell and an already-present, already-referenced
+periodic-tick spell (`SPELL_WARRIOR_BLADESTORM_PERIODIC_WHIRLWIND` = 50622,
+used elsewhere in this file, which is what gave confidence the surrounding
+mechanic was legitimate rather than DestinyCore drift).
+
+**Reference:** DestinyCore's three-class implementation
+(`spell_warr_bladestorm` on 227847, `spell_warr_bladestorm_new` on 222634,
+`spell_warr_bladestorm_offhand` on 95738). The "New Bladestorm" naming and
+the fact that the base spell's own hit effects need to be suppressed in
+favor of a separate periodic aura reflects a mid-expansion Legion rework of
+the ability, not old or forward-drifted content — cross-verified by the
+periodic driver spell (50622) already being an independently-used,
+named constant in ArgusCore's own file.
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Fix:** Added `SPELL_WARRIOR_BLADESTORM_NEW = 222634` and
+`SPELL_WARRIOR_BLADESTORM_OFFHAND = 95738`, and three new classes ported from
+DestinyCore, adapted to ArgusCore's modern API where it differs:
+- `spell_warr_bladestorm` (`SpellScript` on 227847): suppresses the base
+  spell's own aura/damage/heal/default effects on all three hit effects, then
+  casts 222634 instead — the base spell becomes a pure trigger.
+- `spell_warr_bladestorm_new` (`AuraScript` on 222634): periodic dummy aura
+  that casts the existing, already-verified `SPELL_WARRIOR_BLADESTORM_PERIODIC_WHIRLWIND`
+  (50622) on each tick — no new periodic-damage system introduced, reuses
+  what's already there.
+- `spell_warr_bladestorm_offhand` (`SpellScript` on 95738): suppresses
+  offhand damage/effects unless the caster is a Fury Warrior, since only
+  Fury dual-wields. Used ArgusCore's modern
+  `GetPrimarySpecialization() == ChrSpecialization::WarriorFury` check
+  (already used elsewhere in this same file) instead of DestinyCore's legacy
+  `GetUInt32Value(PLAYER_FIELD_CURRENT_SPEC_ID)` pattern.
+
+**Database dependency:** searched ArgusCore's committed SQL
+(`sql/updates/world/master/*.sql`, `sql/base/dev/world_database.sql`) for
+existing `spell_script_names` bindings on 227847, 222634, or 95738 — found
+none. Same gap as Rampage/Sudden Death: without a fresh binding, none of the
+three new scripts would ever fire. Added to
+`sql/pending/world/2026_07_25_00_world.sql` (same shared pending file).
+
+**Risk:** Moderate — three interacting scripts rather than one, and it's new
+gameplay behavior for a shared Arms/Fury cooldown, so it needs real in-game
+verification of all three pieces together (base-spell suppression, periodic
+tick damage, and the Fury-only offhand gate), not just a compile check.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — see chat for detailed
+steps (cast Bladestorm as both Arms and Fury; confirm the spin/periodic
+damage tick fires instead of a single instant hit; confirm only Fury deals
+offhand damage during the channel; confirm the base spell produces no direct
+aura/damage/heal of its own).
 
 ---
 
