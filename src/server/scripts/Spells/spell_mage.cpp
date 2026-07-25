@@ -110,8 +110,9 @@ enum MageSpells
     SPELL_MAGE_ICE_LANCE_TRIGGER                 = 228598,
     SPELL_MAGE_THERMAL_VOID                      = 155149,
     SPELL_MAGE_ICY_VEINS                         = 12472,
-    SPELL_MAGE_CHAIN_REACTION_DUMMY              = 278309,
-    SPELL_MAGE_CHAIN_REACTION                    = 278310,
+    SPELL_MAGE_CHAIN_REACTION                    = 195419,
+    SPELL_MAGE_FROSTBOLT                         = 116,
+    SPELL_MAGE_FROSTBOLT_TRIGGER                 = 228597,
     SPELL_MAGE_TOUCH_OF_THE_MAGI_EXPLODE         = 210833,
     SPELL_MAGE_WINTERS_CHILL                     = 228358
 };
@@ -469,6 +470,30 @@ class spell_mage_cauterize_AuraScript : public AuraScript
     void Register() override
     {
         OnEffectAbsorb += AuraEffectAbsorbFn(spell_mage_cauterize_AuraScript::HandleAbsorb, EFFECT_0);
+    }
+};
+
+// 195419 - Chain Reaction
+// Legion's Chain Reaction is a self-stacking passive: Frostbolt casts build stacks of this
+// aura, whose own (DB2-defined) effects apply the Ice Lance damage bonus per stack. The script's
+// only job is restricting which spells are allowed to add a stack.
+// NOTE: ArgusCore previously used spell 278310 for "Chain Reaction", cast explicitly from
+// spell_mage_ice_lance on a frozen-target hit gated behind a separate "dummy" marker aura
+// (278309) - that ID and structure match modern retail's redesigned version of this talent, not
+// Legion 7.3.5's. Corrected to the Legion-era spell id (195419, confirmed against DestinyCore,
+// also Legion 7.3.5) and the self-sufficient aura structure it actually uses there; the explicit
+// cast-from-Ice-Lance code and the now-unused dummy marker were removed accordingly.
+class spell_mage_chain_reaction : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() &&
+            (eventInfo.GetSpellInfo()->Id == SPELL_MAGE_FROSTBOLT || eventInfo.GetSpellInfo()->Id == SPELL_MAGE_FROSTBOLT_TRIGGER);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_mage_chain_reaction::CheckProc);
     }
 };
 
@@ -1091,8 +1116,6 @@ class spell_mage_ice_lance : public SpellScript
             SPELL_MAGE_ICE_LANCE_TRIGGER,
             SPELL_MAGE_THERMAL_VOID,
             SPELL_MAGE_ICY_VEINS,
-            SPELL_MAGE_CHAIN_REACTION_DUMMY,
-            SPELL_MAGE_CHAIN_REACTION,
             SPELL_MAGE_FINGERS_OF_FROST,
             SPELL_MAGE_BRAIN_FREEZE_AURA
         });
@@ -1136,9 +1159,8 @@ class spell_mage_ice_lance : public SpellScript
                     if (Aura* icyVeins = caster->GetAura(SPELL_MAGE_ICY_VEINS))
                         icyVeins->SetDuration(icyVeins->GetDuration() + thermalVoid->GetSpellInfo()->GetEffect(EFFECT_0).CalcValue(caster) * IN_MILLISECONDS);
 
-            // Chain Reaction
-            if (caster->HasAura(SPELL_MAGE_CHAIN_REACTION_DUMMY))
-                caster->CastSpell(caster, SPELL_MAGE_CHAIN_REACTION, true);
+            // Chain Reaction is handled entirely by its own self-sufficient generic proc/stack
+            // data (see spell_mage_chain_reaction below) - Ice Lance no longer casts it directly.
         }
 
         // put target index for chain value multiplier into EFFECT_1 base points, otherwise triggered spell doesn't know which damage multiplier to apply
@@ -1823,6 +1845,7 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_brain_freeze);
     RegisterSpellScript(spell_mage_burning_determination);
     RegisterSpellAndAuraScriptPair(spell_mage_cauterize, spell_mage_cauterize_AuraScript);
+    RegisterSpellScript(spell_mage_chain_reaction);
     RegisterSpellScript(spell_mage_cold_snap);
     RegisterSpellScript(spell_mage_combustion);
     RegisterSpellScript(spell_mage_comet_storm);

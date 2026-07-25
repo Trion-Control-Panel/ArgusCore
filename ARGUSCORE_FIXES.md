@@ -875,6 +875,52 @@ already internally consistent — it will now use the correctly-parsed values.
 
 ## P3 — Blizzlike Gameplay
 
+### [DONE] Mage/Frost - Chain Reaction used modern retail spell ID/mechanic shape
+
+**Subsystem:** Scripts/Spells (spell_mage)
+
+**Problem:** Follow-up to the Brain Freeze fix above. `spell_mage_ice_lance`
+referenced `SPELL_MAGE_CHAIN_REACTION = 278310`, explicitly cast from Ice
+Lance's own script when a separate "dummy" marker aura (278309) was present.
+Confirmed `278310` is the **modern retail** spell ID for this talent
+(verified byte-for-byte match against TrinityCore-master's own `MageSpells`
+enum and cast logic) — not Legion 7.3.5's. DestinyCore (also Legion 7.3.5)
+uses a completely different spell ID (`195419`) *and* a structurally
+different mechanic: a self-stacking passive aura whose own DB2 effects apply
+the Ice Lance damage bonus per Frostbolt-built stack, with the script's only
+job being a proc-eligibility filter — not something Ice Lance grants/casts at
+all. This is a genuine mechanic redesign between Legion and later expansions
+sharing the same talent name, not just an ID typo.
+
+**Files:** `src/server/scripts/Spells/spell_mage.cpp`
+
+**Reference:** DestinyCore (Legion 7.3.5) for the correct ID and mechanic
+shape; TrinityCore-master for confirming `278310`'s origin as modern retail.
+
+**Fix:** Changed `SPELL_MAGE_CHAIN_REACTION` to `195419`; removed the
+now-obsolete `SPELL_MAGE_CHAIN_REACTION_DUMMY` (278309) and the explicit
+cast-from-Ice-Lance code entirely; added a new, self-contained
+`spell_mage_chain_reaction` `AuraScript` (registered on 195419 itself) whose
+only job is filtering which spells count as "Frostbolt" for stack-building,
+matching DestinyCore's structure. Added `SPELL_MAGE_FROSTBOLT`(116)/
+`SPELL_MAGE_FROSTBOLT_TRIGGER`(228597) constants for that filter, matching
+the same main-spell/damage-trigger-spell pattern already used for Ice Lance
+in this file.
+
+**Risk:** Bounded/asymmetric — if my inference about spell 195419 having
+self-sufficient DB2 stacking/damage-bonus data is wrong, the worst case is
+Chain Reaction remains as non-functional as it already was (casting 278310,
+which likely isn't even a valid Legion spell, was already producing no
+effect). It cannot become *more* broken than its prior state. If correct, it
+starts working for the first time.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — this one specifically
+needs someone to confirm Chain Reaction actually does something in-game
+(stacking buff visible, Ice Lance damage scaling with stacks), since I
+could not verify spell 195419's DB2 data directly.
+
 ### [DONE] Mage/Frost - Brain Freeze mechanic entirely unimplemented
 
 **Subsystem:** Scripts/Spells (spell_mage)
