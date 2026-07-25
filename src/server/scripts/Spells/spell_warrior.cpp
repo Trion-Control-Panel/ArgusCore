@@ -1268,6 +1268,24 @@ class spell_warr_second_wind_heal : public AuraScript
     }
 };
 
+// 64380 - Shattering Throw
+class spell_warr_shattering_throw : public SpellScript
+{
+    void HandleScript(SpellEffIndex effIndex)
+    {
+        PreventHitDefaultEffect(effIndex);
+
+        // Remove shields (still displays the immune-to-damage visual for the removed effect).
+        if (Unit* target = GetHitUnit())
+            target->RemoveAurasWithMechanic(1 << MECHANIC_IMMUNE_SHIELD, AURA_REMOVE_BY_ENEMY_SPELL);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_warr_shattering_throw::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+};
+
 // 2565 - Shield Block
 class spell_warr_shield_block : public SpellScript
 {
@@ -1716,6 +1734,7 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_rumbling_earth);
     RegisterSpellScript(spell_warr_second_wind);
     RegisterSpellScript(spell_warr_second_wind_heal);
+    RegisterSpellScript(spell_warr_shattering_throw);
     RegisterSpellScript(spell_warr_shield_block);
     RegisterSpellScript(spell_warr_shield_charge);
     RegisterSpellScript(spell_warr_shockwave);

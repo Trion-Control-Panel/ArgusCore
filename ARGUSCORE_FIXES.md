@@ -1833,6 +1833,48 @@ as any spec with Sweeping Strikes talented, confirm an Execute hit still
 triggers Sweeping Strikes' extra attack correctly (this should already have
 been broken before this fix, now corrected as a side effect).
 
+### [DONE] Warrior - Shattering Throw missing entirely
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Problem:** Shattering Throw, a Warrior utility ability, had no
+implementation anywhere in ArgusCore. Without a script it would deal its
+direct damage (data-driven) but never remove the target's immunity shield
+(e.g. Divine Shield, Ice Block) — the ability's entire point.
+
+**Reference:** DestinyCore's implementation — simple and self-contained,
+single `OnEffectHitTarget` handler. Its own spell ids are never named in an
+enum constant in DestinyCore's C++ (only bound via SQL by class name), so
+they were confirmed two ways: DestinyCore's own committed
+`spell_script_names` data (both 64380 and 65941 bound to the same class),
+and Wowhead, which confirms both are legitimate historical registrations of
+this ability across different expansion patches (this is a long-lived,
+stable Warrior utility, not something that changed id between Legion and
+modern retail the way Execute did).
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Fix:** Added a new `spell_warr_shattering_throw` `SpellScript` that
+removes any aura with the `MECHANIC_IMMUNE_SHIELD` mechanic on hit — ported
+directly from DestinyCore's logic with no changes needed. Deliberately did
+not add a bonus-damage-vs-shields effect some later-expansion tooltips
+describe, since DestinyCore's own Legion-era implementation doesn't include
+one either and there's no independent confirmation it applied in 7.3.5.
+
+**Database dependency:** searched ArgusCore's committed SQL for an existing
+`spell_script_names` binding on either spell id — found none. Added its own
+dedicated file, `sql/updates/world/master/2026_07_25_14_world.sql`, binding
+both ids to the single new class.
+
+**Risk:** Low — small, self-contained, matches DestinyCore's reference
+exactly.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — cast Shattering Throw
+on a target with an active immunity shield (Divine Shield, Ice Block, etc.)
+and confirm the shield is removed.
+
 ---
 
 ## P4 — Performance / Cleanup
