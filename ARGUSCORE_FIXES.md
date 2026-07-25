@@ -1146,6 +1146,39 @@ the driver aura and see Heating Up/Hot Streak procs, not just a compile check.
 
 **Test:** Pending manual build/runtime verification.
 
+### [DONE] Warrior/Arms - Sudden Death missing entirely
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Problem:** Sudden Death (52437), an Arms proc that resets Colossus Smash's
+cooldown when it triggers, had no implementation in ArgusCore at all.
+
+**Reference:** DestinyCore's implementation, revisited properly this time.
+Its own author left a "// correct?" doubt-comment about pairing the
+`AfterEffectApply` hook with an `AuraEffectRemoveFn`-named macro — checked
+ArgusCore's own `SpellScript.h` and found `AuraEffectApplyFn` and
+`AuraEffectRemoveFn` are literally the same macro
+(`#define ..Fn(F, I, N, M) EffectApplyHandler(&F, I, N, M)` for both), so the
+doubt was unfounded — the original code was already correct, just using a
+confusingly-named (but functionally identical) macro. This is a good example
+of why DestinyCore's Warrior file deserved the "primary reference" treatment
+after all, rather than the premature dismissal earlier in this session.
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Fix:** Added `SPELL_WARRIOR_SUDDEN_DEATH = 52437` and a
+`spell_warr_sudden_death` `AuraScript` that resets Colossus Smash's cooldown
+on apply, ported directly from DestinyCore's logic (using the clearer
+`AuraEffectApplyFn` macro name instead of the confusing-but-equivalent
+`AuraEffectRemoveFn` DestinyCore used).
+
+**Risk:** Low — small, self-contained, matches an already-verified-working
+reference exactly.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
+
 ### [DONE] Warrior/Fury - Rampage missing entirely (Whirlwind's cleave buff was never consumed)
 
 **Subsystem:** Scripts/Spells (spell_warrior)
