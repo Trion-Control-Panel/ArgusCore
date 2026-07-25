@@ -9,7 +9,7 @@ Legend: `[ ]` open · `[WIP]` in progress · `[DONE]` shipped
 
 ## P0 — Security / Corruption
 
-### [WIP] Core/Player - Vendor purchase quantity desync (validate-vs-deliver truncation)
+### [DONE] Core/Player - Vendor purchase quantity desync (validate-vs-deliver truncation)
 
 **Subsystem:** Entities/Player, item vendor purchase
 
@@ -38,13 +38,15 @@ without updating the inner one.
 validation runs, so every downstream check validates the exact quantity that will
 be charged and delivered.
 
-**Test:** See commit / manual test instructions below.
+**Commit:** `c6313837`
+
+**Test:** Pending manual build/runtime verification.
 
 ---
 
 ## P1 — Stability
 
-### [ ] Core/Unit - TriggerAuraHeartbeat iterator invalidation
+### [DONE] Core/Unit - TriggerAuraHeartbeat iterator invalidation
 
 **Subsystem:** Entities/Unit, Spells/Auras
 
@@ -67,7 +69,9 @@ pointer, advance the iterator, *then* invoke the hook).
 **Fix:** Convert `TriggerAuraHeartbeat`'s loop to the same erase-safe idiom already
 used by `AtEnterCombat`/`AtExitCombat`.
 
-**Status:** Not started — next in queue after the vendor purchase fix.
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
 
 ### [ ] Core/Vehicle - Null seat dereference in VehicleHandler
 

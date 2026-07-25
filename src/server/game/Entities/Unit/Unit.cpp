@@ -512,8 +512,17 @@ void Unit::Heartbeat()
 
 void Unit::TriggerAuraHeartbeat()
 {
-    for (auto const& [_, auraApplication] : m_appliedAuras)
+    // Advance the iterator before invoking the heartbeat, since Aura::Heartbeat() runs
+    // arbitrary AuraScript OnHeartbeat hooks that may remove the aura being visited
+    // (e.g. self-cancel on condition), which would erase this map node mid-iteration.
+    // Same idiom as AtEnterCombat()/AtExitCombat() below.
+    for (auto itr = m_appliedAuras.begin(); itr != m_appliedAuras.end();)
+    {
+        AuraApplication* auraApplication = itr->second;
+        ++itr;
+
         auraApplication->GetBase()->Heartbeat();
+    }
 
     Unit::ProcSkillsAndAuras(this, nullptr, PROC_FLAG_HEARTBEAT, PROC_FLAG_NONE, PROC_SPELL_TYPE_MASK_ALL, PROC_SPELL_PHASE_NONE, PROC_HIT_NONE, nullptr, nullptr, nullptr);
 }
