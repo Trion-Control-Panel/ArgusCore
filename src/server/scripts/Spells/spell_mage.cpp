@@ -48,6 +48,8 @@ enum MageSpells
     SPELL_MAGE_BLINK                             = 1953,
     SPELL_MAGE_BLIZZARD_DAMAGE                   = 190357,
     SPELL_MAGE_BLIZZARD_SLOW                     = 12486,
+    SPELL_MAGE_BRAIN_FREEZE                      = 190447,
+    SPELL_MAGE_BRAIN_FREEZE_AURA                 = 190446,
     SPELL_MAGE_CAUTERIZE_DOT                     = 87023,
     SPELL_MAGE_CAUTERIZED                        = 87024,
     SPELL_MAGE_CHILLED                           = 205708,
@@ -386,6 +388,36 @@ class spell_mage_burning_determination : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_mage_burning_determination::CheckProc);
+    }
+};
+
+// 190447 - Brain Freeze
+// Frostbolt has a chance to grant Brain Freeze, making the caster's next Ice Lance guaranteed
+// to crit; consumption (and the free/instant cast itself) is handled on the Ice Lance side.
+// Modeled directly on spell_mage_fingers_of_frost below, which procs off the same Frostbolt
+// SpellFamily classmask bit.
+class spell_mage_brain_freeze : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_BRAIN_FREEZE_AURA });
+    }
+
+    bool CheckProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->IsAffected(SPELLFAMILY_MAGE, flag128(0, 0x2000000, 0, 0))
+            && roll_chance_i(aurEff->GetAmount());
+    }
+
+    void Trigger(AuraEffect* aurEff, ProcEventInfo& eventInfo)
+    {
+        eventInfo.GetActor()->CastSpell(eventInfo.GetActor(), SPELL_MAGE_BRAIN_FREEZE_AURA, aurEff);
+    }
+
+    void Register() override
+    {
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_mage_brain_freeze::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
+        AfterEffectProc += AuraEffectProcFn(spell_mage_brain_freeze::Trigger, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -1061,8 +1093,26 @@ class spell_mage_ice_lance : public SpellScript
             SPELL_MAGE_ICY_VEINS,
             SPELL_MAGE_CHAIN_REACTION_DUMMY,
             SPELL_MAGE_CHAIN_REACTION,
-            SPELL_MAGE_FINGERS_OF_FROST
+            SPELL_MAGE_FINGERS_OF_FROST,
+            SPELL_MAGE_BRAIN_FREEZE_AURA
         });
+    }
+
+    // Brain Freeze guarantees a crit; checked independently of the target-frozen state used by
+    // Thermal Void/Chain Reaction below, since Brain Freeze is meant to work on unfrozen targets.
+    void CalcCritChance(Unit const* /*victim*/, float& critChance)
+    {
+        if (GetCaster()->HasAura(SPELL_MAGE_BRAIN_FREEZE_AURA))
+            critChance = 100.0f;
+    }
+
+    // Consumed once per cast (not per target) after the whole spell resolves, so every target
+    // hit by this cast still sees Brain Freeze active for the crit-chance check above.
+    void ConsumeBrainFreeze()
+    {
+        if (Unit* caster = GetCaster())
+            if (caster->HasAura(SPELL_MAGE_BRAIN_FREEZE_AURA))
+                caster->RemoveAurasDueToSpell(SPELL_MAGE_BRAIN_FREEZE_AURA);
     }
 
     void IndexTarget(SpellEffIndex /*effIndex*/)
@@ -1100,8 +1150,10 @@ class spell_mage_ice_lance : public SpellScript
 
     void Register() override
     {
+        OnCalcCritChance += SpellOnCalcCritChanceFn(spell_mage_ice_lance::CalcCritChance);
         OnEffectLaunchTarget += SpellEffectFn(spell_mage_ice_lance::IndexTarget, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
         OnEffectHitTarget += SpellEffectFn(spell_mage_ice_lance::HandleOnHit, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+        AfterCast += SpellCastFn(spell_mage_ice_lance::ConsumeBrainFreeze);
     }
 
     std::vector<ObjectGuid> _orderedTargets;
@@ -1768,6 +1820,7 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_blazing_barrier);
     RegisterAreaTriggerAI(areatrigger_mage_blizzard);
     RegisterSpellScript(spell_mage_blizzard_damage);
+    RegisterSpellScript(spell_mage_brain_freeze);
     RegisterSpellScript(spell_mage_burning_determination);
     RegisterSpellAndAuraScriptPair(spell_mage_cauterize, spell_mage_cauterize_AuraScript);
     RegisterSpellScript(spell_mage_cold_snap);

@@ -875,6 +875,70 @@ already internally consistent — it will now use the correctly-parsed values.
 
 ## P3 — Blizzlike Gameplay
 
+### [DONE] Mage/Frost - Brain Freeze mechanic entirely unimplemented
+
+**Subsystem:** Scripts/Spells (spell_mage)
+
+**Problem:** Brain Freeze (190447/190446) — Frost Mage's analogous proc
+mechanic to Fire's Hot Streak (Frostbolt has a chance to make the next Ice
+Lance guaranteed-crit and free/instant) — had no implementation anywhere in
+ArgusCore.
+
+**Files:** `src/server/scripts/Spells/spell_mage.cpp`
+
+**Reference:** DestinyCore's implementation exists but is spread across
+Frostbolt's `OnHit` with hardcoded spell-ID checks and several entangled
+talent modifiers (Clarity of Thought, Improved Brain Freeze/Flurry
+interaction, Frozen Touch). ArgusCore's own file uses a more modern, more
+idiomatic pattern for the closely-related Fingers of Frost mechanic
+(`spell_mage_fingers_of_frost`, immediately below this fix): a self-contained
+`AuraScript` on the talent aura itself, using generic `SpellFamily` classmask
+matching (`DoCheckEffectProc`/`AfterEffectProc`) rather than hardcoded spell-ID
+checks inside the triggering spell's own script. Modeled Brain Freeze directly
+on that existing, already-verified-working sibling pattern instead of
+DestinyCore's structure — reusing the exact same Frostbolt classmask bit
+Fingers of Frost already relies on (`flag128(0, 0x2000000, 0, 0)`).
+
+**Deliberately deferred (not implemented):** Clarity of Thought (extra proc
+chance), Improved Brain Freeze's Flurry interaction, and Frozen Touch's
+proc-chance modifier — all real DestinyCore-referenced talents I could not
+independently verify are correct for Legion 7.3.5 vs. a later expansion's
+version, consistent with the same conservative approach used for Hot
+Streak/Combustion.
+
+**Side finding, not fixed:** while integrating with the existing
+`spell_mage_ice_lance` class, noticed it has no baseline "always crit against
+frozen targets" mechanic either (Ice Lance's well-known innate behavior across
+many expansions, independent of any talent) — the existing `HandleOnHit` only
+uses the target's frozen state to gate Thermal Void/Chain Reaction bonuses,
+never crit chance itself. Didn't investigate or touch this; flagging as a
+separate, more foundational question about baseline Ice Lance correctness.
+
+**Also side finding:** `spell_mage_ice_lance` uses
+`SPELL_MAGE_CHAIN_REACTION = 278310` (a spell ID that also appeared in the
+earlier "broader observation" of post-Legion content in this file), while
+DestinyCore's independent Legion 7.3.5 implementation uses `195419` for the
+same-named talent. Not resolved here — did not want to conflate a possible ID
+correction with the Brain Freeze fix; flagging as its own open question.
+
+**Fix:** Added `spell_mage_brain_freeze` (proc generation, mirrors
+`spell_mage_fingers_of_frost`'s structure exactly) and extended the existing
+`spell_mage_ice_lance` class with an `OnCalcCritChance` handler (guaranteed
+crit while Brain Freeze is active, independent of the frozen-target check used
+by other Ice Lance bonuses) and an `AfterCast` handler that consumes Brain
+Freeze once per cast — after all targets have already been evaluated for crit,
+so a piercing/multi-target Ice Lance doesn't lose the guarantee partway
+through its own resolution.
+
+**Risk:** Moderate-high — the most structurally complex of the mechanics
+implemented this session (touches an existing, already-functioning script for
+a different purpose). Needs careful in-game testing, particularly that Thermal
+Void/Chain Reaction/Fingers of Frost interactions with Ice Lance are unaffected.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
+
 ### [DONE] Mage/Fire - Combustion (core damage cooldown) entirely unimplemented
 
 **Subsystem:** Scripts/Spells (spell_mage)
