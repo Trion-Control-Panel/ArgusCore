@@ -39,6 +39,7 @@ Copied events should probably have a new owner
 #include "CalendarPackets.h"
 #include "CharacterCache.h"
 #include "DatabaseEnv.h"
+#include "DB2Stores.h"
 #include "GameTime.h"
 #include "Guild.h"
 #include "GuildMgr.h"
@@ -535,6 +536,12 @@ void WorldSession::HandleSetSavedInstanceExtend(WorldPackets::Calendar::SetSaved
 
     // cannot modify locks currently in use
     if (_player->GetMapId() == uint32(setSavedInstanceExtend.MapID))
+        return;
+
+    // reject invalid map/difficulty combinations before they reach MapDb2Entries, which
+    // fatally asserts on an unknown map id or a map/difficulty pair with no MapDifficulty data
+    if (setSavedInstanceExtend.MapID < 0 || !sMapStore.LookupEntry(uint32(setSavedInstanceExtend.MapID)) ||
+        !sDB2Manager.GetMapDifficultyData(uint32(setSavedInstanceExtend.MapID), Difficulty(setSavedInstanceExtend.DifficultyID)))
         return;
 
     std::pair<InstanceResetTimePoint, InstanceResetTimePoint> expiryTimes = sInstanceLockMgr.UpdateInstanceLockExtensionForPlayer(_player->GetGUID(),

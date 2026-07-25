@@ -9,6 +9,53 @@ Legend: `[ ]` open · `[WIP]` in progress · `[DONE]` shipped
 
 ## P0 — Security / Corruption
 
+### [DONE] Core/Instance - One-packet server crash via CMSG_SET_SAVED_INSTANCE_EXTEND
+
+**Subsystem:** Handlers/CalendarHandler, Instances/InstanceLockMgr
+
+**Problem:** `WorldSession::HandleSetSavedInstanceExtend` (opcode
+`CMSG_SET_SAVED_INSTANCE_EXTEND`) reads `MapID` (`int32`) and `DifficultyID`
+(`uint32`) directly off the wire and passes them, essentially unvalidated, into
+`sInstanceLockMgr.UpdateInstanceLockExtensionForPlayer(...)`, which constructs a
+`MapDb2Entries(mapId, difficulty)`. That constructor is:
+```cpp
+MapDb2Entries::MapDb2Entries(uint32 mapId, Difficulty difficulty)
+    : Map(sMapStore.AssertEntry(mapId)), MapDifficulty(ASSERT_NOTNULL(sDB2Manager.GetMapDifficultyData(mapId, difficulty)))
+```
+`AssertEntry`/`ASSERT_NOTNULL` fatally abort the entire process (confirmed:
+`ASSERT` compiles to `Trinity::Assert` in all standard builds, same as the
+earlier `Spell::SelectImplicitTargetDestTargets` finding). The only pre-existing
+check in the handler (`_player->GetMapId() == uint32(setSavedInstanceExtend.MapID)`)
+only rejects "same map as where you currently are" — any other MapID, including
+a nonexistent one, or any MapID/DifficultyID combination with no
+`MapDifficultyEntry` data, sails straight through.
+
+**Exploit:** any logged-in player sends one `CMSG_SET_SAVED_INSTANCE_EXTEND`
+packet with a garbage `MapID` (e.g. 999999) or a real map paired with a
+difficulty it doesn't support. The assert fires and the entire world server
+process aborts — every player on the server disconnected. No special
+permissions, group, or instance state required.
+
+**Files:** `src/server/game/Handlers/CalendarHandler.cpp`
+
+**Reference:** The sibling difficulty-change handlers
+(`HandleSetDungeonDifficultyOpcode`/`HandleSetRaidDifficultyOpcode` in
+`MiscHandler.cpp`) correctly use the non-asserting `sDifficultyStore.LookupEntry()`
+and validate before use — this handler skipped that pattern entirely, apparently
+overlooked when the calendar-extend opcode was added. DestinyCore has no
+equivalent opcode (no `InstanceLockMgr`/extension system), so no comparison
+point there.
+
+**Fix:** Added a validation guard using the same non-asserting lookups already
+used elsewhere in the codebase (`sMapStore.LookupEntry`,
+`sDB2Manager.GetMapDifficultyData`, both of which return `nullptr` instead of
+aborting) — reject negative `MapID`, unknown maps, and unknown
+map/difficulty combinations before constructing anything that could assert.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
+
 ### [DONE] Core/Guild - Arbitrary rank assignment via CMSG_GUILD_ASSIGN_MEMBER_RANK
 
 **Subsystem:** Guilds/Guild, Handlers/GuildHandler
@@ -394,6 +441,51 @@ should block queuing at all is presumably already handled by the existing
 
 **Test:** Pending manual build/runtime verification.
 
+### [ ] Core/Currency - Weekly cap unenforced for ComputedWeeklyMaximum currencies
+
+**Subsystem:** Entities/Player (currency)
+
+**Problem:** `Player::GetCurrencyWeeklyCap()` (`Player.cpp:7163-7167`) returns
+`currency->MaxEarnablePerWeek` and leaves the
+`CurrencyTypeFlags::ComputedWeeklyMaximum` case unimplemented (`// TODO`,
+also marked `// NYI` in `DBCEnums.h:844`). `ModifyCurrency`'s weekly-cap
+enforcement (`Player.cpp:~6953`) checks `if (weeklyCap && amount > 0 && ...)` —
+for a currency relying purely on the computed flag (rather than a flat
+`MaxEarnablePerWeek`), `weeklyCap` is `0`, so the whole cap-check block is
+skipped even though `HasMaxEarnablePerWeek()` correctly tells the client a cap
+exists. Any currency using this flag can be farmed past its intended weekly
+ceiling by repeatable content that grants it.
+
+**Files:** `src/server/game/Entities/Player/Player.cpp`
+
+**Severity:** Medium. Requires knowing which Legion currencies (if any) actually
+use `ComputedWeeklyMaximum` rather than a flat weekly cap to assess real impact —
+not yet confirmed against `currencytypes` DB2 data for this build.
+
+**Status:** Not started. Needs the actual computed-cap formula implemented (not
+just a null-check bypass), so this is a small feature-completion fix rather than
+a one-line guard — picking it up requires first identifying what the "computed"
+formula should be (likely tied to character level or a related DB2 field).
+
+### [ ] Core/Currency - Negative amount not clamped when WeeklyQuantity exceeds cap
+
+**Subsystem:** Entities/Player (currency)
+
+**Problem:** In `ModifyCurrency` (`Player.cpp:6953-6954`), when clamping a gain to
+the remaining weekly allowance, `amount = weeklyCap - itr->second.WeeklyQuantity`
+can go negative if `WeeklyQuantity` is already above `weeklyCap` (reachable via
+the `ComputedWeeklyMaximum` gap above, or a cap lowered by a content update),
+silently converting what should be a currency *gain* into a currency *loss*
+instead of clamping to 0.
+
+**Files:** `src/server/game/Entities/Player/Player.cpp`
+
+**Severity:** Low standalone — requires pre-existing corrupted/edge-case state to
+trigger. Cheap defensive fix (`std::max(0, ...)`) whenever picked up, ideally
+alongside the finding above.
+
+**Status:** Not started.
+
 ### [DONE] Core/Battleground - Unguarded PlayerScores lookup in EndBattleground
 
 **Subsystem:** Battlegrounds (Battleground)
@@ -471,12 +563,34 @@ separately from this security/stability backlog.)
 
 ## Notes on scope
 
-This backlog is deliberately shallow on first pass — it reflects two targeted,
-read-only audits (item/gold/trade exploit surface; crash/stability surface) rather
-than an exhaustive line-by-line review. Areas checked and found solidly guarded
-during this pass (not re-audited unless something changes nearby): `TradeHandler`,
-`MailHandler` (including mail money/COD overflow guards), `AuctionHouseHandler`,
-`GuildHandler`/`Guild.cpp` bank-item moves, `VoidStorageHandler`, movement/teleport
-coordinate validation (`MovementHandler.cpp`, `ValidateMovementInfo`), `Spell.cpp`/
-`SpellEffects.cpp` target-pointer handling, `LootHandler.cpp` target/master-loot
-lookups, `Group.cpp` aura/member iteration.
+This backlog is deliberately shallow on first pass — it reflects a series of
+targeted, read-only audits rather than an exhaustive line-by-line review. Areas
+checked and found solidly guarded (not re-audited unless something changes
+nearby): `TradeHandler`, `MailHandler` (including mail money/COD overflow
+guards), `AuctionHouseHandler`, `GuildHandler`/`Guild.cpp` bank-item moves,
+`VoidStorageHandler`, movement/teleport coordinate validation
+(`MovementHandler.cpp`, `ValidateMovementInfo`), `Spell.cpp`/`SpellEffects.cpp`
+target-pointer handling, `LootHandler.cpp` target/master-loot lookups,
+`Group.cpp` aura/member iteration, Group leader/assistant action gating
+(`GroupHandler.cpp`), master-loot distribution, guild bank money
+withdrawal/tab-rights, guild rank creation/deletion/editing, and — as of this
+pass — the full quest turn-in/reward pipeline (`QuestHandler.cpp`,
+`Player::RewardQuest`/`CanRewardQuest`/`SatisfyQuestStatus`): reward-choice
+index bounds are checked against the fixed `QUEST_REWARD_CHOICES_COUNT` array
+size, all reward amounts (items, gold, XP, currency) are read exclusively from
+server-side `Quest` template data with no client-controlled quantities, and
+quest state transitions (`m_QuestStatus` removal, `SetRewardedQuest`) happen
+synchronously in memory before any reward is granted, closing off any
+double-turn-in race — a second turn-in packet always sees already-updated state.
+
+Also checked and found solidly guarded: instance ID/save binding (always
+server-computed from the player's/group's own lock record, never client-supplied
+— `InstanceLockMgr::CanJoinInstanceLock`/`FindActiveInstanceLock`), instance
+reset opcodes (leader-only, rejects LFG groups and non-empty/active instances),
+boss-kill/loot-eligibility tracking across repeated zone-in/out
+(`CompletedEncountersMask` comparison forces a confirm-or-leave flow rather than
+silently granting fresh eligibility), and all `ModifyCurrency`/`AddCurrency`
+call sites except the two open findings above (every other caller passes a
+server-computed amount from loot/quest/spell/item data, never a raw packet
+value). No Mythic Keystone/Challenge Mode system exists in this codebase (flat
+Mythic difficulty only), so M+-specific exploit classes don't apply here.
