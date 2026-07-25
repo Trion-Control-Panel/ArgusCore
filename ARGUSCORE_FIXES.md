@@ -9,6 +9,66 @@ Legend: `[ ]` open · `[WIP]` in progress · `[DONE]` shipped
 
 ## P0 — Security / Corruption
 
+### [DONE] Core/Pet - Out-of-bounds write via CMSG_PET_SET_ACTION index
+
+**Subsystem:** Entities/Unit (CharmInfo), Handlers/PetHandler
+
+**Problem:** `HandlePetSetAction` reads `packet.Index` as a raw client-supplied
+`uint32` and passes it straight to `CharmInfo::SetActionBar(uint8 index, ...)`,
+which indexed the fixed 10-element `PetActionBar` array
+(`MAX_UNIT_ACTION_BAR_INDEX = 10`) with zero bounds checking. Any player with
+an active pet could send `CMSG_PET_SET_ACTION` with an index outside 0-9,
+writing attacker-controlled spell/type data past the end of the array into
+adjacent `CharmInfo` memory — a genuine out-of-bounds write / memory-corruption
+primitive, not just a crash.
+
+**Files:** `src/server/game/Entities/Unit/CharmInfo.h`
+
+**Reference:** Identical missing bounds check confirmed in DestinyCore — a
+shared upstream defect, not ArgusCore-introduced, but live and exploitable
+here.
+
+**Fix:** Added a bounds check (`index >= MAX_UNIT_ACTION_BAR_INDEX`) directly
+inside `CharmInfo::SetActionBar` itself, rather than only in the one calling
+handler — this protects every current and future caller of this low-level
+setter, not just `HandlePetSetAction`. Checked `GetActionBarEntry` (the
+read-side sibling) separately: all its callers iterate a server-controlled
+loop variable, never client data, so it wasn't touched.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
+
+### [DONE] Core/Pet - HandlePetAbandon missing ownership check
+
+**Subsystem:** Handlers/PetHandler
+
+**Problem:** `HandlePetAbandon` resolves a pet via
+`ObjectAccessor::GetCreatureOrPetOrVehicle` — a map-scoped lookup that finds
+*any* creature/pet by GUID on the caller's map, not just their own — and calls
+`_player->RemovePet(...)` on it with no ownership check. Its sibling
+`HandlePetRename`, right above it in the same file, explicitly checks
+`pet->GetOwnerGUID() != _player->GetGUID()` before acting; `HandlePetAbandon`
+was missing the equivalent check entirely. `Player::RemovePet` then asserts
+that the (attacker's own) stable's current-pet number matches the target
+pet's charm-info pet number — a mismatch (any other hunter's pet) aborts the
+whole world server; in other states it could delete another player's pet from
+the database.
+
+**Files:** `src/server/game/Handlers/PetHandler.cpp`
+
+**Reference:** Same gap flagged as the core recurring pattern this session
+(shared object looked up by client-supplied ID, acted on without ownership
+verification) — every other pet-action handler in this file already has the
+equivalent check; this one alone lacked it.
+
+**Fix:** Added `pet->GetOwnerGUID() == _player->GetGUID()` to the existing
+condition, matching `HandlePetRename`'s style exactly.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
+
 ### [DONE] Core/Movement - Fall damage evasion via client-controlled fallTime
 
 **Subsystem:** Entities/Player (movement/fall damage)

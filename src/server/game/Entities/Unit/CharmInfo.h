@@ -111,6 +111,12 @@ struct TC_GAME_API CharmInfo
         void SetSpellAutocast(SpellInfo const* spellInfo, bool state);
         void SetActionBar(uint8 index, uint32 spellOrAction, ActiveStates type)
         {
+            // index ultimately originates from CMSG_PET_SET_ACTION (a raw client-supplied
+            // value); PetActionBar is a fixed MAX_UNIT_ACTION_BAR_INDEX-element array, so an
+            // unchecked out-of-range index here is an out-of-bounds write.
+            if (index >= MAX_UNIT_ACTION_BAR_INDEX)
+                return;
+
             PetActionBar[index].SetActionAndType(spellOrAction, type);
         }
 
