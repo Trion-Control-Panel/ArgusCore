@@ -9,6 +9,80 @@ Legend: `[ ]` open · `[WIP]` in progress · `[DONE]` shipped
 
 ## P0 — Security / Corruption
 
+### [DONE] Core/Movement - Fall damage evasion via client-controlled fallTime
+
+**Subsystem:** Entities/Player (movement/fall damage)
+
+**Problem:** `Player::UpdateFallInformationIfNeed` re-baselines the fall-start
+height (`m_lastFallZ`) whenever `m_lastFallTime >= minfo.jump.fallTime` — but
+`jump.fallTime` is entirely client-supplied and this function runs on every
+movement packet. A modified client falling from a great height can send
+ordinary movement packets with a non-increasing `fallTime` throughout the
+actual fall (Z genuinely decreasing), which keeps satisfying this condition
+and re-baselines `m_lastFallZ` to follow the player down in real time. By the
+time the real landing packet (`CMSG_MOVE_FALL_LAND`) arrives, the recorded
+fall-start height is nearly identical to the landing height, producing
+near-zero fall damage from any height.
+
+**Files:** `src/server/game/Entities/Player/Player.cpp`
+
+**Reference:** Identical code confirmed in DestinyCore — an inherited
+TrinityCore-lineage weakness, not ArgusCore-introduced, but concretely
+exploitable in both.
+
+**Why the naive fix (just removing the fallTime-reset clause) would regress
+gameplay:** that clause has a legitimate purpose — while walking normally
+(not jumping/falling) on downward-sloping terrain, Z decreases gradually and
+the client's `fallTime` stays near 0 (no active fall), so the baseline needs
+to keep tracking the ground under the player's feet. Without it, walking
+downhill would be misread as a fall in progress and could trigger fall
+damage later on an unrelated real jump.
+
+**Fix:** Restricted the fallTime-reset clause to only apply when the player
+isn't currently flagged as falling (`!minfo.HasMovementFlag(MOVEMENTFLAG_FALLING)`).
+This preserves the legitimate "track ground level while walking" behavior
+(not falling → clause still fires) while closing the exploit (genuinely
+falling with a fabricated fallTime → clause no longer fires, so the baseline
+stays anchored to the true fall start until landing or an actual height gain).
+The other two re-baseline conditions (height increased, landing packet) are
+server-observed and were left untouched.
+
+**Risk:** Moderate — this is a frequently-triggered, core mechanic (every
+jump/fall for every player), so it needs real in-game verification across
+varied terrain (stairs, slopes, elevators, knockbacks) before being trusted,
+despite the change itself being narrowly scoped.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
+
+### [ ] Core/Movement - No server-side speed/plausibility validation (structural, not fixed)
+
+**Subsystem:** Handlers/MovementHandler, Entities/Player
+
+**Problem:** `HandleMovementOpcode`/`Player::ValidateMovementInfo` validate
+movement-flag *consistency* (can't root+move, can't fly without the aura) and
+basic position validity (NaN/bounds), then unconditionally accept the
+client-reported position. There is no comparison anywhere of position delta
+over elapsed time against the unit's known max speed — a total absence of
+server-side speed-hack detection, not a narrow bug.
+
+**Files:** `src/server/game/Handlers/MovementHandler.cpp`,
+`src/server/game/Entities/Player/Player.cpp` (`ValidateMovementInfo`)
+
+**Reference:** Confirmed identical in DestinyCore (same logic, same design) —
+this is a structural, whole-TrinityCore-lineage client-trust model, not an
+ArgusCore regression.
+
+**Status:** Deliberately NOT attempted as a quick fix. Building real
+speed-hack detection (tracking per-unit expected max speed, elapsed-time
+deltas, tolerating legitimate speed-changing effects/knockbacks/flight paths/
+teleports without false-positiving) is a genuine subsystem design effort, not
+a small isolated patch — it fails the "smallest safe change" test and risks
+false-positive rubber-banding/kicks for legitimate players if rushed. Logging
+this as a known limitation for a dedicated, deliberate design pass rather than
+folding it into this backlog's fix-at-a-time cadence.
+
 ### [DONE] Core/BlackMarket - Auction minimum starting bid never enforced
 
 **Subsystem:** BlackMarket/BlackMarketMgr
