@@ -51,6 +51,7 @@ enum MageSpells
     SPELL_MAGE_CAUTERIZE_DOT                     = 87023,
     SPELL_MAGE_CAUTERIZED                        = 87024,
     SPELL_MAGE_CHILLED                           = 205708,
+    SPELL_MAGE_COMBUSTION                        = 190319,
     SPELL_MAGE_COMET_STORM_DAMAGE                = 153596,
     SPELL_MAGE_COMET_STORM_VISUAL                = 228601,
     SPELL_MAGE_CONE_OF_COLD                      = 120,
@@ -492,6 +493,30 @@ private:
     ObjectGuid _originalCastId;
     Position _dest;
     uint8 _count;
+};
+
+// 190319 - Combustion
+// Doubles the caster's current spell critical strike rating for the aura's duration.
+// NOTE: Legion's Combustion is also documented as refreshing its remaining duration by 1 sec
+// per critical strike landed while active; that refresh behavior is intentionally NOT
+// implemented here pending verification of the exact Legion 7.3.5 mechanic/values.
+class spell_mage_combustion : public AuraScript
+{
+    void CalcAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& canBeRecalculated)
+    {
+        canBeRecalculated = false;
+
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+
+        amount += int32(caster->GetUInt32Value(PLAYER_FIELD_COMBAT_RATING_1 + CR_CRIT_SPELL));
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_mage_combustion::CalcAmount, EFFECT_1, SPELL_AURA_MOD_RATING);
+    }
 };
 
 // 153595 - Comet Storm (launch)
@@ -1746,6 +1771,7 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_burning_determination);
     RegisterSpellAndAuraScriptPair(spell_mage_cauterize, spell_mage_cauterize_AuraScript);
     RegisterSpellScript(spell_mage_cold_snap);
+    RegisterSpellScript(spell_mage_combustion);
     RegisterSpellScript(spell_mage_comet_storm);
     RegisterSpellScript(spell_mage_comet_storm_damage);
     RegisterSpellScript(spell_mage_cone_of_cold);

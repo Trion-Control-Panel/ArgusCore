@@ -875,6 +875,59 @@ already internally consistent — it will now use the correctly-parsed values.
 
 ## P3 — Blizzlike Gameplay
 
+### [DONE] Mage/Fire - Combustion (core damage cooldown) entirely unimplemented
+
+**Subsystem:** Scripts/Spells (spell_mage)
+
+**Problem:** Combustion (190319), Fire Mage's primary damage cooldown, had no
+implementation anywhere in ArgusCore — more consequential than the Hot Streak
+gap since it's a cooldown used in every burst/rotation window, not a
+proc-dependent mechanic.
+
+**Files:** `src/server/scripts/Spells/spell_mage.cpp`
+
+**Reference:** DestinyCore has a Combustion implementation, but written in an
+older `SpellScriptLoader`-style pattern inconsistent with the rest of that
+file, using a legacy raw-field accessor for crit rating, and referencing an
+unexplained `SPELL_INFERNO` removal on aura expiry I couldn't identify or
+verify. Discussed with the user rather than guessing at the uncertain parts.
+
+**Decision (explicit user choice):** implement only the well-documented, high-
+confidence core mechanic — Combustion doubles the caster's current spell crit
+rating for its duration (a distinctive, well-known feature of Legion's
+specific version of Combustion, separate from later expansions' versions).
+Deliberately did NOT implement two uncertain pieces:
+1. The "duration refreshes by 1 sec per crit while active" behavior some
+   Legion documentation describes — not confident enough in the exact
+   mechanic/values to implement without guessing.
+2. DestinyCore's `SPELL_INFERNO` removal-on-expiry line — unidentified spell,
+   unclear purpose, not ported.
+
+Both are called out in a code comment at the implementation site and should be
+revisited if/when they can be verified (e.g. against real Legion 7.3.5 spell
+tooltip/DB2 data).
+
+**Fix:** Added `spell_mage_combustion` (`AuraScript`, `DoEffectCalcAmount` on
+`EFFECT_1`/`SPELL_AURA_MOD_RATING`), computing the bonus from
+`GetUInt32Value(PLAYER_FIELD_COMBAT_RATING_1 + CR_CRIT_SPELL)` — confirmed
+this is still the correct modern accessor in ArgusCore's own engine (already
+used identically elsewhere in this codebase), unlike DestinyCore's outdated
+equivalent. Set `canBeRecalculated = false` (deviating from DestinyCore's
+unset default) to avoid a plausible feedback-loop bug: recalculating from the
+same combat-rating field that Combustion's own bonus contributes to could
+compound the bonus on every stat recalculation. This matches the existing
+`canBeRecalculated = false` convention already used by sibling
+`DoEffectCalcAmount` handlers in this same file.
+
+**Risk:** Moderate — a new, partial implementation of a frequently-used
+cooldown; needs in-game verification that the crit boost applies/expires
+correctly, and the team should be aware the refresh-on-crit behavior is
+intentionally absent pending further verification.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification.
+
 ### [DONE] Mage/Fire - Scorch implemented post-Legion "Frenetic Speed" execute mechanic
 
 **Subsystem:** Scripts/Spells (spell_mage)
