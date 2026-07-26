@@ -105,8 +105,8 @@ enum DeathKnightSpells
     SPELL_DK_SUBDUING_GRASP_TALENT              = 454822,
     SPELL_DK_UNHOLY                             = 137007,
     SPELL_DK_UNHOLY_VIGOR                       = 196263,
-    SPELL_DH_VORACIOUS_LEECH                    = 274009,
-    SPELL_DH_VORACIOUS_TALENT                   = 273953,
+    SPELL_DK_VORACIOUS_LEECH                    = 274009,
+    SPELL_DK_VORACIOUS_TALENT                   = 273953,
     SPELL_DK_PURGATORY_STACKS                   = 116888,
     SPELL_DK_PURGATORY_DEATH                    = 123982,
     SPELL_DK_PURGATORY_MARKER                   = 123981,
@@ -121,7 +121,11 @@ enum DeathKnightSpells
     SPELL_DK_FESTERING_WOUND_BURST              = 194311,
     SPELL_DK_RUNIC_POWER_REGEN                  = 195757,
     SPELL_DK_APOCALYPSE_SUMMON                  = 205491,
-    SPELL_DK_DEATH_GATE_ACHERUS_FORTRESS        = 187753
+    SPELL_DK_DEATH_GATE_ACHERUS_FORTRESS        = 187753,
+    SPELL_DK_VIRULENT_PLAGUE                    = 191587,
+    SPELL_DK_VIRULENT_ERUPTION                  = 191685,
+    SPELL_DK_EPIDEMIC_DAMAGE_SINGLE             = 212739,
+    SPELL_DK_EPIDEMIC_DAMAGE_AOE                = 215969
 };
 
 enum Misc
@@ -771,6 +775,146 @@ class spell_dk_frost_fever_proc : public AuraScript
     }
 };
 
+// 77575 - Outbreak
+// Unholy's core disease application: instantly infects the target with Virulent Plague.
+// NOTE: the only available reference also drives a secondary "spread to nearby enemies" pulse
+// from here, via a periodic dummy aura that calls a friendly-unit-list search to deliver a
+// damage-over-time debuff - i.e. it would land Virulent Plague on party/raid members instead of
+// enemies, with no target-count cap either. That's almost certainly a bug rather than intended
+// design, and there's no second source to verify the correct target count/selector against, so
+// that half was left out entirely. The guaranteed primary-target infection below is unaffected.
+class spell_dk_outbreak : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_VIRULENT_PLAGUE });
+    }
+
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (caster && target)
+            caster->CastSpell(target, SPELL_DK_VIRULENT_PLAGUE, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dk_outbreak::HandleOnHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 191587 - Virulent Plague
+// Each periodic tick has a chance to erupt early, removing the disease and dealing AoE burst
+// damage via Virulent Eruption.
+class spell_dk_virulent_plague : public AuraScript
+{
+    void HandlePeriodic(AuraEffect const* /*aurEff*/)
+    {
+        if (roll_chance_i(GetEffectInfo(EFFECT_1).CalcValue(GetCaster())))
+            GetAura()->Remove(AURA_REMOVE_BY_DEATH);
+    }
+
+    void HandleEffectRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (GetTargetApplication()->GetRemoveMode() == AURA_REMOVE_BY_DEATH)
+            if (Unit* caster = GetCaster())
+                caster->CastSpell(GetTarget(), SPELL_DK_VIRULENT_ERUPTION, true);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dk_virulent_plague::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DAMAGE);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_dk_virulent_plague::HandleEffectRemove, EFFECT_0, SPELL_AURA_PERIODIC_DAMAGE, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 191685 - Virulent Eruption
+// Splits its AoE damage evenly across every unit hit.
+class spell_dk_virulent_eruption : public SpellScript
+{
+    void FilterTargets(std::list<WorldObject*>& targets)
+    {
+        _hitCount = uint32(targets.size());
+    }
+
+    void HandleOnHit()
+    {
+        if (_hitCount)
+            SetHitDamage(GetHitDamage() / int32(_hitCount));
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_dk_virulent_eruption::FilterTargets, EFFECT_0, TARGET_UNIT_DEST_AREA_ENEMY);
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_dk_virulent_eruption::FilterTargets, EFFECT_0, TARGET_DEST_TARGET_ENEMY);
+        OnHit += SpellHitFn(spell_dk_virulent_eruption::HandleOnHit);
+    }
+
+private:
+    uint32 _hitCount = 0;
+};
+
+// 207317 - Epidemic
+// Consumes Virulent Plague from the target for burst damage (single-target + AoE payloads).
+class spell_dk_epidemic : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_VIRULENT_PLAGUE, SPELL_DK_EPIDEMIC_DAMAGE_SINGLE, SPELL_DK_EPIDEMIC_DAMAGE_AOE });
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (caster && target)
+        {
+            if (Aura* plague = target->GetAura(SPELL_DK_VIRULENT_PLAGUE, caster->GetGUID()))
+            {
+                target->RemoveAura(plague);
+                caster->CastSpell(target, SPELL_DK_EPIDEMIC_DAMAGE_SINGLE, true);
+                caster->CastSpell(target, SPELL_DK_EPIDEMIC_DAMAGE_AOE, true);
+            }
+        }
+
+        PreventHitDamage();
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dk_epidemic::HandleHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 215969 - Epidemic (AoE payload)
+// The explicit target already took the single-target payload above; prevent this AoE payload
+// from double-dipping the same target.
+class spell_dk_epidemic_aoe : public SpellScript
+{
+    void HandleOnHitMain(SpellEffIndex /*effIndex*/)
+    {
+        if (Unit* target = GetHitUnit())
+            _explicitTarget = target->GetGUID();
+    }
+
+    void HandleOnHitAOE(SpellEffIndex /*effIndex*/)
+    {
+        if (Unit* target = GetHitUnit())
+            if (target->GetGUID() == _explicitTarget)
+                PreventHitDamage();
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dk_epidemic_aoe::HandleOnHitMain, EFFECT_0, SPELL_EFFECT_DUMMY);
+        OnEffectHitTarget += SpellEffectFn(spell_dk_epidemic_aoe::HandleOnHitAOE, EFFECT_1, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+
+private:
+    ObjectGuid _explicitTarget;
+};
+
 // 47496 - Explode, Ghoul spell for Corpse Explosion
 class spell_dk_ghoul_explode : public SpellScript
 {
@@ -1373,18 +1517,18 @@ class spell_dk_voracious : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_DH_VORACIOUS_TALENT, SPELL_DH_VORACIOUS_LEECH });
+        return ValidateSpellInfo({ SPELL_DK_VORACIOUS_TALENT, SPELL_DK_VORACIOUS_LEECH });
     }
 
     bool Load() override
     {
-        return GetCaster()->HasAura(SPELL_DH_VORACIOUS_TALENT);
+        return GetCaster()->HasAura(SPELL_DK_VORACIOUS_TALENT);
     }
 
     void HandleHit(SpellEffIndex /*effIndex*/) const
     {
         Unit* caster = GetCaster();
-        caster->CastSpell(caster, SPELL_DH_VORACIOUS_LEECH, CastSpellExtraArgsInit{
+        caster->CastSpell(caster, SPELL_DK_VORACIOUS_LEECH, CastSpellExtraArgsInit{
             .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
             .TriggeringSpell = GetSpell()
         });
@@ -2088,6 +2232,11 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScriptWithArgs(spell_dk_apply_bone_shield, "spell_dk_deaths_caress_apply_bone_shield", EFFECT_2);
     RegisterSpellScript(spell_dk_apocalypse);
     RegisterSpellScript(spell_dk_scourge_strike);
+    RegisterSpellScript(spell_dk_outbreak);
+    RegisterSpellScript(spell_dk_virulent_plague);
+    RegisterSpellScript(spell_dk_virulent_eruption);
+    RegisterSpellScript(spell_dk_epidemic);
+    RegisterSpellScript(spell_dk_epidemic_aoe);
     RegisterSpellScript(spell_dk_army_transform);
     RegisterSpellScript(spell_dk_blinding_sleet);
     RegisterSpellScript(spell_dk_blooddrinker);
