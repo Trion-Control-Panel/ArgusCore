@@ -2685,11 +2685,11 @@ implementation anywhere in ArgusCore.
 well-known Legion design (an execute-style instant kill vs. NPCs, scaled
 down for PvP balance). Self-referential structure: each tick recomputes the
 damage and re-casts the same spell id (115080) on the original target with
-the new value as a custom base point. **Deliberately omitted** DestinyCore's
-own Combo Strikes integration line, which is commented out in the reference
-itself (with an author TODO, "need to merge, already did" — left
-unfinished) — not treated as confirmed content, consistent with the
-decision to scope Combo Strikes out entirely this session.
+the new value as a custom base point. **Initially** omitted DestinyCore's
+own Combo Strikes integration line (commented out in the reference itself,
+with an unfinished author TODO) since it depended on the deferred Combo
+Strikes system — **later completed once the user asked for it**; see the
+follow-up entry below, which wires this integration back in.
 
 **Touch of Karma:** absorbs damage up to the caster's max health,
 redirecting 1/16th of the *cumulative* absorbed total back to the attacker
@@ -2720,6 +2720,89 @@ against a player target, confirm the damage is roughly half of what it
 would be against an NPC. Touch of Karma: take repeated hits while it's
 active and confirm damage is absorbed and the attacker takes periodic
 damage back, scaling with cumulative damage absorbed.
+
+### [DONE] Monk/Windwalker - Mastery: Combo Strikes implemented (follow-up, previously deferred)
+
+**Subsystem:** Scripts/Spells (spell_monk)
+
+**Context:** After the previous fix deferred Combo Strikes as a
+separately-scoped task, the user asked specifically to complete Touch of
+Death's commented-out Combo Strikes TODO — which meant building the full
+mastery system, since that TODO calls directly into it. Confirmed this
+tradeoff with the user (per the session's "STOP and ask before major
+scope changes" practice) before proceeding.
+
+**Problem:** Mastery: Combo Strikes (115636), Windwalker's core mastery
+(alternating between different abilities grants a damage bonus scaling
+with Mastery rating; repeating the same ability grants none), had no
+implementation anywhere in ArgusCore, across three constituent script
+classes needing binding to ten different spell ids total.
+
+**Reference:** DestinyCore's implementation. Two gaps found and worked
+around:
+
+1. **Missing engine capability:** DestinyCore tracks "last ability used"
+   per player via a `PlayerStorage` system that doesn't exist anywhere in
+   ArgusCore — the same category of gap as Execute's missing
+   `OnTakePower` and Gift of the Ox's missing `OnTakeDamage`, both found
+   earlier this session. Rather than needing a new engine-wide storage
+   system, implemented a lightweight file-scope
+   `std::unordered_map<ObjectGuid, int32>` instead (in a `MonkComboStrikes`
+   namespace), functionally equivalent for this single purpose. Entries
+   aren't cleared on logout — an accepted minor memory-retention tradeoff
+   for a workaround, not a functional issue (`ObjectGuid` already has a
+   proven `std::unordered_map` hash specialization used elsewhere in
+   ArgusCore's engine, e.g. `AuctionHouseMgr.h`).
+2. **Multi-spell binding, not a single spell id:** unlike every other fix
+   this session, this mastery has no generic classmask-based way to hook
+   "any Windwalker damage ability" — each must be bound explicitly via
+   `spell_script_names`, exactly matching DestinyCore's own approach.
+   Identified all ten target spell ids from DestinyCore's own source
+   comments and committed SQL dump: direct-hit abilities (Tiger Palm
+   100780, Blackout Kick 100784, Flying Serpent Kick AoE 123586, Rising
+   Sun Kick's secondary id 185099), periodic-channel abilities (Fists of
+   Fury 113656, Spinning Crane Kick 101546, Whirling Dragon Punch 152175),
+   and their damage sub-spells (117418, 107270, 158221 respectively).
+
+**Files:** `src/server/scripts/Spells/spell_monk.cpp`. Added an
+`#include <unordered_map>`.
+
+**Fix:** Added `SPELL_MONK_HIT_COMBO`/`_AURA`, `SPELL_MONK_MASTERY_COMBO_STRIKES`,
+`SPELL_MONK_SPINNING_CRANE_KICK`/`_DAMAGE`, and
+`SPELL_MONK_WHIRLING_DRAGON_PUNCH`/`_DAMAGE` constants; the shared
+`MonkComboStrikes` namespace (state tracking + the two central helper
+functions `HandleHitCombo`/`TryToHandleDamage`); and three classes
+(`spell_monk_mastery_combo_strikes` for direct-hit abilities,
+`_periodic_auras` for the three channels, `_periodic_triggers` for their
+damage sub-spells) — all ported from DestinyCore's logic with only the
+storage-workaround and API-convention adaptations noted above. Also wired
+the integration back into Touch of Death's `CalculateAmount` (see the
+previous entry).
+
+**Database dependency:** searched ArgusCore's committed SQL for existing
+bindings on all three new script names — found none. Several of the target
+spell ids (100784, 113656, 117418) already have other scripts bound from
+earlier fixes this session; this migration only adds the three new script
+names, which coexist with those independently (already relied upon for
+Fists of Fury's own dual binding). Added to a single dedicated file,
+`sql/updates/world/master/2026_07_26_08_world.sql`.
+
+**Risk:** Moderate-high — the largest-scope Monk fix this session (ten
+spell-id bindings across three classes, plus a custom persistence
+workaround). The core logic is a faithful port of DestinyCore's reference;
+the main residual risk is the storage workaround's behavior under real
+concurrent load, which is architecturally reasonable but unproven in this
+specific engine.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — as Windwalker,
+alternate between different abilities (e.g. Tiger Palm → Blackout Kick →
+Rising Sun Kick) and confirm each deals bonus damage; repeat the *same*
+ability twice in a row and confirm the second cast deals no bonus. With
+Hit Combo talented, confirm the stacking haste buff applies on combo hits
+and clears on a repeated ability. Separately, re-verify Touch of Death
+still works correctly now that its Combo Strikes integration is active.
 
 ---
 

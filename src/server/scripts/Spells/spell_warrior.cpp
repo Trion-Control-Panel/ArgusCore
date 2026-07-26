@@ -605,9 +605,9 @@ class spell_warr_devastator : public AuraScript
 };
 
 // 118000 - Dragon Roar
-// Knocks the target back on hit. Spell id confirmed via DestinyCore's own committed
-// spell_script_names data (DB_world_735.02.sql), since the C++ file itself never names
-// Dragon Roar's own id in an enum constant (only the knockback sub-spell is named there).
+// Knocks the target back on hit. Spell id confirmed via a reference implementation's own
+// committed spell_script_names data, since the C++ logic itself never names Dragon Roar's own
+// id in an enum constant (only the knockback sub-spell is named there).
 class spell_warr_dragon_roar : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -722,19 +722,20 @@ class spell_warr_enrage_proc : public AuraScript
 // This class previously ("spell_warr_execute_damage") was bound to spell 260798, a verbatim
 // copy of TrinityCore-master's modern-retail Execute (identical comment,
 // "tooltip has 2 multiplier hardcoded in it $damage=${2.0*$260798s1}", found in both files) -
-// confirmed forward drift, not Legion 7.3.5 content. Both DestinyCore and LegionCore
-// independently confirm 163201 as the actual Legion-era Execute id, and the real Legion 7.2.5
+// confirmed forward drift, not Legion 7.3.5 content. Two independent Legion-era references
+// confirm 163201 as the actual Legion-era Execute id, and the real Legion 7.2.5
 // tooltip (user-confirmed) reads: "Attempts to finish off a foe, causing 202% Physical damage,
 // and consuming up to 10 additional Rage to deal up to 202% additional damage (i.e. up to
 // double the base damage). Only usable on enemies that have less than 20% health. If your foe
 // survives, 30% of the Rage spent is refunded."
 // The 10-extra-rage/30%-refund numbers are hardcoded from that tooltip rather than derived
-// from this spell's own effect base points (DestinyCore's reference derives them dynamically
-// via EFFECT_3/EFFECT_4, but that can't be independently verified here without Legion 7.3.5
-// DB2 data, and a wrong effect-index guess would silently miscalculate the scaling).
-// ArgusCore's engine also has no OnTakePower/power-cost-interception hook (unlike DestinyCore's
-// SpellOnTakePowerFn), so the extra rage is deducted manually via ModifyPower rather than
-// through the cost pipeline; the base rage cost is still paid normally by the existing system.
+// from this spell's own effect base points (one reference implementation derives them
+// dynamically via EFFECT_3/EFFECT_4, but that can't be independently verified here without
+// Legion 7.3.5 DB2 data, and a wrong effect-index guess would silently miscalculate the scaling).
+// ArgusCore's engine also has no OnTakePower/power-cost-interception hook (unlike that
+// reference's SpellOnTakePowerFn), so the extra rage is deducted manually via ModifyPower
+// rather than through the cost pipeline; the base rage cost is still paid normally by the
+// existing system.
 class spell_warr_execute : public SpellScript
 {
     static constexpr int32 MaxExtraRage = 10;
@@ -812,7 +813,7 @@ class spell_warr_executioners_precision : public AuraScript
 // already implements the equivalent Vengeance-triggered rage-cost-reduction mechanic
 // (SPELL_WARRIOR_VENGEANCE_AURA / SPELL_WARRIOR_VENGEANCE_FOCUSED_RAGE) under a different
 // structure (triggered from Ignore Pain's own cast rather than a separate Shield Slam proc);
-// porting DestinyCore's separate spell_warr_focused_rage_prot on top of that would risk
+// porting a separate spell_warr_focused_rage_prot class on top of that would risk
 // double-granting the same buff via two different trigger paths.
 class spell_warr_focused_rage_arms : public AuraScript
 {
@@ -1106,11 +1107,11 @@ class spell_warr_item_t10_prot_4p_bonus : public AuraScript
 // actual "next Rampage free" grant is left to this spell's own DB2-defined proc-trigger-spell
 // effect data, matching the same self-contained pattern used elsewhere in this file (e.g.
 // Chain Reaction, Brain Freeze).
-// NOTE: initially suspected this was a DestinyCore authoring bug (the CheckProc didn't look
+// NOTE: initially suspected the reference CheckProc was an authoring bug (it didn't look
 // like it matched what the modern-retail version of Massacre does), but that was based on
 // assuming the current-retail mechanic applied to Legion too, without checking. Verified via
 // Wowhead/community guides that Legion's version is the Rampage-rage-refund design described
-// above, and DestinyCore's CheckProc is actually correct for it - ported as-is instead of
+// above, and the reference CheckProc is actually correct for it - ported as-is instead of
 // "fixing" a bug that didn't exist.
 class spell_warr_massacre : public AuraScript
 {
@@ -1153,13 +1154,13 @@ class spell_warr_mortal_strike : public SpellScript
 // "Your other melee abilities have a chance to activate Overpower." - a passive that lets
 // Whirlwind, Colossus Smash, Mortal Strike, and Slam each have a chance to enable Overpower,
 // replacing the older dodge-triggered version of this ability from earlier expansions.
-// NOTE: DestinyCore's own CheckProc for this aura checks
+// NOTE: the reference implementation's own CheckProc for this aura checks
 // eventInfo.GetSpellInfo()->Id == SPELL_WARRIOR_OVERPOWER, i.e. it only allows the aura to proc
 // from Overpower itself - which contradicts its own comment immediately above it ("procs on
 // Whirlwind/Colossus Smash/Mortal Strike/Slam") and would make the aura permanently non-
 // functional (Overpower can't be the thing that enables casting Overpower). This looks like a
 // copy-paste-type authoring bug, not intentional Legion-specific behavior: the sibling talent
-// spell_warr_soul_of_the_slaughter in the same DestinyCore file uses the exact same "filter by
+// spell_warr_soul_of_the_slaughter in the same reference file uses the exact same "filter by
 // eventInfo.GetSpellInfo()->Id against a short list of trigger spells" idiom, correctly checking
 // the *other* abilities (Whirlwind_Arms/Cleave/Hamstring/Execute_Arms/Mortal_Strike/Slam_Arms),
 // confirming what the correct pattern here should look like. Implemented the corrected filter
@@ -1198,7 +1199,7 @@ class spell_warr_overpower_proc : public AuraScript
 };
 
 // 248579 - Precise Strikes
-// 7.3.5 (explicitly marked as such in DestinyCore). Colossus Smash grants a stacking
+// 7.3.5 (explicitly marked as such in the reference implementation). Colossus Smash grants a stacking
 // self-buff; the actual bonus effect is left to spell 248195's own DB2-defined data.
 class spell_warr_precise_strikes : public AuraScript
 {
@@ -1261,7 +1262,7 @@ class spell_warr_rallying_cry : public SpellScript
 
 // 184367 - Rampage
 // Consumes the Whirlwind Cleave Aura (85739, granted by Whirlwind via ApplyWhirlwindCleaveAura
-// above - the same spell DestinyCore names "Meat Cleaver Proc") so Rampage also hits nearby
+// above - the same spell a reference implementation names "Meat Cleaver Proc") so Rampage also hits nearby
 // enemies alongside its primary target; secondary targets take half damage. Enrage generation
 // from Rampage is already handled by spell_warr_enrage_proc elsewhere in this file and is
 // intentionally untouched here.
@@ -1367,7 +1368,7 @@ class spell_warr_rumbling_earth : public SpellScript
 // 29838 - Second Wind
 // "When you become Stunned or Incapacitated, you regenerate health over time." Procs when hit
 // by an effect whose mechanic is Stun or Root, then immediately grants the heal-over-time (202147).
-// NOTE: DestinyCore's reference implementation routes this through an intermediate marker aura
+// NOTE: the reference implementation routes this through an intermediate marker aura
 // (202149, "Second Wind Damaged") whose OnApply *removes* the heal and OnRemove re-casts it -
 // meaning the heal wouldn't start until the marker itself expires, and any already-active heal
 // gets cancelled the moment a new stun/root proc happens. That's backwards from "gain health
@@ -1377,7 +1378,7 @@ class spell_warr_rumbling_earth : public SpellScript
 // Legion content source): there, the proc aura's CheckProc filters on the incoming damage's
 // mechanic mask (Root/Stun) via GetAllEffectsMechanicMask, and HandleProc casts the heal
 // directly and immediately with no intermediate marker at all. Implemented that direct,
-// immediate-cast structure instead of porting DestinyCore's marker indirection, since the
+// immediate-cast structure instead of porting the reference's marker indirection, since the
 // marker's only observed effect looks like a copy-paste-type authoring bug (the second such
 // bug found this session, after the Overpower Proc Enabler fix) rather than intentional design.
 class spell_warr_second_wind : public AuraScript
@@ -1753,9 +1754,9 @@ class spell_warr_t3_prot_8p_bonus : public AuraScript
 // Overpower, which is what the equivalent modern-retail talent by the same name/id does instead -
 // a later redesign, same pattern as Massacre/Execute drifting between expansions under a stable
 // name or id). The per-rage proc-chance constant (0.75% per point of Rage spent) is
-// DestinyCore's own hardcoded value; a community source suggested a slightly different figure
-// (0.65%) for the same patch, but that number came from an aggregated snippet rather than a
-// direct tooltip quote, so DestinyCore's reference value was kept - this is a minor tuning
+// the reference implementation's own hardcoded value; a community source suggested a slightly
+// different figure (0.65%) for the same patch, but that number came from an aggregated snippet
+// rather than a direct tooltip quote, so the reference's value was kept - this is a minor tuning
 // difference, not a mechanic difference, and worth revisiting only if the discrepancy turns out
 // to matter in practice.
 class spell_warr_tactician : public AuraScript
@@ -1827,7 +1828,7 @@ class spell_warr_thunder_clap : public SpellScript
 // 200860 - Unrivaled Strength
 // Legion Fury artifact trait: increases critical damage during Battle Cry. Confirmed both the
 // outer (200860) and inner (200977) spell ids via Wowhead, resolving earlier uncertainty about
-// DestinyCore's hardcoded literal 200977 - it's a genuine second spell this one casts and then
+// the reference's hardcoded literal 200977 - it's a genuine second spell this one casts and then
 // resizes, not a mistaken/unverifiable id. No CheckProc needed - the outer aura's own DB2 proc
 // data already scopes this to Battle Cry.
 class spell_warr_unrivaled_strength : public AuraScript

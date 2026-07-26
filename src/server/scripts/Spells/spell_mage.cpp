@@ -480,8 +480,9 @@ class spell_mage_cauterize_AuraScript : public AuraScript
 // NOTE: ArgusCore previously used spell 278310 for "Chain Reaction", cast explicitly from
 // spell_mage_ice_lance on a frozen-target hit gated behind a separate "dummy" marker aura
 // (278309) - that ID and structure match modern retail's redesigned version of this talent, not
-// Legion 7.3.5's. Corrected to the Legion-era spell id (195419, confirmed against DestinyCore,
-// also Legion 7.3.5) and the self-sufficient aura structure it actually uses there; the explicit
+// Legion 7.3.5's. Corrected to the Legion-era spell id (195419, confirmed against an
+// independent Legion 7.3.5 reference) and the self-sufficient aura structure it actually uses
+// there; the explicit
 // cast-from-Ice-Lance code and the now-unused dummy marker were removed accordingly.
 class spell_mage_chain_reaction : public AuraScript
 {

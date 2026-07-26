@@ -35,6 +35,7 @@
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "SpellScript.h"
+#include <unordered_map>
 
 enum MonkSpells
 {
@@ -56,7 +57,10 @@ enum MonkSpells
     SPELL_MONK_GIFT_OF_THE_OX_AT_LEFT                    = 124506,
     SPELL_MONK_GIFT_OF_THE_OX_HEAL                       = 178173,
     SPELL_MONK_HEALING_SPHERE_COOLDOWN                   = 224863,
+    SPELL_MONK_HIT_COMBO                                = 196740,
+    SPELL_MONK_HIT_COMBO_AURA                           = 196741,
     SPELL_MONK_JADE_WALK                                = 450552,
+    SPELL_MONK_MASTERY_COMBO_STRIKES                    = 115636,
     SPELL_MONK_MISTS_OF_LIFE                            = 388548,
     SPELL_MONK_MORTAL_WOUNDS                            = 115804,
     SPELL_MONK_POWER_STRIKE_PROC                        = 129914,
@@ -74,6 +78,8 @@ enum MonkSpells
     SPELL_MONK_SAVE_THEM_ALL_HEAL_BONUS                 = 390105,
     SPELL_MONK_SONG_OF_CHI_JI_STUN                      = 198909,
     SPELL_MONK_SOOTHING_MIST                            = 115175,
+    SPELL_MONK_SPINNING_CRANE_KICK                      = 101546,
+    SPELL_MONK_SPINNING_CRANE_KICK_DAMAGE               = 107270,
     SPELL_MONK_SOOTHING_MIST_ENERGIZE                   = 116335,
     SPELL_MONK_SOOTHING_MIST_VISUAL                     = 125955,
     SPELL_MONK_SPIRIT_OF_THE_CRANE_AURA                 = 210802,
@@ -89,6 +95,8 @@ enum MonkSpells
     SPELL_MONK_TEACHINGS_OF_THE_MONASTERY_AURA          = 202090,
     SPELL_MONK_TOUCH_OF_DEATH                           = 115080,
     SPELL_MONK_TOUCH_OF_KARMA_REDIRECT_DAMAGE           = 124280,
+    SPELL_MONK_WHIRLING_DRAGON_PUNCH                    = 152175,
+    SPELL_MONK_WHIRLING_DRAGON_PUNCH_DAMAGE             = 158221,
 };
 
 // 100784 - Blackout Kick
@@ -96,12 +104,12 @@ enum MonkSpells
 // Palm grants stacks of a buff (202090) that Blackout Kick consumes for bonus damage, and
 // separately has a chance to reset Rising Sun Kick's cooldown/charges if the talent (116645)
 // is known. Mistweavers with Spirit of the Crane (210802) refund mana based on stacks consumed.
-// NOTE: DestinyCore's reference re-deals the hit's damage once per stack via a manually
+// NOTE: the reference implementation re-deals the hit's damage once per stack via a manually
 // constructed SpellNonMeleeDamage (producing N separate combat-log entries) - that low-level
 // damage-dealing pattern has no precedent anywhere in ArgusCore's engine and couldn't be
 // verified to behave correctly here, so this instead multiplies the single hit's damage by
 // (stacks + 1), which delivers the same total damage as one combat-log entry rather than N.
-// The RSK-reset percentage (15%) is DestinyCore's own value, not independently verified
+// The RSK-reset percentage (15%) is the reference's own value, not independently verified
 // against Legion 7.3.5 client data - flagged the same way Tactician's proc-chance was earlier.
 class spell_monk_blackout_kick : public SpellScript
 {
@@ -264,7 +272,7 @@ class spell_monk_crackling_jade_lightning_knockback_proc_aura : public AuraScrip
 // 122278 - Dampen Harm
 // Charge-based defensive: absorbs a percentage of any single hit large enough to exceed a
 // health-percentage threshold, consuming one charge per triggered absorb.
-// NOTE: DestinyCore's reference computes the absorb as
+// NOTE: the reference implementation computes the absorb as
 // "dmgInfo.GetDamage() * (CalcValue(EFFECT_0) / 100)" - since CalcValue returns int32, that
 // inner division truncates to 0 for any percentage under 100 (integer division), making the
 // absorb always zero. Used CalculatePct (float-based, matching the convention already used
@@ -370,8 +378,8 @@ class spell_monk_fists_of_fury : public AuraScript
 // 117418 - Fists of Fury (damage)
 // Manual damage formula (AttackPower * 5.25, then the normal damage-bonus-done/taken pipeline)
 // since this coefficient isn't expressible via a plain weapon-percent-damage effect. The
-// coefficient itself is DestinyCore's own value, not independently verified against Legion
-// 7.3.5 client data.
+// coefficient itself is the reference implementation's own value, not independently verified
+// against Legion 7.3.5 client data.
 class spell_monk_fists_of_fury_damage : public SpellScript
 {
     void HandleDamage(SpellEffIndex /*effIndex*/)
@@ -417,7 +425,7 @@ class spell_monk_fists_of_fury_visual_filter : public SpellScript
 
 // 123154 - Fists of Fury (visual sweep)
 // This aura has no duration in client data and would never end without one - a defensive
-// workaround from DestinyCore's own reference, not a guessed value; the actual channel length
+// workaround from a reference implementation, not a guessed value; the actual channel length
 // is governed by the main Fists of Fury cast (113656) regardless.
 class spell_monk_fists_of_fury_visual : public AuraScript
 {
@@ -939,7 +947,7 @@ struct at_monk_gift_of_the_ox_sphere : AreaTriggerAI
 // 124502 - Gift of the Ox
 // Chance to spawn a healing sphere when taking damage, scaling with damage taken relative to
 // max health and increasing as the Monk's own health drops.
-// NOTE: DestinyCore's reference implements this as a global PlayerScript::OnTakeDamage hook -
+// NOTE: the reference implementation implements this as a global PlayerScript::OnTakeDamage hook -
 // ArgusCore's PlayerScript has no OnTakeDamage hook at all (a missing engine capability, the
 // same category of gap as Execute's missing OnTakePower earlier this session). Rather than
 // needing a new engine hook, implemented this as a self-contained proc-driven AuraScript on
@@ -1042,10 +1050,238 @@ void AddAndRefreshStagger(Unit* target, float amount)
         AddNewStagger(target, GetStaggerSpellId(target, amount), amount);
 }
 
+// Mastery: Combo Strikes (115636) - shared infrastructure.
+// Windwalker's core mastery: consecutive uses of the *same* ability deal no bonus damage;
+// alternating between different abilities grants a damage bonus scaling with Mastery rating.
+// The reference implementation tracks "last ability used" per player via a `PlayerStorage` system
+// that does not exist anywhere in ArgusCore's engine (the same category of gap as Execute's
+// missing OnTakePower and Gift of the Ox's missing OnTakeDamage earlier this session). Rather
+// than requiring a new engine-wide storage system, this uses a lightweight file-scope
+// std::unordered_map keyed by player GUID instead - functionally equivalent for this single
+// purpose (remembering one spell id per player) without needing broader engine changes.
+// Entries are small (one int32 each) and only accumulate for players who have actually used a
+// Combo-Strikes-tracked ability at least once; not cleared on logout, which is an accepted
+// minor memory-retention tradeoff for this workaround, not a functional issue.
+namespace MonkComboStrikes
+{
+    std::unordered_map<ObjectGuid, int32> lastAbilityUsed;
+
+    bool HasEntry(ObjectGuid guid) { return lastAbilityUsed.contains(guid); }
+    int32 GetEntry(ObjectGuid guid) { auto itr = lastAbilityUsed.find(guid); return itr != lastAbilityUsed.end() ? itr->second : 0; }
+    void SetEntry(ObjectGuid guid, int32 spellId) { lastAbilityUsed[guid] = spellId; }
+
+    // Applies/removes the "Hit Combo" talent's stacking haste buff (196740/196741) alongside
+    // Combo Strikes tracking, matching the reference implementation's structure exactly.
+    void HandleHitCombo(Unit* caster, bool apply = true)
+    {
+        if (!caster->HasAura(SPELL_MONK_HIT_COMBO) || !caster->IsAlive())
+            return;
+
+        if (apply)
+            caster->CastSpell(caster, SPELL_MONK_HIT_COMBO_AURA, true);
+        else
+            caster->RemoveAura(SPELL_MONK_HIT_COMBO_AURA);
+    }
+
+    // Central Combo Strikes logic shared by all three binding classes below. Returns true (and
+    // applies the damage bonus in-place) if this cast counts as "different from the last
+    // ability used"; false if it was a repeat (no bonus) or the very first tracked cast since
+    // login/death (nothing to compare against yet).
+    bool TryToHandleDamage(Player* caster, int32 spellId, int32& damage, bool repeated = false)
+    {
+        if (!caster || !damage)
+            return false;
+
+        AuraEffect const* comboStrikes = caster->GetAuraEffect(SPELL_MONK_MASTERY_COMBO_STRIKES, EFFECT_0);
+        if (!comboStrikes)
+            return false;
+
+        ObjectGuid guid = caster->GetGUID();
+
+        // Don't handle first cast after login or death
+        if (!MonkComboStrikes::HasEntry(guid))
+        {
+            MonkComboStrikes::SetEntry(guid, spellId);
+            return false;
+        }
+
+        if (!repeated && MonkComboStrikes::GetEntry(guid) == spellId)
+        {
+            HandleHitCombo(caster, false);
+            return false;
+        }
+
+        AddPct(damage, caster->GetFloatValue(PLAYER_MASTERY) * comboStrikes->GetSpellEffectInfo().BonusCoefficient);
+        MonkComboStrikes::SetEntry(guid, spellId);
+
+        if (!repeated)
+            HandleHitCombo(caster);
+
+        return true;
+    }
+}
+
+// 115636 - Mastery: Combo Strikes (direct-hit abilities)
+// Bound to each Windwalker direct-damage ability individually (Tiger Palm 100780, Blackout
+// Kick 100784, Flying Serpent Kick AOE 123586, Rising Sun Kick's secondary id 185099) via SQL -
+// there is no generic classmask-based way to hook "any Windwalker damage ability" in this
+// engine, so each must be bound explicitly, matching the reference implementation's own approach.
+class spell_monk_mastery_combo_strikes : public SpellScript
+{
+    bool _repeated = false;
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_MASTERY_COMBO_STRIKES, SPELL_MONK_HIT_COMBO, SPELL_MONK_HIT_COMBO_AURA });
+    }
+
+    bool Load() override
+    {
+        return GetCaster() && GetCaster()->GetTypeId() == TYPEID_PLAYER && GetCaster()->HasAura(SPELL_MONK_MASTERY_COMBO_STRIKES);
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        int32 damage = GetHitDamage();
+        if (!MonkComboStrikes::TryToHandleDamage(caster->ToPlayer(), int32(GetSpellInfo()->Id), damage, _repeated))
+            return;
+
+        _repeated = true;
+        SetHitDamage(damage);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_monk_mastery_combo_strikes::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 115636 - Mastery: Combo Strikes (periodic-channel abilities)
+// Bound to the three channeled/periodic-driver Windwalker abilities (Fists of Fury 113656,
+// Spinning Crane Kick 101546, Whirling Dragon Punch 152175). Tracks combo state on aura
+// apply/remove rather than on-hit, since these abilities' actual damage comes from separate
+// periodic sub-spells handled by spell_monk_mastery_combo_strikes_periodic_triggers below.
+// The "spellId + 1" sentinel on removal marks "just ended" so a near-simultaneous reapply
+// (e.g. a channel restarting) isn't miscounted as a fresh combo entry.
+class spell_monk_mastery_combo_strikes_periodic_auras : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_MASTERY_COMBO_STRIKES });
+    }
+
+    bool Load() override
+    {
+        return GetCaster() && GetCaster()->GetTypeId() == TYPEID_PLAYER && GetCaster()->HasAura(SPELL_MONK_MASTERY_COMBO_STRIKES);
+    }
+
+    void HandleApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+
+        ObjectGuid guid = caster->GetGUID();
+        int32 spellId = int32(GetSpellInfo()->Id);
+
+        if (!MonkComboStrikes::HasEntry(guid))
+            return;
+
+        if (MonkComboStrikes::GetEntry(guid) == spellId + 1)
+        {
+            MonkComboStrikes::HandleHitCombo(caster, false);
+            return;
+        }
+
+        MonkComboStrikes::SetEntry(guid, spellId);
+        MonkComboStrikes::HandleHitCombo(caster);
+    }
+
+    void HandleRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+
+        // Prevent handling next cast
+        MonkComboStrikes::SetEntry(caster->GetGUID(), int32(GetSpellInfo()->Id) + 1);
+    }
+
+    void Register() override
+    {
+        if (m_scriptSpellId == SPELL_MONK_SPINNING_CRANE_KICK)
+        {
+            AfterEffectApply += AuraEffectApplyFn(spell_monk_mastery_combo_strikes_periodic_auras::HandleApply, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL, AURA_EFFECT_HANDLE_REAL);
+            AfterEffectRemove += AuraEffectRemoveFn(spell_monk_mastery_combo_strikes_periodic_auras::HandleRemove, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL, AURA_EFFECT_HANDLE_REAL);
+        }
+        else
+        {
+            AfterEffectApply += AuraEffectApplyFn(spell_monk_mastery_combo_strikes_periodic_auras::HandleApply, EFFECT_1, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+            AfterEffectRemove += AuraEffectRemoveFn(spell_monk_mastery_combo_strikes_periodic_auras::HandleRemove, EFFECT_1, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        }
+    }
+};
+
+// 115636 - Mastery: Combo Strikes (periodic-channel damage sub-spells)
+// Bound to the damage-dealing sub-spells of the three periodic-channel abilities above (Fists
+// of Fury Damage 117418, Spinning Crane Kick Damage 107270, Whirling Dragon Punch Damage
+// 158221) - applies the actual damage bonus for these periodic ticks, mapped back to their
+// parent ability's id for the combo comparison.
+class spell_monk_mastery_combo_strikes_periodic_triggers : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo(
+        {
+            SPELL_MONK_MASTERY_COMBO_STRIKES,
+            SPELL_MONK_FISTS_OF_FURY_DAMAGE,
+            SPELL_MONK_FISTS_OF_FURY,
+            SPELL_MONK_SPINNING_CRANE_KICK_DAMAGE,
+            SPELL_MONK_SPINNING_CRANE_KICK,
+            SPELL_MONK_WHIRLING_DRAGON_PUNCH_DAMAGE,
+            SPELL_MONK_WHIRLING_DRAGON_PUNCH
+        });
+    }
+
+    bool Load() override
+    {
+        return GetCaster() && GetCaster()->GetTypeId() == TYPEID_PLAYER && GetCaster()->HasAura(SPELL_MONK_MASTERY_COMBO_STRIKES);
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+
+        int32 spellHandleId;
+        switch (GetSpellInfo()->Id)
+        {
+            case SPELL_MONK_FISTS_OF_FURY_DAMAGE:          spellHandleId = SPELL_MONK_FISTS_OF_FURY; break;
+            case SPELL_MONK_SPINNING_CRANE_KICK_DAMAGE:    spellHandleId = SPELL_MONK_SPINNING_CRANE_KICK; break;
+            case SPELL_MONK_WHIRLING_DRAGON_PUNCH_DAMAGE:  spellHandleId = SPELL_MONK_WHIRLING_DRAGON_PUNCH; break;
+            default:                                        return;
+        }
+
+        int32 damage = GetHitDamage();
+        MonkComboStrikes::TryToHandleDamage(caster, spellHandleId, damage, true);
+        SetHitDamage(damage);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_monk_mastery_combo_strikes_periodic_triggers::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
 // 115175 - Soothing Mist
 // Mistweaver's healing channel: applies a visual on the target while channeling, has a 25%
 // chance per tick to generate a Chi, and cleans up the visual when the channel ends.
-// NOTE: DestinyCore's reference also crosses over into the Jade Serpent Statue mechanic here
+// NOTE: the reference implementation also crosses over into the Jade Serpent Statue mechanic here
 // (redirecting the channel through a summoned totem, creature entry 60849) - not ported, since
 // that requires a creature_template row this repo's SQL has no record of (the same kind of
 // unverified NPC data dependency that blocked Ravager earlier this session). The core
@@ -1125,13 +1361,13 @@ class spell_monk_purifying_brew : public SpellScript
 };
 
 // 202162 - Guard
-// NOTE: DestinyCore's reference implements this as a flat self-absorb shield
+// NOTE: one reference implementation implements this as a flat self-absorb shield
 // (AttackPower * 18) - that matches Guard's pre-Legion (Mists of Pandaria) mechanic, not
 // 7.3.5's. Guard was redesigned into a PvP honor talent in patch 7.1.5 (well before 7.3.5):
 // it no longer provides a self-absorb at all, instead redirecting 30% of a protected nearby
-// ally's incoming damage into the Monk's own Stagger pool. DestinyCore's own bound spell id
+// ally's incoming damage into the Monk's own Stagger pool. That reference's own bound spell id
 // (202162) matches this later PvP-talent version's real id, not the old MoP ability's id
-// (115295) - meaning DestinyCore's code and its own binding actually disagree with each
+// (115295) - meaning its code and its own binding actually disagree with each
 // other. Found the correct implementation for this exact id in LegionCore instead (explicitly
 // labeled "Guard (PvP talent) - 202162"), which redirects damage into Stagger via the same
 // technique spell_monk_stagger already uses for the Monk's own damage - reused that shared
@@ -1334,15 +1570,16 @@ class spell_monk_tigers_lust : public SpellScript
 // instant kill vs. NPCs, balanced down for PvP). Self-referential: each tick recomputes the
 // damage and re-casts this same spell id on the original target with the new value as a
 // custom base point, rather than driving a separate damage sub-spell.
-// NOTE: DestinyCore's own CalculateAmount has a Mastery: Combo Strikes integration commented
-// out (with an author TODO note, "need to merge, already did" — never finished). Not ported,
-// since that would require the broader Combo Strikes system this session deliberately deferred
-// (see the Mastery: Combo Strikes entry in the backlog) - matches the file's own disabled state.
+// UPDATE: the reference implementation's own CalculateAmount had a Mastery: Combo Strikes integration commented
+// out (with an author TODO note, "need to merge, already did" — never finished). Initially left
+// unported for that reason, but the user asked to complete it, so the full Combo Strikes system
+// (see the "Mastery: Combo Strikes - shared infrastructure" block above) was built and this
+// integration is now wired in below.
 class spell_monk_touch_of_death : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_MONK_TOUCH_OF_DEATH });
+        return ValidateSpellInfo({ SPELL_MONK_TOUCH_OF_DEATH, SPELL_MONK_MASTERY_COMBO_STRIKES });
     }
 
     void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& canBeRecalculated)
@@ -1356,6 +1593,11 @@ class spell_monk_touch_of_death : public AuraScript
 
         int32 pct = GetEffectInfo(EFFECT_1).CalcValue(caster);
         amount = int32(caster->CountPctFromMaxHealth(owner->GetTypeId() == TYPEID_PLAYER ? (pct / 2) : pct));
+
+        if (!caster->HasAura(SPELL_MONK_MASTERY_COMBO_STRIKES) || caster->GetTypeId() != TYPEID_PLAYER)
+            return;
+
+        MonkComboStrikes::TryToHandleDamage(caster->ToPlayer(), int32(GetSpellInfo()->Id), amount);
     }
 
     void OnTick(AuraEffect const* aurEff)
@@ -1439,6 +1681,9 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_gift_of_the_ox_aura);
     RegisterSpellScript(spell_monk_jade_walk);
     RegisterSpellScript(spell_monk_life_cocoon);
+    RegisterSpellScript(spell_monk_mastery_combo_strikes);
+    RegisterSpellScript(spell_monk_mastery_combo_strikes_periodic_auras);
+    RegisterSpellScript(spell_monk_mastery_combo_strikes_periodic_triggers);
     RegisterSpellScript(spell_monk_mists_of_life);
     RegisterSpellScript(spell_monk_open_palm_strikes);
     RegisterSpellScript(spell_monk_power_strike_periodic);
