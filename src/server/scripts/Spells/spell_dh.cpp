@@ -114,6 +114,7 @@ enum DemonHunterSpells
     SPELL_DH_ILLIDANS_GRASP_DAMAGE                 = 208618,
     SPELL_DH_ILLIDANS_GRASP_JUMP_DEST              = 208175,
     SPELL_DH_IMMOLATION_AURA                       = 258920,
+    SPELL_DH_IMMOLATION_AURA_VISUAL                = 201122,
     SPELL_DH_INFERNAL_STRIKE_CAST                  = 189110,
     SPELL_DH_INFERNAL_STRIKE_IMPACT_DAMAGE         = 189112,
     SPELL_DH_INFERNAL_STRIKE_JUMP                  = 189111,
@@ -855,6 +856,38 @@ class spell_dh_glide_timer : public AuraScript
     }
 };
 
+// 258920 - Immolation Aura
+// The periodic damage tick is handled entirely by this spell's own DB2 effect data - this only
+// shortens the purely-cosmetic glow visual (201122) to match the buff's real 6s duration
+// instead of the visual spell's own default 10s, then hides its (now-redundant) buff icon.
+class spell_dh_immolation_aura : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_IMMOLATION_AURA, SPELL_DH_IMMOLATION_AURA_VISUAL });
+    }
+
+    void ApplyVisual(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        caster->CastSpell(caster, SPELL_DH_IMMOLATION_AURA_VISUAL, true);
+
+        if (Aura* visual = caster->GetAura(SPELL_DH_IMMOLATION_AURA_VISUAL))
+        {
+            visual->SetDuration(6000);
+            caster->RemoveVisibleAura(visual->GetApplicationOfTarget(caster->GetGUID()));
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_dh_immolation_aura::ApplyVisual, EFFECT_1, SPELL_EFFECT_TRIGGER_SPELL);
+    }
+};
+
 // 202138 - Sigil of Chains
 // 204596 - Sigil of Flame
 // 207684 - Sigil of Misery
@@ -1271,6 +1304,58 @@ class spell_dh_shatter_soul : public SpellScript
     }
 };
 
+// 228477 - Soul Cleave
+// The damage effect is handled entirely by this spell's own DB2 school-damage effect data; this
+// only computes the resource-scaled self-heal (Effect 3), which additionally benefits from how
+// much Pain was spent beyond the base cost, plus the Feast of Souls interaction.
+// NOTE: the reference also consumes nearby Soul Fragment AreaTriggers from this same spell
+// (Effect 0) using an old WORLD_TRIGGER-summon hack. ArgusCore's own kept fragment-spawning
+// classes (spell_dh_shattered_souls/spell_dh_shatter_soul above) already use a cleaner, modern
+// AreaTrigger-cast approach instead, but there's no corresponding "consume a nearby fragment"
+// mechanism anywhere in this codebase yet to hook into - that's a broader missing system, not
+// something specific to Soul Cleave, and wasn't invented here. Soul Cleave's own healing works
+// without it; fragment consumption for Vengeance's resource loop remains a follow-up.
+class spell_dh_soul_cleave : public SpellScript
+{
+    int32 _extraSpellCost = 0;
+
+    bool Load() override
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return false;
+
+        _extraSpellCost = std::min<int32>(caster->GetPower(POWER_PAIN), 600);
+        return true;
+    }
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_FEAST_OF_SOULS, SPELL_DH_FEAST_OF_SOULS_PERIODIC_HEAL });
+    }
+
+    void HandleHeal(SpellEffIndex effIndex)
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !caster->IsPlayer())
+            return;
+
+        int32 heal = int32(11.0f * caster->GetTotalAttackPowerValue(BASE_ATTACK));
+        heal = caster->SpellHealingBonusDone(caster, GetSpellInfo(), heal, HEAL, GetEffectInfo(effIndex));
+        heal = int32(heal * (float(_extraSpellCost) / 600.0f));
+
+        SetHitHeal(heal);
+
+        if (caster->HasAura(SPELL_DH_FEAST_OF_SOULS))
+            caster->CastSpell(caster, SPELL_DH_FEAST_OF_SOULS_PERIODIC_HEAL, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dh_soul_cleave::HandleHeal, EFFECT_3, SPELL_EFFECT_HEAL);
+    }
+};
+
 // 238118 - Flaming Soul
 // Extends Fiery Brand's duration on the target each time the aura procs.
 class spell_dh_flaming_soul : public AuraScript
@@ -1450,6 +1535,7 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_felblade_cooldown_reset_proc);
     RegisterSpellScript(spell_dh_fiery_brand);
     RegisterSpellScript(spell_dh_last_resort);
+    RegisterSpellScript(spell_dh_immolation_aura);
     RegisterSpellScript(spell_dh_sigil_of_chains);
 
     RegisterAreaTriggerAI(areatrigger_dh_darkness);
@@ -1489,6 +1575,7 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_mana_rift);
     RegisterSpellScript(spell_dh_shattered_souls);
     RegisterSpellScript(spell_dh_shatter_soul);
+    RegisterSpellScript(spell_dh_soul_cleave);
     RegisterSpellScript(spell_dh_flaming_soul);
     RegisterSpellScript(spell_dh_fueled_by_pain);
     RegisterSpellScript(spell_dh_metamorphosis);
