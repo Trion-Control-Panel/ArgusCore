@@ -1973,6 +1973,38 @@ class spell_dk_apocalypse : public SpellScript
     }
 };
 
+// 55090 - Scourge Strike
+// Unholy's baseline attack: bursts one Festering Wound stack for bonus Shadow damage. Talent
+// interactions that add extra bursts or side effects (Castigator, Pestilent Pustules, Unholy
+// Frenzy) are not ported here - their spell ids weren't in this file at all and need their own
+// verification pass before being added.
+class spell_dk_scourge_strike : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_FESTERING_WOUND, SPELL_DK_FESTERING_WOUND_BURST });
+    }
+
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        if (Aura* wounds = target->GetAura(SPELL_DK_FESTERING_WOUND, caster->GetGUID()))
+        {
+            caster->CastSpell(target, SPELL_DK_FESTERING_WOUND_BURST, true);
+            wounds->ModStackAmount(-1);
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dk_scourge_strike::HandleOnHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
 // 194311 - Festering Wound (pop effect — Soul Reaper interaction)
 class spell_dk_festering_wound : public SpellScript
 {
@@ -2055,6 +2087,7 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScriptWithArgs(spell_dk_apply_bone_shield, "spell_dk_marrowrend_apply_bone_shield", EFFECT_2);
     RegisterSpellScriptWithArgs(spell_dk_apply_bone_shield, "spell_dk_deaths_caress_apply_bone_shield", EFFECT_2);
     RegisterSpellScript(spell_dk_apocalypse);
+    RegisterSpellScript(spell_dk_scourge_strike);
     RegisterSpellScript(spell_dk_army_transform);
     RegisterSpellScript(spell_dk_blinding_sleet);
     RegisterSpellScript(spell_dk_blooddrinker);
