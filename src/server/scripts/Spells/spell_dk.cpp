@@ -1891,6 +1891,29 @@ class spell_dk_vampiric_aura : public SpellScript
     }
 };
 
+// 199721 - Decomposing Aura (PvP Honor Talent)
+// Stacking debuff that decays by 1 stack per tick once the caster strays more than 10 yards
+// from the target. Originally documented as blocked on missing AreaTrigger client data
+// (DestinyCore's implementation ties this to a personal-zone AreaTrigger that doesn't exist in
+// this repo's areatrigger_create_properties table), but LegionCore-7.3.5V2 implements the same
+// ability as a plain debuff with this distance-based stack decay instead - no AreaTrigger
+// needed at all, so the missing-data blocker doesn't actually apply here.
+class spell_dk_decomposing_aura : public AuraScript
+{
+    void HandleTick(AuraEffect const* /*aurEff*/)
+    {
+        Unit* target = GetTarget();
+        Unit* caster = GetCaster();
+        if (target && caster && caster->GetDistance(target) > 10.0f)
+            GetAura()->ModStackAmount(-1);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dk_decomposing_aura::HandleTick, EFFECT_1, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
 // 206967 - Will of the Necropolis
 class spell_dk_will_of_the_necropolis : public AuraScript
 {
@@ -2319,6 +2342,7 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_defile_periodic);
     RegisterAreaTriggerAI(at_dk_defile);
     RegisterSpellScript(spell_dk_vampiric_aura);
+    RegisterSpellScript(spell_dk_decomposing_aura);
     RegisterSpellScript(spell_dk_desecrated_ground);
     RegisterSpellScript(spell_dk_death_grip_initial);
     RegisterSpellScript(spell_dk_death_pact);

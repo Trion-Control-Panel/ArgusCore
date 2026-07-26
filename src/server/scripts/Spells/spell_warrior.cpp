@@ -69,12 +69,13 @@ enum WarriorSpells
     SPELL_WARRIOR_IMPENDING_VICTORY_HEAL            = 202166,
     SPELL_WARRIOR_IMPROVED_HEROIC_LEAP              = 157449,
     SPELL_WARRIOR_INSPIRING_PRESENCE                = 222944,
+    SPELL_WARRIOR_LAST_STAND_TRIGGERED              = 12976,
     SPELL_WARRIOR_MASSACRE                          = 206315,
     SPELL_WARRIOR_MORTAL_STRIKE                     = 12294,
     SPELL_WARRIOR_MORTAL_WOUNDS                     = 213667,
     SPELL_WARRIOR_OVERPOWER                         = 7384,
     SPELL_WARRIOR_PRECISE_STRIKES                   = 248195,
-    SPELL_WARRIOR_RALLYING_CRY                      = 97463,
+    SPELL_WARRIOR_RALLYING_CRY                      = 97462,
     SPELL_WARRIOR_RAMPAGE                           = 184367,
     SPELL_WARRIOR_RAVAGER                           = 228920,
     SPELL_WARRIOR_RECKLESSNESS                      = 1719,
@@ -1260,6 +1261,53 @@ class spell_warr_rallying_cry : public SpellScript
     }
 };
 
+// 12975 - Last Stand
+// Grants temporary max health equal to a percentage of the caster's current max health.
+class spell_warr_last_stand : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_LAST_STAND_TRIGGERED });
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/) const
+    {
+        Unit* caster = GetCaster();
+        int32 healthMod = int32(caster->CountPctFromMaxHealth(GetEffectValue()));
+
+        caster->CastSpell(caster, SPELL_WARRIOR_LAST_STAND_TRIGGERED, CastSpellExtraArgs(TRIGGERED_FULL_MASK)
+            .AddSpellMod(SPELLVALUE_BASE_POINT0, healthMod));
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_warr_last_stand::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 50725 - Vigilance
+// Resets the target's Taunt cooldown when Vigilance is placed on them.
+class spell_warr_vigilance_trigger : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_TAUNT });
+    }
+
+    void HandleScript(SpellEffIndex effIndex)
+    {
+        PreventHitDefaultEffect(effIndex);
+
+        if (Player* target = GetHitPlayer())
+            target->GetSpellHistory()->ResetCooldown(SPELL_WARRIOR_TAUNT, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_warr_vigilance_trigger::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+};
+
 // 184367 - Rampage
 // Consumes the Whirlwind Cleave Aura (85739, granted by Whirlwind via ApplyWhirlwindCleaveAura
 // above - the same spell a reference implementation names "Meat Cleaver Proc") so Rampage also hits nearby
@@ -2042,6 +2090,8 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_overpower_proc);
     RegisterSpellScript(spell_warr_precise_strikes);
     RegisterSpellScript(spell_warr_rallying_cry);
+    RegisterSpellScript(spell_warr_last_stand);
+    RegisterSpellScript(spell_warr_vigilance_trigger);
     RegisterSpellScript(spell_warr_rampage);
     RegisterSpellScript(spell_warr_revenge_trigger);
     RegisterSpellScript(spell_warr_rumbling_earth);
