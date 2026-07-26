@@ -1498,6 +1498,26 @@ class spell_dk_t20_2p_rune_empowered : public AuraScript
     int32 _runicPowerSpent = 0;
 };
 
+// 47568 - Empower Rune Weapon
+class spell_dk_empower_rune_weapon : public SpellScript
+{
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!player)
+            return;
+
+        for (uint8 i = 0; i < MAX_RUNES; ++i)
+            player->SetRuneCooldown(i, 0);
+        player->ResyncRunes();
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dk_empower_rune_weapon::HandleOnHit, EFFECT_0, SPELL_EFFECT_ENERGIZE);
+    }
+};
+
 // 55233 - Vampiric Blood
 class spell_dk_vampiric_blood : public AuraScript
 {
@@ -2237,6 +2257,7 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_virulent_eruption);
     RegisterSpellScript(spell_dk_epidemic);
     RegisterSpellScript(spell_dk_epidemic_aoe);
+    RegisterSpellScript(spell_dk_empower_rune_weapon);
     RegisterSpellScript(spell_dk_army_transform);
     RegisterSpellScript(spell_dk_blinding_sleet);
     RegisterSpellScript(spell_dk_blooddrinker);
