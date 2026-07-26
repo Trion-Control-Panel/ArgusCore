@@ -158,6 +158,9 @@ enum PriestSpells
     SPELL_PRIEST_PRAYER_OF_MENDING_HEAL             = 33110,
     SPELL_PRIEST_PRAYER_OF_MENDING_JUMP             = 155793,
     SPELL_PRIEST_PROTECTIVE_LIGHT_AURA              = 193065,
+    SPELL_PRIEST_PURIFIED_RESOLVE                   = 196439,
+    SPELL_PRIEST_PURIFIED_RESOLVE_BUFF              = 196440,
+    SPELL_PRIEST_SPIRITUAL_CLEANSING                = 213654,
     SPELL_PRIEST_PURGE_THE_WICKED                   = 204197,
     SPELL_PRIEST_PURGE_THE_WICKED_DUMMY             = 204215,
     SPELL_PRIEST_PURGE_THE_WICKED_PERIODIC          = 204213,
@@ -2546,6 +2549,103 @@ class spell_pri_vampiric_embrace_target : public SpellScript
     }
 };
 
+// 8122 - Psychic Scream
+// Breaks the fear early once the feared target has taken more than 10% of its max health in
+// cumulative damage - standard "fear breaks on sufficient damage" behavior, which isn't
+// automatic engine behavior and needs to be tracked explicitly.
+// NOTE: the reference tracks the running damage total via Aura::Variables, a generic runtime
+// key-value scripting-storage member that doesn't exist anywhere in ArgusCore's engine. Since an
+// AuraScript instance already lives for exactly one aura application's lifetime, a plain member
+// variable does the same job with no functional difference - the same workaround already
+// established for spell_dh_sigil_of_misery_fear elsewhere in this pass.
+// 527 - Purify
+// Requires a dispellable magic effect to be present on the target; if the Purified Resolve
+// (Honor Talent) is known, also grants the target an absorb shield; if Spiritual Cleansing is
+// known, refunds part of this spell's own cooldown after casting.
+class spell_pri_purify : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PRIEST_PURIFIED_RESOLVE, SPELL_PRIEST_PURIFIED_RESOLVE_BUFF, SPELL_PRIEST_SPIRITUAL_CLEANSING });
+    }
+
+    SpellCastResult CheckCleansing()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetExplTargetUnit();
+        if (!caster || !target)
+            return SPELL_CAST_OK;
+
+        DispelChargesList dispelList;
+        for (SpellEffectInfo const& effect : GetSpellInfo()->GetEffects())
+        {
+            if (!effect.IsEffect())
+                continue;
+
+            uint32 dispelMask = GetSpellInfo()->GetDispelMask(DispelType(effect.MiscValue));
+            target->GetDispellableAuraList(caster, dispelMask, dispelList);
+        }
+
+        return dispelList.empty() ? SPELL_FAILED_NOTHING_TO_DISPEL : SPELL_CAST_OK;
+    }
+
+    void HandleCast()
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        Unit* target = GetExplTargetUnit();
+        if (!player || !target || !player->HasAura(SPELL_PRIEST_PURIFIED_RESOLVE))
+            return;
+
+        SpellInfo const* purifiedResolve = sSpellMgr->AssertSpellInfo(SPELL_PRIEST_PURIFIED_RESOLVE, GetCastDifficulty());
+        int32 absorb = CalculatePct(target->GetMaxHealth(), purifiedResolve->GetEffect(EFFECT_0).CalcValue(player));
+
+        player->CastSpell(target, SPELL_PRIEST_PURIFIED_RESOLVE_BUFF, CastSpellExtraArgs(TRIGGERED_FULL_MASK)
+            .AddSpellMod(SPELLVALUE_BASE_POINT0, absorb));
+    }
+
+    void HandleAfterCast()
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (player && player->HasAura(SPELL_PRIEST_SPIRITUAL_CLEANSING) && player->GetSpellHistory()->HasCooldown(GetSpellInfo()->Id))
+            player->GetSpellHistory()->ModifyCooldown(GetSpellInfo()->Id, Seconds(-8), true);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_pri_purify::CheckCleansing);
+        OnCast += SpellCastFn(spell_pri_purify::HandleCast);
+        AfterCast += SpellCastFn(spell_pri_purify::HandleAfterCast);
+    }
+};
+
+// 8122 - Psychic Scream
+// Breaks the fear early once the feared target has taken more than 10% of its max health in
+// cumulative damage - standard "fear breaks on sufficient damage" behavior, which isn't
+// automatic engine behavior and needs to be tracked explicitly.
+class spell_pri_psychic_scream : public AuraScript
+{
+    uint64 _damage = 0;
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        Unit* target = eventInfo.GetActionTarget();
+        if (!target || !eventInfo.GetDamageInfo())
+            return false;
+
+        _damage += eventInfo.GetDamageInfo()->GetDamage();
+        if (_damage > target->CountPctFromMaxHealth(10))
+            if (Aura* fear = GetAura())
+                fear->SetDuration(0);
+
+        return true;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_pri_psychic_scream::CheckProc);
+    }
+};
+
 // 32375 - Mass Dispel
 // Special-cases removing Cyclone (33786, plus its PvP-talent variant 209753) from friendly
 // targets - Cyclone is normally flagged undispellable by anything else, so this is a deliberate
@@ -2659,6 +2759,8 @@ void AddSC_priest_spell_scripts()
     RegisterSpellScript(spell_pri_twist_of_fate);
     RegisterSpellScript(spell_pri_vampiric_embrace);
     RegisterSpellScript(spell_pri_vampiric_embrace_target);
+    RegisterSpellScript(spell_pri_purify);
+    RegisterSpellScript(spell_pri_psychic_scream);
     RegisterSpellScript(spell_pri_mass_dispel);
     RegisterSpellScript(spell_pri_vampiric_touch);
 }

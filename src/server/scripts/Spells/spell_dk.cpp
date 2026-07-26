@@ -119,6 +119,10 @@ enum DeathKnightSpells
     SPELL_DK_APOCALYPSE_SUMMON                  = 205491,
     SPELL_DK_DEATH_GATE_ACHERUS_FORTRESS        = 187753,
     SPELL_DK_ASPHYXIATE_STUN                    = 93422,
+    SPELL_DK_CADAVEROUS_PALLOR_HEAL              = 213726,
+    SPELL_DK_CHILL_STREAK_BOUNCE                = 204165,
+    SPELL_DK_COLD_HEART_STACK                   = 235599,
+    SPELL_DK_COLD_HEART_MAX_STACK_BONUS         = 248406,
     SPELL_DK_VIRULENT_PLAGUE                    = 191587,
     SPELL_DK_VIRULENT_ERUPTION                  = 191685,
     SPELL_DK_EPIDEMIC_DAMAGE_SINGLE             = 212739,
@@ -948,6 +952,140 @@ class spell_dk_asphyxiate : public SpellScript
     void Register() override
     {
         AfterCast += SpellCastFn(spell_dk_asphyxiate::HandleAfterCast);
+    }
+};
+
+// 201995 - Cadaverous Pallor (PvP Honor Talent)
+// Chance-based unlimited absorb: fully absorbs a hit and converts it into healing instead.
+class spell_dk_cadaverous_pallor : public AuraScript
+{
+    int32 _chance = 0;
+
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = -1;
+        _chance = GetEffectInfo(EFFECT_1).CalcValue(GetCaster());
+    }
+
+    void Absorb(AuraEffect* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        if (!roll_chance_i(_chance))
+            return;
+
+        Unit* target = GetTarget();
+        int32 healPct = int32(dmgInfo.GetDamage() / 5);
+
+        target->CastSpell(target, SPELL_DK_CADAVEROUS_PALLOR_HEAL, CastSpellExtraArgs(TRIGGERED_FULL_MASK)
+            .AddSpellMod(SPELLVALUE_BASE_POINT0, healPct)
+            .AddSpellMod(SPELLVALUE_BASE_POINT1, int32(dmgInfo.GetDamage())));
+        absorbAmount = dmgInfo.GetDamage();
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_cadaverous_pallor::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_dk_cadaverous_pallor::Absorb, EFFECT_0);
+    }
+};
+
+// 204199 - Chill Streak (PvP Honor Talent)
+// Bounces between caster and target, decrementing a counter each time; the actual damage is
+// carried by a second effect on this same spell (see spell_dk_chill_streak_damage below).
+class spell_dk_chill_streak : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_CHILL_STREAK_BOUNCE });
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/) const
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        int32 remaining = GetEffectValue() - 1;
+        if (remaining <= 0)
+            return;
+
+        caster->CastSpell(target, SPELL_DK_CHILL_STREAK_BOUNCE, CastSpellExtraArgs(TRIGGERED_FULL_MASK)
+            .AddSpellMod(SPELLVALUE_BASE_POINT0, remaining)
+            .SetOriginalCaster(GetOriginalCaster() ? GetOriginalCaster()->GetGUID() : caster->GetGUID()));
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dk_chill_streak::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 204167 - Chill Streak (damage)
+class spell_dk_chill_streak_damage : public SpellScript
+{
+    void HandleDummy(SpellEffIndex /*effIndex*/) const
+    {
+        if (Unit* target = GetHitUnit())
+            SetHitDamage(int32(target->CountPctFromMaxHealth(GetEffectValue())));
+    }
+
+    void Register() override
+    {
+        OnEffectLaunchTarget += SpellEffectFn(spell_dk_chill_streak_damage::HandleDummy, EFFECT_1, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 210141 - Zombie Explosion (PvP Honor Talent)
+// A summoned zombie's death nova: deals damage as a percentage of the target's max health, then
+// despawns the summon.
+class spell_dk_zombie_explosion : public SpellScript
+{
+    void HandleDummy(SpellEffIndex /*effIndex*/) const
+    {
+        Unit* target = GetHitUnit();
+        if (!target)
+            return;
+
+        SetHitDamage(int32(target->CountPctFromMaxHealth(GetEffectValue())));
+
+        if (Unit* caster = GetCaster())
+            if (Creature* creature = caster->ToCreature())
+                creature->DespawnOrUnsummon(100ms);
+    }
+
+    void Register() override
+    {
+        OnEffectLaunchTarget += SpellEffectFn(spell_dk_zombie_explosion::HandleDummy, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 248397 - Cold Heart (Frostmourne artifact trait)
+// Unleashes stored Cold Heart stacks (accumulated via Chains of Ice's own data-driven stacking
+// effect) as bonus damage scaled by stack count, with an extra burst at maximum stacks.
+class spell_dk_cold_heart : public SpellScript
+{
+    void HandleDamage(SpellEffIndex /*effIndex*/) const
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        Aura* stacks = caster->GetAura(SPELL_DK_COLD_HEART_STACK);
+        if (!stacks)
+            return;
+
+        int32 stackCount = stacks->GetStackAmount();
+        if (stackCount == int32(stacks->GetSpellInfo()->StackAmount))
+            caster->CastSpell(target, SPELL_DK_COLD_HEART_MAX_STACK_BONUS, true);
+
+        SetHitDamage(GetHitDamage() * stackCount);
+        stacks->Remove();
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dk_cold_heart::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
     }
 };
 
@@ -2378,6 +2516,11 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_epidemic_aoe);
     RegisterSpellScript(spell_dk_outbreak_aoe_dummy);
     RegisterSpellScript(spell_dk_asphyxiate);
+    RegisterSpellScript(spell_dk_cadaverous_pallor);
+    RegisterSpellScript(spell_dk_chill_streak);
+    RegisterSpellScript(spell_dk_chill_streak_damage);
+    RegisterSpellScript(spell_dk_zombie_explosion);
+    RegisterSpellScript(spell_dk_cold_heart);
     RegisterSpellScript(spell_dk_empower_rune_weapon);
     RegisterSpellScript(spell_dk_chilblains);
     RegisterSpellScript(spell_dk_obliterate);
