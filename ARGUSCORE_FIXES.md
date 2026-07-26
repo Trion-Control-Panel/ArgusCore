@@ -2804,6 +2804,68 @@ Hit Combo talented, confirm the stacking haste buff applies on combo hits
 and clears on a repeated ability. Separately, re-verify Touch of Death
 still works correctly now that its Combo Strikes integration is active.
 
+### [DONE] Monk/Windwalker - Whirling Dragon Punch dealt zero damage; Zen Pulse missing; Storm Earth and Fire scoped out (NPC data dependency)
+
+**Subsystem:** Scripts/Spells (spell_monk)
+
+**Problem found while investigating further:** Whirling Dragon Punch
+(152175) had its Combo Strikes tracking bound in the previous fix
+(`spell_monk_mastery_combo_strikes_periodic_auras`), but the ability's own
+periodic damage driver was never implemented at all — meaning it dealt
+**zero damage** despite Combo Strikes correctly tracking it as "used." This
+gap wasn't caught when Combo Strikes was built, since that fix only
+covered the mastery's own tracking logic, not each ability's base
+functionality.
+
+**Reference:** the reference implementation's `spell_monk_whirling_dragon_punch`
+(also bound to 152175, coexisting with the Combo Strikes tracking script on
+the same id) — a simple periodic-tick handler that casts the damage
+sub-spell (158221) each tick.
+
+**Also found, deliberately deferred:** the reference implementation ties
+Whirling Dragon Punch's "usable window" (it can only be cast when both
+Fists of Fury and Rising Sun Kick are close to coming off cooldown) to a
+`PlayerScript::OnCooldownStart`/`OnChargeRecoveryTimeStart` pair. **Neither
+hook exists in ArgusCore's `PlayerScript` at all** — the same category of
+gap as Execute's missing `OnTakePower` and Gift of the Ox's missing
+`OnTakeDamage`, both found earlier this session. This gating mechanic is
+left unimplemented; the ability now deals damage correctly but isn't
+restricted to the intended timing window.
+
+**Also implemented: Zen Pulse** (124081) — simple, self-contained: casts a
+self-heal (198487) alongside its own damage effect.
+
+**Also investigated, deliberately scoped out: Storm Earth and Fire.**
+Summons two NPC clones (Fire/Earth Spirit), requires a dedicated Creature
+AI script (`ScriptedAI`, not a spell script) for those clones, and depends
+on `creature_template` data this repo's SQL has no record of — the same
+category of blocker as Ravager and Soothing Mist's Jade Serpent Statue,
+both left unresolved earlier this session. Also uses
+`PlayerScript::OnSuccessfulSpellCast` to mirror the caster's harmful casts
+through the summoned clones, which would need separate verification. Not
+attempted; a good candidate for its own dedicated task alongside Ravager.
+
+**Files:** `src/server/scripts/Spells/spell_monk.cpp`
+
+**Fix:** Added `SPELL_MONK_ZEN_PULSE_HEAL` (198487) constant and two
+classes: `spell_monk_whirling_dragon_punch` (periodic damage driver) and
+`spell_monk_zen_pulse` (self-heal on hit).
+
+**Database dependency:** searched ArgusCore's committed SQL for existing
+bindings on both script names — found none. Added to two files:
+`sql/updates/world/master/2026_07_26_09_world.sql` (Whirling Dragon Punch)
+and `2026_07_26_10_world.sql` (Zen Pulse).
+
+**Risk:** Low for both — small, self-contained fixes. Whirling Dragon
+Punch's damage now works correctly; only its timing-window gating (a
+separate, smaller concern) remains unaddressed.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — Whirling Dragon
+Punch: cast it and confirm it now deals damage (previously dealt none).
+Zen Pulse: cast it and confirm both the damage and a self-heal land.
+
 ---
 
 ## P4 — Performance / Cleanup

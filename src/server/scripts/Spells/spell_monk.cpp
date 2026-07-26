@@ -97,6 +97,7 @@ enum MonkSpells
     SPELL_MONK_TOUCH_OF_KARMA_REDIRECT_DAMAGE           = 124280,
     SPELL_MONK_WHIRLING_DRAGON_PUNCH                    = 152175,
     SPELL_MONK_WHIRLING_DRAGON_PUNCH_DAMAGE             = 158221,
+    SPELL_MONK_ZEN_PULSE_HEAL                           = 198487,
 };
 
 // 100784 - Blackout Kick
@@ -1663,6 +1664,52 @@ class spell_monk_touch_of_karma : public AuraScript
     }
 };
 
+// 152175 - Whirling Dragon Punch
+// Periodic driver: each tick casts the actual damage sub-spell (158221). Without this, the
+// spell_monk_mastery_combo_strikes_periodic_auras binding added earlier this session tracks
+// combo state on this aura's apply/remove, but nothing was actually driving its damage - a gap
+// found while investigating this ability further, not caught when Combo Strikes was built.
+// NOTE: a companion PlayerScript in the reference implementation ties Whirling Dragon Punch's
+// "usable window" to Fists of Fury and Rising Sun Kick's cooldowns via
+// PlayerScript::OnCooldownStart/OnChargeRecoveryTimeStart - neither hook exists in ArgusCore's
+// PlayerScript at all (the same category of gap as Execute's missing OnTakePower and Gift of
+// the Ox's missing OnTakeDamage). That gating mechanic is deferred; this fix covers only the
+// actual damage-dealing half, which has no such dependency.
+class spell_monk_whirling_dragon_punch : public AuraScript
+{
+    void OnTick(AuraEffect const* /*aurEff*/)
+    {
+        if (Unit* caster = GetCaster())
+            caster->CastSpell(caster, SPELL_MONK_WHIRLING_DRAGON_PUNCH_DAMAGE, true);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_monk_whirling_dragon_punch::OnTick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
+// 124081 - Zen Pulse
+// Casts a self-heal (198487) alongside its own damage effect.
+class spell_monk_zen_pulse : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_ZEN_PULSE_HEAL });
+    }
+
+    void OnHit(SpellEffIndex /*effIndex*/)
+    {
+        if (Unit* caster = GetCaster())
+            caster->CastSpell(caster, SPELL_MONK_ZEN_PULSE_HEAL, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_monk_zen_pulse::OnHit, EFFECT_1, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
 void AddSC_monk_spell_scripts()
 {
     RegisterSpellScript(spell_monk_blackout_kick);
@@ -1708,4 +1755,6 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_tigers_lust);
     RegisterSpellScript(spell_monk_touch_of_death);
     RegisterSpellScript(spell_monk_touch_of_karma);
+    RegisterSpellScript(spell_monk_whirling_dragon_punch);
+    RegisterSpellScript(spell_monk_zen_pulse);
 }
