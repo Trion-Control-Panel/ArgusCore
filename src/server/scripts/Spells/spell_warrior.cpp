@@ -102,6 +102,7 @@ enum WarriorSpells
     SPELL_WARRIOR_THUNDERSTRUCK                     = 199045,
     SPELL_WARRIOR_THUNDERSTRUCK_STUN                = 199042,
     SPELL_WARRIOR_TRAUMA_EFFECT                     = 215537,
+    SPELL_WARRIOR_UNRIVALED_STRENGTH_EFFECT         = 200977,
     SPELL_WARRIOR_VICTORIOUS                        = 32216,
     SPELL_WARRIOR_VICTORY_RUSH_HEAL                 = 118779,
     SPELL_WARRIOR_WARBREAKER                        = 262161,
@@ -1823,6 +1824,32 @@ class spell_warr_thunder_clap : public SpellScript
     }
 };
 
+// 200860 - Unrivaled Strength
+// Legion Fury artifact trait: increases critical damage during Battle Cry. Confirmed both the
+// outer (200860) and inner (200977) spell ids via Wowhead, resolving earlier uncertainty about
+// DestinyCore's hardcoded literal 200977 - it's a genuine second spell this one casts and then
+// resizes, not a mistaken/unverifiable id. No CheckProc needed - the outer aura's own DB2 proc
+// data already scopes this to Battle Cry.
+class spell_warr_unrivaled_strength : public AuraScript
+{
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo& /*eventInfo*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        caster->CastSpell(caster, SPELL_WARRIOR_UNRIVALED_STRENGTH_EFFECT, true);
+        if (Aura* effect = caster->GetAura(SPELL_WARRIOR_UNRIVALED_STRENGTH_EFFECT))
+            if (AuraEffect* eff0 = effect->GetEffect(EFFECT_0))
+                eff0->SetAmount(aurEff->GetBaseAmount());
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_warr_unrivaled_strength::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
 // 32215 - Victorious State
 class spell_warr_victorious_state : public AuraScript
 {
@@ -2034,6 +2061,7 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_t3_prot_8p_bonus);
     RegisterSpellScript(spell_warr_tactician);
     RegisterSpellScript(spell_warr_thunder_clap);
+    RegisterSpellScript(spell_warr_unrivaled_strength);
     RegisterSpellScript(spell_warr_victorious_state);
     RegisterSpellScript(spell_warr_victory_rush);
     RegisterSpellScript(spell_warr_wrecking_ball_effect);

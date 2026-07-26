@@ -2108,6 +2108,83 @@ confirm Precise Strikes' buff sometimes triggers from them too), Wrecking
 Ball Effect (trigger it twice in quick succession, confirm no stacking
 beyond intended).
 
+### [DONE] Warrior/Fury - Unrivaled Strength missing entirely (previously skipped for unverified id)
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Problem:** Unrivaled Strength (200860), a Fury artifact trait increasing
+critical damage during Battle Cry, had no implementation anywhere in
+ArgusCore. This was explicitly skipped in the previous pass because
+DestinyCore's implementation casts a hardcoded literal spell id (200977)
+with no named constant anywhere in the file, which looked like it could be
+an unverified/unreliable magic number.
+
+**Reference:** DestinyCore's implementation. Resolved the earlier
+uncertainty via Wowhead: both 200860 (the outer artifact-trait aura this
+script binds to) and 200977 (the inner effect it casts and resizes) are
+independently confirmed as genuine, distinct spells for this exact Legion
+ability — not a guess or a coincidental unrelated id. An initial DB search
+for 200977 returned unrelated creature/gameobject data (a numeric
+coincidence in an unrelated ID namespace, not evidence against the spell
+id), which is why Wowhead confirmation specifically was needed here.
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Fix:** Added `SPELL_WARRIOR_UNRIVALED_STRENGTH_EFFECT = 200977` and a new
+`spell_warr_unrivaled_strength` `AuraScript` that casts the effect spell on
+proc and copies the base amount across — ported directly from DestinyCore's
+logic with no changes needed. No `CheckProc` filter required; the outer
+aura's own DB2 proc data already scopes this to Battle Cry.
+
+**Database dependency:** searched ArgusCore's committed SQL for an existing
+`spell_script_names` binding on spell 200860 — found none. Added its own
+dedicated file, `sql/updates/world/master/2026_07_26_00_world.sql`.
+
+**Risk:** Low — small, self-contained, both spell ids now independently
+confirmed via Wowhead rather than trusted on faith.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — as Fury, use Battle
+Cry and confirm critical strike damage is increased for its duration.
+
+### [Still open] Warrior - Ravager needs a creature_template row and a separate NPC AI script, not just spell scripts
+
+**Subsystem:** Scripts/Spells (spell_warrior), SQL, Creature AI
+
+**Investigated further, not implemented.** Ravager's player-side spell
+scripts (summon + periodic damage via the summoned NPC) were already found
+non-trivial in the previous pass, but this pass found the scope is larger
+than initially thought: DestinyCore's own full DB dump confirms creature
+entry 76168 ("Ravager") requires a real `creature_template` row (model,
+stats, faction, etc.) **and** a dedicated creature AI script
+(`npc_warr_ravager`, referenced in that row's `AIName`/`ScriptName` column)
+that lives in a different file entirely (Creature AI scripts, not
+`spell_warrior.cpp`). This is real content/data insertion, not just a
+spell-script-and-binding fix like everything else in this session — a
+meaningfully different (and larger) category of change. Not attempted;
+would need the creature template data and the AI script content
+independently sourced and reviewed before proceeding, and is a good
+candidate to explicitly scope as its own dedicated task rather than fold
+into the spell-by-spell audit.
+
+### [Still open] Warrior - Commanding Shout id still unresolved
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Investigated further via two rounds of web search, still not confident
+enough to implement.** DestinyCore's own `SPELL_WARRIOR_COMMANDING_SHOUT`
+constant (97463) is a confirmed copy-paste collision with
+`SPELL_WARRIOR_RALLYING_CRY`/`_TRIGGER` in the same file. Web search
+surfaced spell 45517 as a currently-live, non-version-prefixed "Commanding
+Shout" entry (confirmed real: "Apply Aura: Mod Max Health," 2 min duration,
+20 yards) as well as 225998 ("current retail" per an earlier search) and
+several older Classic/TBC/WotLK-specific ids (469, 47439, 403215) — none of
+which came with clear confirmation of which one (if any) was live
+specifically in patch 7.3.5. Neither LegionCore nor TrinityCore-master have
+a comparable script to cross-check structurally. Left unimplemented rather
+than guess between several plausible-but-unconfirmed candidates.
+
 ---
 
 ## P4 — Performance / Cleanup
