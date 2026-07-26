@@ -29,6 +29,7 @@
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
 #include "Group.h"
+#include "ObjectAccessor.h"
 #include "PathGenerator.h"
 #include "Player.h"
 #include "Spell.h"
@@ -1000,6 +1001,38 @@ class spell_monk_rising_sun_kick : public SpellScript
     }
 };
 
+// 210804 - Rising Thunder
+// A dedicated, self-contained proc-driven aura on the talent itself that also resets Thunder
+// Focus Tea's cooldown, independent of whatever proc-eligible ability triggers it via this
+// spell's own DB2 proc data.
+// NOTE: this overlaps with the explicit HasAura(SPELL_MONK_RISING_THUNDER) check already added
+// to spell_warr_rising_sun_kick... (spell_monk_rising_sun_kick) earlier this session, which
+// hardcodes the same reset specifically on Rising Sun Kick hits. Kept both rather than removing
+// the earlier one: resetting an already-ready cooldown is a harmless no-op, and it's not
+// certain the two trigger on exactly the same conditions (this aura's own proc scope wasn't
+// independently verified) - if RSK is the only real trigger, this is a harmless duplicate; if
+// this aura's DB2 proc data covers other cases too, this fix adds real coverage the earlier one
+// didn't have.
+class spell_monk_rising_thunder : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_THUNDER_FOCUS_TEA });
+    }
+
+    void HandleEffectProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (caster)
+            caster->GetSpellHistory()->ResetCooldown(SPELL_MONK_THUNDER_FOCUS_TEA, true);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_monk_rising_thunder::HandleEffectProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
 // 109132 - Roll
 class spell_monk_roll : public SpellScript
 {
@@ -1582,6 +1615,102 @@ class spell_monk_soothing_mist_aura : public AuraScript
     }
 };
 
+// 116694 - Surging Mist
+// Redirects to whoever the caster is currently channeling Soothing Mist on, if any, then heals.
+class spell_monk_surging_mist : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_SURGING_MIST_HEAL });
+    }
+
+    void SelectTarget(WorldObject*& target)
+    {
+        Unit* caster = GetCaster();
+        if (!caster || caster->GetChannelSpellId() != SPELL_MONK_SOOTHING_MIST)
+            return;
+
+        DynamicFieldStructuredView<ObjectGuid> channelObjects = caster->GetChannelObjects();
+        if (channelObjects.size() == 1)
+            if (Unit* soothingMistTarget = ObjectAccessor::GetUnit(*caster, *channelObjects.begin()))
+                target = soothingMistTarget;
+    }
+
+    void HandleDummy(SpellEffIndex effIndex)
+    {
+        PreventHitDefaultEffect(effIndex);
+
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (caster && target)
+            caster->CastSpell(target, SPELL_MONK_SURGING_MIST_HEAL, true);
+    }
+
+    void Register() override
+    {
+        OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_monk_surging_mist::SelectTarget, EFFECT_0, TARGET_UNIT_TARGET_ALLY);
+        OnEffectHitTarget += SpellEffectFn(spell_monk_surging_mist::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 123273 - Surging Mist (glyphed)
+// While channeling Soothing Mist, redirects entirely to that target; otherwise heals the
+// lowest-health raid member instead of requiring an explicit target, falling back to the
+// caster if no valid target is found at all.
+class spell_monk_surging_mist_glyphed : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_SURGING_MIST_HEAL, SPELL_MONK_SOOTHING_MIST });
+    }
+
+    void SelectTargets(std::list<WorldObject*>& targets)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (caster->GetChannelSpellId() == SPELL_MONK_SOOTHING_MIST)
+        {
+            targets.clear();
+
+            DynamicFieldStructuredView<ObjectGuid> channelObjects = caster->GetChannelObjects();
+            if (channelObjects.size() == 1)
+                if (Unit* soothingMistTarget = ObjectAccessor::GetUnit(*caster, *channelObjects.begin()))
+                    targets.push_back(soothingMistTarget);
+        }
+        else
+        {
+            targets.remove_if([caster](WorldObject* target)
+            {
+                return target->GetTypeId() != TYPEID_UNIT || !target->ToUnit()->IsInRaidWith(caster);
+            });
+            targets.sort(Trinity::Predicates::HealthPctOrderPred());
+            if (!targets.empty())
+                targets.resize(1);
+        }
+
+        if (targets.empty())
+            targets.push_back(caster);
+    }
+
+    void HandleDummy(SpellEffIndex effIndex)
+    {
+        PreventHitDefaultEffect(effIndex);
+
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (caster && target)
+            caster->CastSpell(target, SPELL_MONK_SURGING_MIST_HEAL, true);
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_monk_surging_mist_glyphed::SelectTargets, EFFECT_0, TARGET_UNIT_SRC_AREA_ALLY);
+        OnEffectHitTarget += SpellEffectFn(spell_monk_surging_mist_glyphed::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
 // 116705 - Spear Hand Strike
 // Interrupt/silence: only applies if the target is in front of the caster, and self-applies a
 // hardcoded 15s cooldown matching the outer spell's own id (mirrors the reference's literal
@@ -2012,11 +2141,14 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_provoke);
     RegisterSpellScript(spell_monk_purifying_brew);
     RegisterSpellScript(spell_monk_spear_hand_strike);
+    RegisterSpellScript(spell_monk_surging_mist);
+    RegisterSpellScript(spell_monk_surging_mist_glyphed);
     RegisterSpellScript(spell_monk_guard);
     RegisterSpellScript(spell_monk_renewing_mist);
     RegisterSpellScript(spell_monk_renewing_mist_periodic);
     RegisterSpellScript(spell_monk_ring_of_peace_aura);
     RegisterSpellScript(spell_monk_rising_sun_kick);
+    RegisterSpellScript(spell_monk_rising_thunder);
     RegisterSpellScript(spell_monk_soothing_mist);
     RegisterSpellScript(spell_monk_soothing_mist_aura);
     RegisterSpellScript(spell_monk_roll);
