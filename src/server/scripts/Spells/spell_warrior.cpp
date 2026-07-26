@@ -41,6 +41,7 @@ enum WarriorSpells
     SPELL_WARRIOR_BLADESTORM_PERIODIC_WHIRLWIND     = 50622,
     SPELL_WARRIOR_BLOODTHIRST_HEAL                  = 117313,
     SPELL_WARRIOR_CHARGE                            = 34846,
+    SPELL_WARRIOR_CLEAVE                            = 845,
     SPELL_WARRIOR_CHARGE_DROP_FIRE_PERIODIC         = 126661,
     SPELL_WARRIOR_CHARGE_EFFECT                     = 198337,
     SPELL_WARRIOR_CHARGE_ROOT_EFFECT                = 105771,
@@ -58,6 +59,7 @@ enum WarriorSpells
     SPELL_WARRIOR_GLYPH_OF_THE_BLAZING_TRAIL        = 123779,
     SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP              = 159708,
     SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP_BUFF         = 133278,
+    SPELL_WARRIOR_HAMSTRING                         = 1715,
     SPELL_WARRIOR_HEROIC_LEAP_JUMP                  = 178368,
     SPELL_WARRIOR_IGNORE_PAIN                       = 190456,
     SPELL_WARRIOR_IMPROVED_WHIRLWIND                = 12950,
@@ -66,10 +68,12 @@ enum WarriorSpells
     SPELL_WARRIOR_IMPENDING_VICTORY                 = 202168,
     SPELL_WARRIOR_IMPENDING_VICTORY_HEAL            = 202166,
     SPELL_WARRIOR_IMPROVED_HEROIC_LEAP              = 157449,
+    SPELL_WARRIOR_INSPIRING_PRESENCE                = 222944,
     SPELL_WARRIOR_MASSACRE                          = 206315,
     SPELL_WARRIOR_MORTAL_STRIKE                     = 12294,
     SPELL_WARRIOR_MORTAL_WOUNDS                     = 213667,
     SPELL_WARRIOR_OVERPOWER                         = 7384,
+    SPELL_WARRIOR_PRECISE_STRIKES                   = 248195,
     SPELL_WARRIOR_RALLYING_CRY                      = 97463,
     SPELL_WARRIOR_RAMPAGE                           = 184367,
     SPELL_WARRIOR_RAVAGER                           = 228920,
@@ -105,6 +109,7 @@ enum WarriorSpells
     SPELL_WARRIOR_WHIRLWIND_ARMS                    = 1680,
     SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA             = 85739,
     SPELL_WARRIOR_WHIRLWIND_ENERGIZE                = 280715,
+    SPELL_WARRIOR_WRECKING_BALL_EFFECT              = 215570,
 
     // Ignore Pain talent interactions — integrated from TheLegionPreservationProject
     SPELL_WARRIOR_RENEWED_FURY                      = 202288,
@@ -543,6 +548,35 @@ class spell_warr_critical_thinking : public AuraScript
     }
 };
 
+// 71 - Defensive Stance
+// Confirmed genuine Legion 7.3.5 content despite most Warrior stances being removed in 7.0.3:
+// Defensive Stance specifically survived as an Arms talent (not the old baseline stance-swap
+// mechanic). Grants rage from damage taken while active, matching its long-standing classic
+// behavior. No CheckProc filter needed - this aura's own DB2 proc data already gates it to
+// "on taking damage" events.
+class spell_warr_defensive_stance : public AuraScript
+{
+    void HandleProc(ProcEventInfo& eventInfo)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        DamageInfo const* damageInfo = eventInfo.GetDamageInfo();
+        int32 damageTaken = damageInfo ? int32(damageInfo->GetDamage()) : 0;
+        if (damageTaken <= 0)
+            return;
+
+        int32 rageAmount = int32(50.f * float(damageTaken) / float(caster->GetMaxHealth()));
+        caster->ModifyPower(POWER_RAGE, 10 * rageAmount);
+    }
+
+    void Register() override
+    {
+        OnProc += AuraProcFn(spell_warr_defensive_stance::HandleProc);
+    }
+};
+
 // 236279 - Devastator
 class spell_warr_devastator : public AuraScript
 {
@@ -769,6 +803,29 @@ class spell_warr_executioners_precision : public AuraScript
     }
 };
 
+// 207982 - Focused Rage (Arms)
+// Filter-only aura restricting its proc to Mortal Strike; the actual rage-cost-reduction
+// effect is left to this spell's own DB2-defined effect data, matching the same self-contained
+// pattern used elsewhere in this file. NOTE: the Protection version of "Focused Rage" is
+// deliberately NOT ported as a separate class here - ArgusCore's existing spell_warr_ignore_pain
+// already implements the equivalent Vengeance-triggered rage-cost-reduction mechanic
+// (SPELL_WARRIOR_VENGEANCE_AURA / SPELL_WARRIOR_VENGEANCE_FOCUSED_RAGE) under a different
+// structure (triggered from Ignore Pain's own cast rather than a separate Shield Slam proc);
+// porting DestinyCore's separate spell_warr_focused_rage_prot on top of that would risk
+// double-granting the same buff via two different trigger paths.
+class spell_warr_focused_rage_arms : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_WARRIOR_MORTAL_STRIKE;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_warr_focused_rage_arms::CheckProc);
+    }
+};
+
 // 206313 - Frenzy
 // Stacking haste buff (up to 3 stacks, confirmed via Wowhead/WoWDB) that only Furious Slash
 // (100130) can trigger/refresh. This filter-only aura's job is restricting which spell counts
@@ -969,6 +1026,36 @@ class spell_improved_whirlwind : public SpellScript
     }
 };
 
+// 222944 - Inspiring Presence
+// Self-heal proc based on a percentage of damage taken, matching the same idiom already used
+// by the existing spell_warr_fueled_by_violence class in this file.
+class spell_warr_inspiring_presence : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_INSPIRING_PRESENCE });
+    }
+
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
+    {
+        PreventDefaultAction();
+
+        Unit* caster = GetCaster();
+        DamageInfo const* damageInfo = eventInfo.GetDamageInfo();
+        if (!caster || !damageInfo || !damageInfo->GetDamage())
+            return;
+
+        CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
+        args.AddSpellBP0(CalculatePct(damageInfo->GetDamage(), aurEff->GetAmount()));
+        caster->CastSpell(caster, SPELL_WARRIOR_INSPIRING_PRESENCE, args);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_warr_inspiring_presence::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
 // 5246 - Intimidating Shout
 class spell_warr_intimidating_shout : public SpellScript
 {
@@ -1106,6 +1193,41 @@ class spell_warr_overpower_proc : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_warr_overpower_proc::CheckProc);
+    }
+};
+
+// 248579 - Precise Strikes
+// 7.3.5 (explicitly marked as such in DestinyCore). Colossus Smash grants a stacking
+// self-buff; the actual bonus effect is left to spell 248195's own DB2-defined data.
+class spell_warr_precise_strikes : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_PRECISE_STRIKES });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_WARRIOR_COLOSSUS_SMASH;
+    }
+
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo& /*eventInfo*/)
+    {
+        PreventDefaultAction();
+
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
+        args.AddSpellBP0(aurEff->GetAmount());
+        caster->CastSpell(caster, SPELL_WARRIOR_PRECISE_STRIKES, args);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_warr_precise_strikes::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_warr_precise_strikes::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -1309,6 +1431,23 @@ class spell_warr_second_wind_heal : public AuraScript
     }
 };
 
+// 223657 - Safeguard
+// Removes movement-impairing effects on the caster (Intervene's own effect, which Safeguard
+// modifies/extends) - a long-stable Warrior utility mechanic.
+class spell_warr_safeguard : public SpellScript
+{
+    void HandleOnHit()
+    {
+        if (Unit* caster = GetCaster())
+            caster->RemoveMovementImpairingAuras(true);
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_warr_safeguard::HandleOnHit);
+    }
+};
+
 // 64380 - Shattering Throw
 class spell_warr_shattering_throw : public SpellScript
 {
@@ -1384,6 +1523,41 @@ class spell_warr_shockwave : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_warr_shockwave::HandleStun, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 238111 - Soul of the Slaughter
+// Chance to proc Precise Strikes' bonus from several different abilities, each with its own
+// chance: Whirlwind (30%), Cleave/Hamstring/Execute (10% each), Mortal Strike/Slam (20% each).
+// Filter-only aura; the actual granted effect is handled by Precise Strikes' own spell data
+// once this aura allows the roll to proceed.
+class spell_warr_soul_of_the_slaughter : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_PRECISE_STRIKES });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        if (!eventInfo.GetSpellInfo())
+            return false;
+
+        uint32 chance = 0;
+        uint32 spell = eventInfo.GetSpellInfo()->Id;
+        if (spell == SPELL_WARRIOR_WHIRLWIND_ARMS)
+            chance = 30;
+        else if (spell == SPELL_WARRIOR_CLEAVE || spell == SPELL_WARRIOR_HAMSTRING || spell == SPELL_WARRIOR_EXECUTE)
+            chance = 10;
+        else if (spell == SPELL_WARRIOR_MORTAL_STRIKE || spell == SPELL_WARRIOR_SLAM_ARMS)
+            chance = 20;
+
+        return roll_chance_i(chance);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_warr_soul_of_the_slaughter::CheckProc);
     }
 };
 
@@ -1696,6 +1870,24 @@ class spell_warr_victory_rush : public SpellScript
     }
 };
 
+// 215570 - Wrecking Ball Effect
+// Clears any existing stack of this same buff before its own periodic damage-percent modifier
+// effect re-applies, preventing an old stack lingering alongside a fresh one.
+class spell_warr_wrecking_ball_effect : public AuraScript
+{
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+    {
+        if (Unit* caster = GetCaster())
+            if (caster->HasAura(SPELL_WARRIOR_WRECKING_BALL_EFFECT))
+                caster->RemoveAura(SPELL_WARRIOR_WRECKING_BALL_EFFECT);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_warr_wrecking_ball_effect::HandleProc, EFFECT_0, SPELL_AURA_ADD_PCT_MODIFIER);
+    }
+};
+
 // 190456 - Ignore Pain
 // The SpellScript fires the Renewed Fury and Vengeance talent procs when
 // Ignore Pain is cast. These two effects are on EFFECT_1 (a dummy) and are
@@ -1800,11 +1992,13 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_charge_effect);
     RegisterSpellScript(spell_warr_colossus_smash);
     RegisterSpellScript(spell_warr_critical_thinking);
+    RegisterSpellScript(spell_warr_defensive_stance);
     RegisterSpellScript(spell_warr_devastator);
     RegisterSpellScript(spell_warr_dragon_roar);
     RegisterSpellScript(spell_warr_enrage_proc);
     RegisterSpellScript(spell_warr_execute);
     RegisterSpellScript(spell_warr_executioners_precision);
+    RegisterSpellScript(spell_warr_focused_rage_arms);
     RegisterSpellScript(spell_warr_frenzy);
     RegisterSpellScript(spell_warr_fueled_by_violence);
     RegisterSpellScript(spell_warr_heroic_leap);
@@ -1812,21 +2006,25 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellAndAuraScriptPair(spell_warr_ignore_pain, spell_warr_ignore_pain_aura);
     RegisterSpellScript(spell_warr_impending_victory);
     RegisterSpellScript(spell_improved_whirlwind);
+    RegisterSpellScript(spell_warr_inspiring_presence);
     RegisterSpellScript(spell_warr_intimidating_shout);
     RegisterSpellScript(spell_warr_item_t10_prot_4p_bonus);
     RegisterSpellScript(spell_warr_massacre);
     RegisterSpellScript(spell_warr_mortal_strike);
     RegisterSpellScript(spell_warr_overpower_proc);
+    RegisterSpellScript(spell_warr_precise_strikes);
     RegisterSpellScript(spell_warr_rallying_cry);
     RegisterSpellScript(spell_warr_rampage);
     RegisterSpellScript(spell_warr_revenge_trigger);
     RegisterSpellScript(spell_warr_rumbling_earth);
+    RegisterSpellScript(spell_warr_safeguard);
     RegisterSpellScript(spell_warr_second_wind);
     RegisterSpellScript(spell_warr_second_wind_heal);
     RegisterSpellScript(spell_warr_shattering_throw);
     RegisterSpellScript(spell_warr_shield_block);
     RegisterSpellScript(spell_warr_shield_charge);
     RegisterSpellScript(spell_warr_shockwave);
+    RegisterSpellScript(spell_warr_soul_of_the_slaughter);
     RegisterSpellScript(spell_warr_storm_bolt);
     RegisterSpellScript(spell_warr_storm_bolts);
     RegisterSpellScript(spell_warr_strategist);
@@ -1838,4 +2036,5 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_thunder_clap);
     RegisterSpellScript(spell_warr_victorious_state);
     RegisterSpellScript(spell_warr_victory_rush);
+    RegisterSpellScript(spell_warr_wrecking_ball_effect);
 }

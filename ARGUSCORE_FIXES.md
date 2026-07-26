@@ -1994,6 +1994,120 @@ exactly.
 and confirm your next Mortal Strike deals bonus damage, stacking up to 2
 times with repeated Execute casts.
 
+### [DONE] Warrior - seven more mechanics implemented, plus three confirmed backward-drift skips
+
+**Subsystem:** Scripts/Spells (spell_warrior)
+
+**Problem:** Continuing the spell-by-spell audit through the remaining
+DestinyCore Warrior scripts. Seven more had no implementation anywhere in
+ArgusCore; three more candidates were investigated and deliberately **not**
+implemented after Wowhead/web research confirmed they're pre-Legion content
+that doesn't exist in 7.3.5.
+
+**Implemented (all self-contained, low-risk, ported directly from
+DestinyCore with only API-convention adaptation - no structural changes):**
+
+- **Defensive Stance** (71) — grants rage from damage taken while active.
+  Initially suspected backward drift (most Warrior stances were removed in
+  patch 7.0.3), but confirmed via web search that Defensive Stance
+  specifically survived into Legion as an Arms talent rather than being cut.
+- **Focused Rage (Arms)** (207982) — filter-only aura restricting a
+  rage-cost-reduction proc to Mortal Strike. The Protection version of this
+  same-named talent was deliberately **not** ported as a separate class:
+  ArgusCore's existing `spell_warr_ignore_pain` already implements the
+  equivalent Vengeance-triggered mechanic under a different structure, and
+  adding DestinyCore's separate version on top would risk double-granting
+  the same buff via two trigger paths.
+- **Inspiring Presence** — self-heal proc based on a percentage of damage
+  taken. The script is bound to spell **205484** (confirmed via DestinyCore's
+  own committed `spell_script_names` data), not `SPELL_WARRIOR_INSPIRING_PRESENCE`
+  (222944), which is a different, inner spell the script casts when it
+  procs — the two ids serve different roles and aren't interchangeable.
+- **Precise Strikes** (248579, explicitly marked "7.3.5" in DestinyCore) —
+  Colossus Smash grants a stacking self-buff. Lower-confidence than the
+  other six: DestinyCore's own committed SQL has no binding for this script
+  name at all, so 248579 comes from the source comment only, not an
+  independently confirmed binding.
+- **Safeguard** (223657) — removes movement-impairing effects on hit
+  (Intervene's own effect).
+- **Soul of the Slaughter** (238111) — multi-branch proc-chance filter
+  granting Precise Strikes' bonus from Whirlwind/Cleave/Hamstring/Execute/
+  Mortal Strike/Slam, each with its own chance.
+- **Wrecking Ball Effect** (215570) — clears an existing stack of itself
+  before a fresh one re-applies, preventing overlap.
+
+**Deliberately not implemented — confirmed pre-Legion content via
+Wowhead/web search:**
+
+- **Retaliation** (20230) — confirmed removed in patch 5.0.4 (Mists of
+  Pandaria, 2012), does not exist in Legion at all.
+- **Vigilance / Vigilance Trigger** (50720/50725) — DestinyCore's
+  implementation only handles removing the caster's "Vengeance" buff
+  (76691), but that classic Vengeance mechanic was removed in Warlords of
+  Draenor patch 6.0 (2014) and replaced by Resolve. Separately, web search
+  indicates Vigilance itself was removed around patch 7.0.3, before 7.3.5.
+  Both findings point the same direction: this is pre-Legion (or
+  early-Legion-and-then-cut) content, not something to port.
+- **Focused Rage (Protection)** — not a drift issue, but skipped for a
+  different reason: already effectively covered by ArgusCore's existing
+  `spell_warr_ignore_pain` (see above).
+
+**Also investigated, deliberately skipped for other reasons (not
+implemented, not necessarily wrong-expansion):**
+
+- **Commanding Shout** — DestinyCore's own `SPELL_WARRIOR_COMMANDING_SHOUT`
+  constant is set to 97463, but that's the *same value* as
+  `SPELL_WARRIOR_RALLYING_CRY`/`SPELL_WARRIOR_RALLYING_CRY_TRIGGER` in the
+  same file — an apparent copy-paste collision in DestinyCore's own enum.
+  Web search suggests the real id might be 225998, but that's only
+  confirmed for "current retail," not independently verified for 7.3.5, and
+  neither LegionCore nor TrinityCore-master have a comparable script to
+  cross-check against. Not implemented until this can be resolved with
+  higher confidence.
+- **Sword and Board** — DestinyCore binds this script using a *negative*
+  spell id (-46951) in `spell_script_names`, a different binding convention
+  (family/icon-based rather than a literal spell id) that hasn't been
+  verified to work the same way in ArgusCore's updater. Skipped rather than
+  risk an incorrectly-applied binding.
+- **Unrivaled Strength** — DestinyCore's implementation casts a hardcoded
+  spell id (200977) with no named constant anywhere in the file, and copies
+  a base amount between two unrelated auras. Not enough independent
+  verification to trust the hardcoded id; skipped rather than guess.
+- **Spell Reflect** (visual variant) — DestinyCore's script only changes
+  which purely-cosmetic reflect animation plays, gated on a hardcoded
+  faction template id (1732) that hasn't been verified against ArgusCore's
+  own faction data. Pure visual polish with no gameplay impact; skipped as
+  not worth the risk for the reward.
+- **Ravager** — depends on summoning and periodically damaging through an
+  NPC entity (creature 76168). Searched ArgusCore's committed SQL and found
+  no matching `creature_template` row, meaning a hard data prerequisite for
+  this mechanic couldn't be confirmed. Needs dedicated investigation before
+  attempting.
+
+**Files:** `src/server/scripts/Spells/spell_warrior.cpp`
+
+**Database dependency:** searched ArgusCore's committed SQL for existing
+`spell_script_names` bindings on all seven implemented spell ids — found
+none. Added all seven to a single dedicated file,
+`sql/updates/world/master/2026_07_25_18_world.sql`.
+
+**Risk:** Low for six of the seven; Precise Strikes carries slightly more
+uncertainty since its spell id isn't independently confirmed via a binding,
+only a source comment.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification for each: Defensive
+Stance (tank damage while in the stance, confirm rage generation),
+Focused Rage Arms (crit with Mortal Strike, confirm next ability's rage
+cost is reduced), Inspiring Presence (take damage, confirm a proportional
+self-heal), Precise Strikes (use Colossus Smash, confirm a stacking buff
+appears), Safeguard (use it while rooted/snared, confirm the effect is
+removed), Soul of the Slaughter (use the listed abilities repeatedly,
+confirm Precise Strikes' buff sometimes triggers from them too), Wrecking
+Ball Effect (trigger it twice in quick succession, confirm no stacking
+beyond intended).
+
 ---
 
 ## P4 — Performance / Cleanup
