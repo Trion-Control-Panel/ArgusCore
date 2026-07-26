@@ -39,6 +39,7 @@ enum HunterSpells
     SPELL_HUNTER_A_MURDER_OF_CROWS_VISUAL_3         = 131952,
     SPELL_HUNTER_AIMED_SHOT                         = 19434,
     SPELL_HUNTER_ANIMAL_INSTINCTS                   = 204315,
+    SPELL_HUNTER_ARCANE_SHOT                        = 185358,
     SPELL_HUNTER_ASPECT_CHEETAH_SLOW                = 186258,
     SPELL_HUNTER_ASPECT_OF_THE_EAGLE                = 186289,
     SPELL_HUNTER_ASPECT_OF_THE_FOX                  = 1219162,
@@ -48,10 +49,12 @@ enum HunterSpells
     SPELL_HUNTER_BEAST_CLEAVE_AURA                  = 115939,
     SPELL_HUNTER_BEAST_CLEAVE_DAMAGE                = 118459,
     SPELL_HUNTER_BEAST_CLEAVE_PROC                  = 118455,
+    SPELL_HUNTER_BESTIAL_WRATH                      = 19574,
     SPELL_HUNTER_BINDING_SHOT                       = 109248,
     SPELL_HUNTER_CAMOUFLAGE                         = 199483,
     SPELL_HUNTER_CHIMAERA_SHOT_HEAD_1               = 171454,
     SPELL_HUNTER_CHIMAERA_SHOT_HEAD_2               = 171457,
+    SPELL_HUNTER_COBRA_SHOT                         = 193455,
     SPELL_HUNTER_CONCUSSIVE_SHOT                    = 5116,
     SPELL_HUNTER_DIRE_BEAST_GENERIC                 = 120679,
     SPELL_HUNTER_DIRE_FRENZY                        = 217200,
@@ -720,6 +723,123 @@ class spell_hun_feign_death : public AuraScript
 
 // 190925 - Harpoon
 // Survival's gap-closer: roots the target, then jumps the Hunter to them.
+// 202800 - Flanking Strike
+// Trigger for Animal Instincts (204315). Sends the pet in to strike alongside the Hunter: if
+// the Hunter isn't currently being attacked, deals bonus damage and the pet's own hit is
+// stronger (Flanking Strike Proc); otherwise the pet's hit is the normal-strength variant
+// (Flanking Strike Proc Up) and it also generates bonus threat.
+// NOTE: drops the reference's "Aspect of the Beast" branch (bonus effect depends on the pet's
+// talent specialization via a hardcoded Ferocity/Cunning/Tenacity enum) - same missing-API gap
+// as Kill Command earlier this session (ArgusCore's Pet::GetSpecialization() returns a raw DB2
+// id, not that enum, and the correct ids weren't available to verify).
+class spell_hun_flanking_strike : public SpellScript
+{
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        Unit* pet = player ? player->GetGuardianPet() : nullptr;
+        Unit* target = GetExplTargetUnit();
+        if (!player || !pet || !target)
+            return;
+
+        int32 dmg = GetHitDamage();
+
+        if (player->getAttackers().empty())
+        {
+            pet->ToCreature()->AI()->AttackStart(target);
+            pet->CastSpell(target, SPELL_HUNTER_FLANKING_STRIKE_PROC, true);
+            dmg = int32(dmg * 1.5f);
+        }
+        else
+        {
+            pet->ToCreature()->AI()->AttackStart(target);
+            pet->CastSpell(target, SPELL_HUNTER_FLANKING_STRIKE_PROC_UP, true);
+            pet->AddThreat(target, 400.0f);
+        }
+
+        SetHitDamage(dmg);
+    }
+
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        if (!caster->HasSpell(SPELL_HUNTER_ANIMAL_INSTINCTS))
+            return;
+
+        switch (rand() % 4)
+        {
+            case 0: caster->GetSpellHistory()->ModifyCooldown(SPELL_HUNTER_HARPOON, -3000); break;
+            case 1: caster->GetSpellHistory()->ModifyCooldown(SPELL_HUNTER_ASPECT_OF_THE_EAGLE, -3000); break;
+            case 2: caster->GetSpellHistory()->ModifyCooldown(SPELL_HUNTER_MONGOOSE_BITE, -3000); break;
+            case 3: caster->GetSpellHistory()->ModifyCooldown(SPELL_HUNTER_FLANKING_STRIKE, -3000); break;
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_hun_flanking_strike::HandleDummy, EFFECT_0, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
+        AfterCast += SpellCastFn(spell_hun_flanking_strike::HandleAfterCast);
+    }
+};
+
+// 204740 - Flanking Strike (pet damage)
+class spell_hun_flanking_strike_proc : public SpellScript
+{
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* owner = caster ? caster->GetOwner() : nullptr;
+        Unit* target = GetExplTargetUnit();
+        if (!caster || !owner || !target)
+            return;
+
+        // (3.652 * ranged attack power * lowNerf), matching the reference's own formula
+        int32 dmg = int32(3.652f * owner->GetInt32Value(UNIT_FIELD_RANGED_ATTACK_POWER));
+        dmg = int32(dmg * (std::min<int32>(owner->GetLevel(), 20) * 0.05f));
+
+        dmg = caster->SpellDamageBonusDone(target, GetSpellInfo(), dmg, SPELL_DIRECT_DAMAGE, GetEffectInfo());
+        dmg = target->SpellDamageBonusTaken(caster, GetSpellInfo(), dmg, SPELL_DIRECT_DAMAGE);
+
+        SetHitDamage(dmg);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_hun_flanking_strike_proc::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 206933 - Flanking Strike (pet damage, +50%)
+class spell_hun_flanking_strike_proc_up : public SpellScript
+{
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* owner = caster ? caster->GetOwner() : nullptr;
+        Unit* target = GetExplTargetUnit();
+        if (!caster || !owner || !target)
+            return;
+
+        int32 dmg = int32(3.652f * owner->GetInt32Value(UNIT_FIELD_RANGED_ATTACK_POWER));
+        dmg = int32(dmg * (std::min<int32>(owner->GetLevel(), 20) * 0.05f));
+        dmg = int32(dmg * 1.5f);
+
+        dmg = caster->SpellDamageBonusDone(target, GetSpellInfo(), dmg, SPELL_DIRECT_DAMAGE, GetEffectInfo());
+        dmg = target->SpellDamageBonusTaken(caster, GetSpellInfo(), dmg, SPELL_DIRECT_DAMAGE);
+
+        SetHitDamage(dmg);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_hun_flanking_strike_proc_up::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
 class spell_hun_harpoon : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -946,6 +1066,34 @@ class spell_hun_kill_command_proc : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_hun_kill_command_proc::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 199532 - Killer Cobra
+// Proc-driven: while Bestial Wrath is active, Cobra Shot resets Kill Command's cooldown.
+class spell_hun_killer_cobra : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_HUNTER_COBRA_SHOT;
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+    {
+        PreventDefaultAction();
+
+        Unit* caster = GetCaster();
+        if (!caster || !caster->HasAura(SPELL_HUNTER_BESTIAL_WRATH))
+            return;
+
+        if (caster->GetSpellHistory()->HasCooldown(SPELL_HUNTER_KILL_COMMAND))
+            caster->GetSpellHistory()->ResetCooldown(SPELL_HUNTER_KILL_COMMAND, true);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_hun_killer_cobra::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_hun_killer_cobra::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
     }
 };
 
@@ -1401,6 +1549,31 @@ class spell_hun_multi_shot_marking_targets : public SpellScript
 };
 
 // 55709 - Pet Heart of the Phoenix
+// 206685 - Cobra Spit (pet)
+class spell_hun_pet_cobra_spit : public SpellScript
+{
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* owner = caster ? caster->GetOwner() : nullptr;
+        Unit* target = GetExplTargetUnit();
+        if (!caster || !owner || !target)
+            return;
+
+        int32 dmg = int32(1 + owner->GetInt32Value(UNIT_FIELD_RANGED_ATTACK_POWER) * 0.2f);
+
+        dmg = caster->SpellDamageBonusDone(target, GetSpellInfo(), dmg, SPELL_DIRECT_DAMAGE, GetEffectInfo());
+        dmg = target->SpellDamageBonusTaken(caster, GetSpellInfo(), dmg, SPELL_DIRECT_DAMAGE);
+
+        SetHitDamage(dmg);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_hun_pet_cobra_spit::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
 class spell_hun_pet_heart_of_the_phoenix : public SpellScript
 {
     bool Load() override
@@ -1437,6 +1610,31 @@ class spell_hun_pet_heart_of_the_phoenix : public SpellScript
 };
 
 // 781 - Disengage
+// 63900 - Thunderstomp (pet)
+class spell_hun_pet_thunderstomp : public SpellScript
+{
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* owner = caster ? caster->GetOwner() : nullptr;
+        Unit* target = GetHitUnit();
+        if (!caster || !owner || !target)
+            return;
+
+        int32 dmg = int32(1.5f * (owner->GetInt32Value(UNIT_FIELD_RANGED_ATTACK_POWER) * 0.250f));
+
+        dmg = caster->SpellDamageBonusDone(target, GetSpellInfo(), dmg, SPELL_DIRECT_DAMAGE, GetEffectInfo());
+        dmg = target->SpellDamageBonusTaken(caster, GetSpellInfo(), dmg, SPELL_DIRECT_DAMAGE);
+
+        SetHitDamage(dmg);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_hun_pet_thunderstomp::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
 class spell_hun_posthaste : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -2028,6 +2226,21 @@ class spell_hun_wild_call : public AuraScript
 // Called by 136 - Mend Pet
 // 201082 - Way of the Mok'Nathal
 // Gates the talent aura's own DB2 proc data to Raptor Strike only.
+// 199527 - True Aim
+// Gates the talent aura's own DB2 proc data to Aimed Shot or Arcane Shot only.
+class spell_hun_true_aim : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && (eventInfo.GetSpellInfo()->Id == SPELL_HUNTER_AIMED_SHOT || eventInfo.GetSpellInfo()->Id == SPELL_HUNTER_ARCANE_SHOT);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_hun_true_aim::CheckProc);
+    }
+};
+
 class spell_hun_way_of_the_moknathal : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -2108,12 +2321,16 @@ void AddSC_hunter_spell_scripts()
     RegisterAreaTriggerAI(areatrigger_hun_high_explosive_trap);
     RegisterSpellScript(spell_hun_farstrider);
     RegisterSpellScript(spell_hun_feign_death);
+    RegisterSpellScript(spell_hun_flanking_strike);
+    RegisterSpellScript(spell_hun_flanking_strike_proc);
+    RegisterSpellScript(spell_hun_flanking_strike_proc_up);
     RegisterSpellScript(spell_hun_harpoon);
     RegisterSpellScript(spell_hun_hunters_mark);
     RegisterSpellScript(spell_hun_hunting_party);
     RegisterSpellScript(spell_hun_intimidation);
     RegisterSpellScript(spell_hun_kill_command);
     RegisterSpellScript(spell_hun_kill_command_proc);
+    RegisterSpellScript(spell_hun_killer_cobra);
     RegisterAreaTriggerAI(areatrigger_hun_implosive_trap);
     RegisterSpellScript(spell_hun_last_stand_pet);
     RegisterSpellScript(spell_hun_latent_poison_damage);
@@ -2131,7 +2348,9 @@ void AddSC_hunter_spell_scripts()
     RegisterSpellScript(spell_hun_mortal_wounds);
     RegisterSpellScript(spell_hun_multi_shot);
     RegisterSpellScript(spell_hun_multi_shot_marking_targets);
+    RegisterSpellScript(spell_hun_pet_cobra_spit);
     RegisterSpellScript(spell_hun_pet_heart_of_the_phoenix);
+    RegisterSpellScript(spell_hun_pet_thunderstomp);
     RegisterSpellScript(spell_hun_posthaste);
     RegisterSpellScript(spell_hun_rangers_net);
     RegisterSpellScript(spell_hun_rapid_fire);
@@ -2152,6 +2371,7 @@ void AddSC_hunter_spell_scripts()
     RegisterAreaTriggerAI(areatrigger_hun_tar_trap);
     RegisterAreaTriggerAI(areatrigger_hun_tar_trap_activate);
     RegisterSpellScript(spell_hun_t9_4p_bonus);
+    RegisterSpellScript(spell_hun_true_aim);
     RegisterSpellScript(spell_hun_wild_call);
     RegisterSpellScript(spell_hun_way_of_the_moknathal);
     RegisterSpellScript(spell_hun_wilderness_medicine);
