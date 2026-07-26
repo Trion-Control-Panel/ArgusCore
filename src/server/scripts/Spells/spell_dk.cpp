@@ -1860,6 +1860,37 @@ struct at_dk_defile : AreaTriggerAI
     }
 };
 
+// 238698 - Vampiric Aura (Artifact Power trait)
+// Raid-wide targeting, filtered down to the caster plus up to 5 friendly units - the actual
+// leech buff is this spell's own DB2 effect data, applied to whichever targets survive this filter.
+class spell_dk_vampiric_aura : public SpellScript
+{
+    void FilterTargets(std::list<WorldObject*>& targets)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        ObjectGuid casterGuid = caster->GetGUID();
+        targets.remove_if([casterGuid, caster](WorldObject* obj)
+        {
+            Unit* target = obj->ToUnit();
+            if (!target)
+                return true;
+
+            return target->GetGUID() != casterGuid && !target->IsFriendlyTo(caster);
+        });
+
+        if (targets.size() > 5)
+            Trinity::Containers::RandomResize(targets, 5);
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_dk_vampiric_aura::FilterTargets, EFFECT_0, TARGET_UNIT_TARGET_RAID);
+    }
+};
+
 // 206967 - Will of the Necropolis
 class spell_dk_will_of_the_necropolis : public AuraScript
 {
@@ -2287,6 +2318,7 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_defile);
     RegisterSpellScript(spell_dk_defile_periodic);
     RegisterAreaTriggerAI(at_dk_defile);
+    RegisterSpellScript(spell_dk_vampiric_aura);
     RegisterSpellScript(spell_dk_desecrated_ground);
     RegisterSpellScript(spell_dk_death_grip_initial);
     RegisterSpellScript(spell_dk_death_pact);
