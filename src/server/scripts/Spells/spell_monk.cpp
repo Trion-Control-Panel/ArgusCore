@@ -50,6 +50,7 @@ enum MonkSpells
     SPELL_MONK_ENVELOPING_MIST_HEAL                     = 132120,
     SPELL_MONK_FISTS_OF_FURY_DAMAGE                     = 117418,
     SPELL_MONK_FISTS_OF_FURY_VISUAL                     = 123154,
+    SPELL_MONK_FORTIFYING_BREW                          = 120954,
     SPELL_MONK_JADE_WALK                                = 450552,
     SPELL_MONK_MISTS_OF_LIFE                            = 388548,
     SPELL_MONK_MORTAL_WOUNDS                            = 115804,
@@ -253,6 +254,64 @@ class spell_monk_crackling_jade_lightning_knockback_proc_aura : public AuraScrip
     }
 };
 
+// 122278 - Dampen Harm
+// Charge-based defensive: absorbs a percentage of any single hit large enough to exceed a
+// health-percentage threshold, consuming one charge per triggered absorb.
+// NOTE: DestinyCore's reference computes the absorb as
+// "dmgInfo.GetDamage() * (CalcValue(EFFECT_0) / 100)" - since CalcValue returns int32, that
+// inner division truncates to 0 for any percentage under 100 (integer division), making the
+// absorb always zero. Used CalculatePct (float-based, matching the convention already used
+// throughout this codebase) instead of porting that division verbatim.
+class spell_monk_dampen_harm : public AuraScript
+{
+    int32 _healthPct = 0;
+
+    bool Load() override
+    {
+        _healthPct = GetEffectInfo(EFFECT_0).CalcValue(GetCaster());
+        return GetUnitOwner()->ToPlayer() != nullptr;
+    }
+
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = -1;
+    }
+
+    void Absorb(AuraEffect* aurEff, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        Unit* target = GetTarget();
+        uint32 threshold = target->CountPctFromMaxHealth(_healthPct);
+        if (dmgInfo.GetDamage() < threshold)
+            return;
+
+        absorbAmount = uint32(CalculatePct(dmgInfo.GetDamage(), _healthPct));
+        aurEff->GetBase()->DropCharge();
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_monk_dampen_harm::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_monk_dampen_harm::Absorb, EFFECT_0);
+    }
+};
+
+// 115288 - Energizing Brew
+// Only usable in combat.
+class spell_monk_energizing_brew : public SpellScript
+{
+    SpellCastResult CheckFight()
+    {
+        if (!GetCaster()->IsInCombat())
+            return SPELL_FAILED_CASTER_AURASTATE;
+        return SPELL_CAST_OK;
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_monk_energizing_brew::CheckFight);
+    }
+};
+
 // 124682 - Enveloping Mist
 // Casts the actual heal (132120) after the cast completes. Already relied upon by the
 // existing spell_monk_mists_of_life class in this file, which casts 124682 directly and
@@ -364,6 +423,23 @@ class spell_monk_fists_of_fury_visual : public AuraScript
     void Register() override
     {
         OnEffectApply += AuraEffectApplyFn(spell_monk_fists_of_fury_visual::OnApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 115203 - Fortifying Brew
+// Thin wrapper: applies the actual defensive buff (120954, SPELL_MONK_FORTIFYING_BREW) on hit.
+class spell_monk_fortifying_brew : public SpellScript
+{
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (caster)
+            caster->CastSpell(caster, SPELL_MONK_FORTIFYING_BREW, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_monk_fortifying_brew::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
     }
 };
 
@@ -1177,11 +1253,14 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_burst_of_life_heal);
     RegisterSpellScript(spell_monk_crackling_jade_lightning);
     RegisterSpellScript(spell_monk_crackling_jade_lightning_knockback_proc_aura);
+    RegisterSpellScript(spell_monk_dampen_harm);
+    RegisterSpellScript(spell_monk_energizing_brew);
     RegisterSpellScript(spell_monk_enveloping_mist);
     RegisterSpellScript(spell_monk_fists_of_fury);
     RegisterSpellScript(spell_monk_fists_of_fury_damage);
     RegisterSpellScript(spell_monk_fists_of_fury_visual_filter);
     RegisterSpellScript(spell_monk_fists_of_fury_visual);
+    RegisterSpellScript(spell_monk_fortifying_brew);
     RegisterSpellScript(spell_monk_jade_walk);
     RegisterSpellScript(spell_monk_life_cocoon);
     RegisterSpellScript(spell_monk_mists_of_life);

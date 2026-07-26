@@ -2532,6 +2532,71 @@ injured nearby ally rather than just expiring; channel Soothing Mist and
 confirm Chi generates periodically and the channel doesn't break when
 casting other instants.
 
+### [DONE] Monk - Dampen Harm, Energizing Brew, Fortifying Brew missing; Expel Harm deliberately deferred
+
+**Subsystem:** Scripts/Spells (spell_monk)
+
+**Problem:** Continuing through Monk defensive/utility cooldowns. Dampen
+Harm (122278), Energizing Brew (115288), and Fortifying Brew (115203) had
+no implementation anywhere in ArgusCore.
+
+**Dampen Harm:** charge-based absorb that only triggers on a single hit
+large enough to exceed a health-percentage threshold. **Found and fixed an
+integer-division bug in DestinyCore's reference**: its absorb formula is
+`dmgInfo.GetDamage() * (CalcValue(EFFECT_0) / 100)`, where `CalcValue`
+returns `int32` — the inner division truncates to 0 for any percentage
+under 100%, meaning the absorb would always compute to zero. Used
+`CalculatePct` (float-based, matching the convention already used
+throughout this codebase) instead of porting that division verbatim.
+
+**Energizing Brew:** trivially simple — only usable in combat, enforced via
+`OnCheckCast`.
+
+**Fortifying Brew:** thin wrapper, same "outer cast applies the real buff"
+pattern already seen in Renewing Mist/Rampage/etc. this session.
+
+**Expel Harm — investigated, deliberately deferred, not implemented.**
+DestinyCore's version deals a flat 50% of the self-heal as AoE damage to
+*all* attackable enemies within 10 yards via a hardcoded literal spell id
+(115129, no named constant). Cross-checked against LegionCore for a second
+opinion and found a structurally different implementation entirely: it
+consumes "Gift of the Ox" healing orbs (a Brewmaster passive mechanic
+involving spawned `AreaTrigger` objects) and deals only 10% of the healing
+as *single-target* damage — matching Wowhead's documented modern-retail
+behavior ("10% of the amount healed... to an enemy within 8 yards", not an
+AoE nuke). This strongly suggests DestinyCore's flat-50%-AoE version is
+wrong for 7.3.5, similar to the earlier Guard finding. However, a correct
+port depends on Gift of the Ox, which ArgusCore has **no implementation of
+at all** — a genuine prerequisite, not just a nice-to-have (same situation
+as Ravager depending on unimplemented NPC data, and Soothing Mist's Jade
+Serpent Statue omission). Left unimplemented rather than port either the
+likely-wrong DestinyCore version or a version depending on a missing
+mechanic.
+
+**Files:** `src/server/scripts/Spells/spell_monk.cpp`
+
+**Fix:** Added `SPELL_MONK_FORTIFYING_BREW` (120954) constant and three
+classes (`spell_monk_dampen_harm`, `spell_monk_energizing_brew`,
+`spell_monk_fortifying_brew`), ported from DestinyCore with the Dampen Harm
+correction noted above.
+
+**Database dependency:** searched ArgusCore's committed SQL for existing
+`spell_script_names` bindings on all three spell ids — found none. Added
+all three to a single dedicated file,
+`sql/updates/world/master/2026_07_26_05_world.sql`.
+
+**Risk:** Low — all three are small, self-contained, and Dampen Harm's
+fix can only improve on a reference that was previously non-functional
+(zero absorb) regardless of what value it computed.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — Dampen Harm: take a
+single large hit exceeding the health-percentage threshold, confirm partial
+damage is absorbed and a charge is consumed. Energizing Brew: confirm it
+fails to cast outside combat. Fortifying Brew: confirm the defensive buff
+applies on cast.
+
 ---
 
 ## P4 — Performance / Cleanup
