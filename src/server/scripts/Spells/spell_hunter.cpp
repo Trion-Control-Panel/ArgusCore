@@ -754,7 +754,7 @@ class spell_hun_flanking_strike : public SpellScript
         {
             pet->ToCreature()->AI()->AttackStart(target);
             pet->CastSpell(target, SPELL_HUNTER_FLANKING_STRIKE_PROC_UP, true);
-            pet->AddThreat(target, 400.0f);
+            pet->GetThreatManager().AddThreat(target, 400.0f);
         }
 
         SetHitDamage(dmg);
