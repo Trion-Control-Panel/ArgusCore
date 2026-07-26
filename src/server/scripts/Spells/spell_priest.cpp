@@ -122,6 +122,7 @@ enum PriestSpells
     SPELL_PRIEST_LEVITATE_EFFECT                    = 111759,
     SPELL_PRIEST_LIGHT_ERUPTION                     = 196812,
     SPELL_PRIEST_LIGHTS_WRATH_VISUAL                = 215795,
+    SPELL_PRIEST_LINGERING_INSANITY                 = 197937,
     SPELL_PRIEST_MASOCHISM_TALENT                   = 193063,
     SPELL_PRIEST_MASOCHISM_PERIODIC_HEAL            = 193065,
     SPELL_PRIEST_MASTERY_GRACE                      = 271534,
@@ -180,6 +181,8 @@ enum PriestSpells
     SPELL_PRIEST_SHADOW_WORD_DEATH_DAMAGE           = 32409,
     SPELL_PRIEST_SHADOW_MEND_PERIODIC_DUMMY         = 187464,
     SPELL_PRIEST_SHADOW_WORD_PAIN                   = 589,
+    SPELL_PRIEST_SHADOWFORM_STANCE                  = 232698,
+    SPELL_PRIEST_SHADOWY_APPARITION_MISSILE         = 147193,
     SPELL_PRIEST_SHIELD_DISCIPLINE                  = 197045,
     SPELL_PRIEST_SHIELD_DISCIPLINE_EFFECT           = 47755,
     SPELL_PRIEST_SIN_AND_PUNISHMENT                 = 87204,
@@ -203,8 +206,14 @@ enum PriestSpells
     SPELL_PRIEST_UNFURLING_DARKNESS_DEBUFF          = 341291,
     SPELL_PRIEST_VAMPIRIC_EMBRACE_HEAL              = 15290,
     SPELL_PRIEST_VAMPIRIC_TOUCH                     = 34914,
+    SPELL_PRIEST_VOIDFORM_BUFFS                     = 194249,
+    SPELL_PRIEST_VOIDFORM_TENTACLES                 = 210196,
+    SPELL_PRIEST_VOID_BOLT_DURATION                 = 231688,
+    SPELL_PRIEST_VOID_ERUPTION                      = 228260,
+    SPELL_PRIEST_VOID_ERUPTION_DAMAGE               = 228360,
     SPELL_PRIEST_VOID_SHIELD                        = 199144,
     SPELL_PRIEST_VOID_SHIELD_EFFECT                 = 199145,
+    SPELL_PRIEST_VOID_TENDRILS_SUMMON                = 127665,
     SPELL_PRIEST_WEAKENED_SOUL                      = 6788,
     SPELL_PRIEST_WHISPERING_SHADOWS                 = 406777,
     SPELL_PRIEST_WHISPERING_SHADOWS_DUMMY           = 391286,
@@ -214,7 +223,8 @@ enum PriestSpells
 enum PriestSpellVisuals
 {
     SPELL_VISUAL_PRIEST_POWER_WORD_RADIANCE         = 52872,
-    SPELL_VISUAL_PRIEST_PRAYER_OF_MENDING           = 38945
+    SPELL_VISUAL_PRIEST_PRAYER_OF_MENDING           = 38945,
+    SPELL_VISUAL_PRIEST_SHADOWY_APPARITION           = 33584
 };
 
 enum PriestSummons
@@ -3155,6 +3165,210 @@ class spell_pri_shadow_word_death : public SpellScript
     }
 };
 
+// 78203 - Shadowy Apparitions
+// Shadow Word: Pain crits have a chance to spawn a homing missile that deals damage to its target.
+class spell_pri_shadowy_apparitions : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PRIEST_SHADOWY_APPARITION_MISSILE, SPELL_PRIEST_SHADOW_WORD_PAIN });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_PRIEST_SHADOW_WORD_PAIN
+            && (eventInfo.GetHitMask() & PROC_HIT_CRITICAL);
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+    {
+        Unit* target = GetTarget();
+        Unit* actionTarget = eventInfo.GetActionTarget();
+        if (!target || !actionTarget)
+            return;
+
+        target->CastSpell(actionTarget, SPELL_PRIEST_SHADOWY_APPARITION_MISSILE, true);
+        target->SendPlaySpellVisual(actionTarget, SPELL_VISUAL_PRIEST_SHADOWY_APPARITION, SPELL_MISS_NONE, SPELL_MISS_NONE, 6.0f, false);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_pri_shadowy_apparitions::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+        DoCheckProc += AuraCheckProcFn(spell_pri_shadowy_apparitions::CheckProc);
+    }
+};
+
+// 228260 - Void Eruption
+// Shadow's core cooldown: deals initial damage to targets already carrying Shadow Word: Pain or
+// Vampiric Touch, then enters Voidform.
+class spell_pri_void_eruption : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PRIEST_VOID_ERUPTION_DAMAGE, SPELL_PRIEST_VOIDFORM_BUFFS, SPELL_PRIEST_SHADOWFORM_STANCE });
+    }
+
+    void FilterTargets(std::list<WorldObject*>& targets)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        targets.remove_if([caster](WorldObject* target)
+        {
+            Unit* unit = target->ToUnit();
+            if (!unit)
+                return true;
+
+            return !(unit->HasAura(SPELL_PRIEST_SHADOW_WORD_PAIN, caster->GetGUID()) || unit->HasAura(SPELL_PRIEST_VAMPIRIC_TOUCH, caster->GetGUID()));
+        });
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        caster->CastSpell(target, SPELL_PRIEST_VOID_ERUPTION_DAMAGE + urand(0, 1), true);
+    }
+
+    void EnterVoidform()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        caster->CastSpell(caster, SPELL_PRIEST_VOIDFORM_BUFFS, true);
+        if (!caster->HasAura(SPELL_PRIEST_SHADOWFORM_STANCE))
+            caster->CastSpell(caster, SPELL_PRIEST_SHADOWFORM_STANCE, true);
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pri_void_eruption::FilterTargets, EFFECT_0, TARGET_UNIT_DEST_AREA_ENEMY);
+        OnEffectHitTarget += SpellEffectFn(spell_pri_void_eruption::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+        AfterCast += SpellCastFn(spell_pri_void_eruption::EnterVoidform);
+    }
+};
+
+// 194249 - Voidform (buffs)
+// Every tick, spawns escalating tentacle visuals at specific stack thresholds and refreshes its
+// own stacking haste buff; cancels itself once Insanity is fully drained. On removal, converts
+// its current haste bonus (plus this file's own Voidform Buffs rank-3 bonus, if any) into
+// Lingering Insanity's snapshot amount.
+class spell_pri_voidform : public AuraScript
+{
+    void HandleApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (Unit* caster = GetCaster())
+            caster->RemoveAurasDueToSpell(SPELL_PRIEST_LINGERING_INSANITY);
+    }
+
+    void HandlePeriodic(AuraEffect const* /*aurEff*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (caster->GetPower(POWER_INSANITY) == 0)
+        {
+            caster->RemoveAura(GetAura());
+            return;
+        }
+
+        int32 tick = GetAura()->GetStackAmount() - 1;
+        switch (tick)
+        {
+            case 0: caster->CastSpell(caster, SPELL_PRIEST_VOIDFORM_TENTACLES, true); break;
+            case 3: caster->CastSpell(caster, SPELL_PRIEST_VOIDFORM_TENTACLES + 1, true); break;
+            case 6: caster->CastSpell(caster, SPELL_PRIEST_VOIDFORM_TENTACLES + 2, true); break;
+            case 9: caster->CastSpell(caster, SPELL_PRIEST_VOIDFORM_TENTACLES + 3, true); break;
+            default: break;
+        }
+
+        caster->CastSpell(caster, SPELL_PRIEST_VOIDFORM_BUFFS, true);
+    }
+
+    void HandleRemove(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        for (int32 i = 0; i < 4; ++i)
+            caster->RemoveAurasDueToSpell(SPELL_PRIEST_VOIDFORM_TENTACLES + i);
+
+        CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
+        args.AddSpellMod(SPELLVALUE_BASE_POINT0, aurEff->GetAmount());
+
+        if (AuraEffect* rank3 = caster->GetAuraEffectOfRankedSpell(SPELL_PRIEST_VOIDFORM_BUFFS, EFFECT_3, caster->GetGUID()))
+            args.AddSpellMod(SPELLVALUE_BASE_POINT1, rank3->GetAmount());
+
+        caster->CastSpell(caster, SPELL_PRIEST_LINGERING_INSANITY, args);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_pri_voidform::HandlePeriodic, EFFECT_4, SPELL_AURA_PERIODIC_DUMMY);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_pri_voidform::HandleRemove, EFFECT_2, SPELL_AURA_MELEE_SLOW, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectApply += AuraEffectApplyFn(spell_pri_voidform::HandleApply, EFFECT_4, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 234746 - Void Bolt
+// Extends the duration of Shadow Word: Pain and Vampiric Touch on its target.
+class spell_pri_void_bolt : public SpellScript
+{
+    void HandleScriptEffect(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        Aura* durationBuff = caster->GetAura(SPELL_PRIEST_VOID_BOLT_DURATION);
+        if (!durationBuff)
+            return;
+
+        AuraEffect* durationEffect = durationBuff->GetEffect(EFFECT_0);
+        if (!durationEffect)
+            return;
+
+        int32 durationIncreaseMs = durationEffect->GetBaseAmount();
+
+        if (Aura* pain = target->GetAura(SPELL_PRIEST_SHADOW_WORD_PAIN, caster->GetGUID()))
+            pain->SetDuration(pain->GetDuration() + durationIncreaseMs);
+
+        if (Aura* vampiricTouch = target->GetAura(SPELL_PRIEST_VAMPIRIC_TOUCH, caster->GetGUID()))
+            vampiricTouch->SetDuration(vampiricTouch->GetDuration() + durationIncreaseMs);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_pri_void_bolt::HandleScriptEffect, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+};
+
+// 108920 - Void Tendrils
+// Summons a root-effect totem at the target location.
+class spell_pri_void_tendrils : public SpellScript
+{
+    void HandleOnHit()
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        Unit* target = GetHitUnit();
+        if (player && target)
+            player->CastSpell(target, SPELL_PRIEST_VOID_TENDRILS_SUMMON, true);
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_pri_void_tendrils::HandleOnHit);
+    }
+};
+
 // 109186 - Surge of Light
 class spell_pri_surge_of_light : public AuraScript
 {
@@ -3677,6 +3891,11 @@ void AddSC_priest_spell_scripts()
     RegisterSpellScript(spell_pri_shadow_mend);
     RegisterSpellScript(spell_pri_shadow_mend_periodic_damage);
     RegisterSpellScript(spell_pri_shadow_word_death);
+    RegisterSpellScript(spell_pri_shadowy_apparitions);
+    RegisterSpellScript(spell_pri_void_eruption);
+    RegisterSpellScript(spell_pri_voidform);
+    RegisterSpellScript(spell_pri_void_bolt);
+    RegisterSpellScript(spell_pri_void_tendrils);
     RegisterSpellScript(spell_pri_surge_of_light);
     RegisterSpellScript(spell_pri_trail_of_light);
     RegisterSpellScript(spell_pri_train_of_thought);
