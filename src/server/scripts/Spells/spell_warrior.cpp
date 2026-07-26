@@ -112,6 +112,7 @@ enum WarriorSpells
     SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA             = 85739,
     SPELL_WARRIOR_WHIRLWIND_ENERGIZE                = 280715,
     SPELL_WARRIOR_WRECKING_BALL_EFFECT              = 215570,
+    SPELL_WARRIOR_WAR_MACHINE_AURA                  = 215566,
 
     // Ignore Pain talent interactions — integrated from TheLegionPreservationProject
     SPELL_WARRIOR_RENEWED_FURY                      = 202288,
@@ -1308,6 +1309,34 @@ class spell_warr_vigilance_trigger : public SpellScript
     }
 };
 
+// 215556 - War Machine (PvP Honor Talent)
+// Grants a passive buff aura for as long as this talent's proc-trigger aura is active.
+class spell_warr_war_machine : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_WAR_MACHINE_AURA });
+    }
+
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/) const
+    {
+        if (Unit* caster = GetCaster())
+            caster->CastSpell(caster, SPELL_WARRIOR_WAR_MACHINE_AURA, true);
+    }
+
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/) const
+    {
+        if (Unit* caster = GetCaster())
+            caster->RemoveAurasDueToSpell(SPELL_WARRIOR_WAR_MACHINE_AURA);
+    }
+
+    void Register() override
+    {
+        OnEffectApply += AuraEffectApplyFn(spell_warr_war_machine::OnApply, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL, AURA_EFFECT_HANDLE_REAL);
+        OnEffectRemove += AuraEffectRemoveFn(spell_warr_war_machine::OnRemove, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
 // 184367 - Rampage
 // Consumes the Whirlwind Cleave Aura (85739, granted by Whirlwind via ApplyWhirlwindCleaveAura
 // above - the same spell a reference implementation names "Meat Cleaver Proc") so Rampage also hits nearby
@@ -2092,6 +2121,7 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_rallying_cry);
     RegisterSpellScript(spell_warr_last_stand);
     RegisterSpellScript(spell_warr_vigilance_trigger);
+    RegisterSpellScript(spell_warr_war_machine);
     RegisterSpellScript(spell_warr_rampage);
     RegisterSpellScript(spell_warr_revenge_trigger);
     RegisterSpellScript(spell_warr_rumbling_earth);
