@@ -117,6 +117,7 @@ enum MonkSpells
     SPELL_MONK_TEACHINGS_OF_THE_MONASTERY               = 116645,
     SPELL_MONK_THUNDER_FOCUS_TEA                        = 116680,
     SPELL_MONK_TEACHINGS_OF_THE_MONASTERY_AURA          = 202090,
+    SPELL_MONK_TIGER_PALM                               = 100780,
     SPELL_MONK_TOUCH_OF_DEATH                           = 115080,
     SPELL_MONK_TOUCH_OF_KARMA_REDIRECT_DAMAGE           = 124280,
     SPELL_MONK_VIVIFY                                   = 116670,
@@ -2271,6 +2272,29 @@ private:
     }
 };
 
+// 116645 - Teachings of the Monastery
+// Passive: Tiger Palm has a chance to grant a stacking buff (202090) that Blackout Kick later
+// consumes for bonus damage (spell_monk_blackout_kick above already handles the consumption
+// side) - this is the missing granting half. Without this, Blackout Kick's consumption logic
+// would always find zero stacks and this entire talent would silently do nothing.
+class spell_monk_teachings_of_the_monastery : public AuraScript
+{
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+    {
+        Unit* caster = GetCaster();
+        SpellInfo const* procSpell = eventInfo.GetSpellInfo();
+        if (!caster || !procSpell || procSpell->Id != SPELL_MONK_TIGER_PALM)
+            return;
+
+        caster->CastSpell(caster, SPELL_MONK_TEACHINGS_OF_THE_MONASTERY_AURA, true);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_monk_teachings_of_the_monastery::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
 // 116841 - Tiger's Lust
 class spell_monk_tigers_lust : public SpellScript
 {
@@ -2541,6 +2565,7 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_stagger);
     RegisterSpellScript(spell_monk_stagger_damage_aura);
     RegisterSpellScript(spell_monk_stagger_debuff_aura);
+    RegisterSpellScript(spell_monk_teachings_of_the_monastery);
     RegisterSpellScript(spell_monk_tigers_lust);
     RegisterSpellScript(spell_monk_touch_of_death);
     RegisterSpellScript(spell_monk_touch_of_karma);
