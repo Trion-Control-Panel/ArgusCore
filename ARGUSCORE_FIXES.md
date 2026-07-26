@@ -2383,6 +2383,83 @@ Conditioning talented, confirm Rising Sun Kick still applies Mortal Wounds.
 Separately, as Mistweaver with Rising Thunder talented, confirm Rising Sun
 Kick occasionally resets Thunder Focus Tea's cooldown.
 
+### [DONE] Monk/Brewmaster - Purifying Brew missing, Guard missing and DestinyCore's reference implements the wrong-patch mechanic
+
+**Subsystem:** Scripts/Spells (spell_monk)
+
+**Problem:** Purifying Brew (119582) and Guard (202162), two of Brewmaster's
+most basic tools, had no implementation anywhere in ArgusCore.
+
+**Purifying Brew:** straightforward — halves whatever Stagger DoT
+(Light/Moderate/Heavy) is currently active. Reused ArgusCore's existing
+`FindExistingStaggerEffect` helper (already shared across the other Stagger
+scripts in this file) rather than re-deriving the same "check Light, then
+Moderate, then Heavy" logic DestinyCore's version does inline.
+
+**Guard: a genuine reference conflict, resolved by cross-checking a third
+source.** DestinyCore's implementation is a flat self-absorb shield
+(`AttackPower * 18`) — this matches Guard's **pre-Legion (Mists of
+Pandaria)** mechanic, not 7.3.5's. Web research (Warcraft Wiki's patch-note
+history) confirms Guard was redesigned into a PvP honor talent in **patch
+7.1.5** — well before 7.3.5 — dropping the self-absorb entirely in favor of
+redirecting 30% of a protected nearby ally's incoming damage into the
+Monk's own Stagger pool. Confirmed this isn't just a wiki claim:
+DestinyCore's own bound spell id for this script (202162) is specifically
+the *later* PvP-talent version's id, not the old MoP ability's id (115295)
+— meaning DestinyCore's code and its own SQL binding actually disagree
+with each other, a clear sign the C++ wasn't updated when Guard was
+redesigned. Found a correct, structurally-verified implementation for this
+exact id (202162) in LegionCore instead, explicitly commented "Guard (PvP
+talent) - 202162" and using the ally-damage-redirect mechanic the wiki
+described.
+
+**Files:** `src/server/scripts/Spells/spell_monk.cpp`
+
+**Fix:**
+- Added `spell_monk_purifying_brew`, ported from DestinyCore with no
+  changes needed beyond reusing the existing helper.
+- Added `spell_monk_guard`, ported from LegionCore's (not DestinyCore's)
+  implementation: an absorb effect with `amount = -1` (uncapped, since it's
+  a percentage redirect rather than a fixed pool) that intercepts a
+  percentage of the ally's damage (read from the spell's own EFFECT_1) and
+  redirects it into the casting Monk's Stagger.
+- **Refactored** `spell_monk_stagger`'s three previously-private helper
+  methods (`AddAndRefreshStagger`, `GetStaggerSpellId`, `AddNewStagger`)
+  into shared file-scope functions (matching the existing
+  `FindExistingStaggerEffect` pattern) so `spell_monk_guard` could reuse
+  the exact same "add this amount to the target's Stagger pool" logic
+  rather than duplicating it. Verified `spell_monk_stagger`'s own behavior
+  is unchanged — it now calls the extracted free function instead of its
+  former private member, with identical logic.
+
+**Files reordering note:** both new classes had to be placed *after* the
+shared Stagger helper functions in the file (not simply inserted
+alphabetically near `spell_monk_provoke`/`spell_monk_rising_sun_kick` where
+they were first drafted), since C++ requires free functions to be declared
+before use and this file has no forward declarations for them.
+
+**Database dependency:** searched ArgusCore's committed SQL for existing
+`spell_script_names` bindings on both spell ids — found none. Added both to
+a single dedicated file, `sql/updates/world/master/2026_07_26_03_world.sql`.
+
+**Risk:** Moderate for Guard specifically — it diverges from the primary
+reference core entirely (a rare case this session; only Overpower Proc
+Enabler and Second Wind previously required overriding DestinyCore's own
+logic, and even then using DestinyCore's own file for the correction, not
+a different core). The correction here is well-evidenced (wiki patch
+history + LegionCore's matching, explicitly-labeled implementation +
+DestinyCore's own binding pointing at the same id), but still worth
+particular attention in testing. Purifying Brew carries low risk — a
+direct, simple port reusing already-proven code.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — Purifying Brew:
+build up Stagger, use Purifying Brew, confirm the remaining Stagger amount
+is roughly halved. Guard: cast it on a nearby ally, have them take damage,
+confirm their damage taken is reduced and the Monk gains a corresponding
+Stagger debuff.
+
 ---
 
 ## P4 — Performance / Cleanup

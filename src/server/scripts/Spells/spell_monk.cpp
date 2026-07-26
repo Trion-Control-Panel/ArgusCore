@@ -743,6 +743,117 @@ Aura* FindExistingStaggerEffect(Unit* unit)
 static constexpr SpellEffIndex AuraStaggerEffectTick = EFFECT_0;
 static constexpr SpellEffIndex AuraStaggerEffectTotal = EFFECT_1;
 
+uint32 GetStaggerSpellId(Unit* unit, float amount)
+{
+    const float StaggerHeavy = 0.6f;
+    const float StaggerModerate = 0.3f;
+
+    float staggerPct = amount / float(unit->GetMaxHealth());
+    return (staggerPct >= StaggerHeavy) ? SPELL_MONK_STAGGER_HEAVY :
+        (staggerPct >= StaggerModerate) ? SPELL_MONK_STAGGER_MODERATE :
+        SPELL_MONK_STAGGER_LIGHT;
+}
+
+void AddNewStagger(Unit* unit, uint32 staggerSpellId, float staggerAmount)
+{
+    // We only set the total stagger amount. The amount per tick will be set by the stagger spell script
+    unit->CastSpell(unit, staggerSpellId, CastSpellExtraArgs(SPELLVALUE_BASE_POINT1, staggerAmount).SetTriggerFlags(TRIGGERED_FULL_MASK));
+}
+
+// Shared by spell_monk_stagger (redirecting the Monk's own taken damage) and spell_monk_guard
+// (redirecting a protected ally's taken damage into the Monk's own Stagger pool).
+void AddAndRefreshStagger(Unit* target, float amount)
+{
+    if (Aura* auraStagger = FindExistingStaggerEffect(target))
+    {
+        AuraEffect* effStaggerRemaining = auraStagger->GetEffect(AuraStaggerEffectTotal);
+        if (!effStaggerRemaining)
+            return;
+
+        float newAmount = effStaggerRemaining->GetAmount() + amount;
+        uint32 spellId = GetStaggerSpellId(target, newAmount);
+        if (spellId == effStaggerRemaining->GetSpellInfo()->Id)
+        {
+            auraStagger->RefreshDuration();
+            effStaggerRemaining->ChangeAmount(newAmount, false, true /* reapply */);
+        }
+        else
+        {
+            // amount changed the stagger type so we need to change the stagger amount (e.g. from medium to light)
+            target->RemoveAura(auraStagger);
+            AddNewStagger(target, spellId, newAmount);
+        }
+    }
+    else
+        AddNewStagger(target, GetStaggerSpellId(target, amount), amount);
+}
+
+// 119582 - Purifying Brew
+// Halves whatever Stagger DoT is currently active (Light/Moderate/Heavy), using the existing
+// FindExistingStaggerEffect helper shared with the other Stagger scripts in this file.
+class spell_monk_purifying_brew : public SpellScript
+{
+    void HandleOnHit()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+
+        if (Aura* staggerAura = FindExistingStaggerEffect(caster))
+            if (AuraEffect* total = staggerAura->GetEffect(AuraStaggerEffectTotal))
+                total->ChangeAmount(total->GetAmount() / 2);
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_monk_purifying_brew::HandleOnHit);
+    }
+};
+
+// 202162 - Guard
+// NOTE: DestinyCore's reference implements this as a flat self-absorb shield
+// (AttackPower * 18) - that matches Guard's pre-Legion (Mists of Pandaria) mechanic, not
+// 7.3.5's. Guard was redesigned into a PvP honor talent in patch 7.1.5 (well before 7.3.5):
+// it no longer provides a self-absorb at all, instead redirecting 30% of a protected nearby
+// ally's incoming damage into the Monk's own Stagger pool. DestinyCore's own bound spell id
+// (202162) matches this later PvP-talent version's real id, not the old MoP ability's id
+// (115295) - meaning DestinyCore's code and its own binding actually disagree with each
+// other. Found the correct implementation for this exact id in LegionCore instead (explicitly
+// labeled "Guard (PvP talent) - 202162"), which redirects damage into Stagger via the same
+// technique spell_monk_stagger already uses for the Monk's own damage - reused that shared
+// AddAndRefreshStagger helper (extracted from spell_monk_stagger for this purpose) rather
+// than duplicating the logic.
+class spell_monk_guard : public AuraScript
+{
+    int32 _pctAbsorb = 0;
+
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& canBeRecalculated)
+    {
+        amount = -1;
+        canBeRecalculated = false;
+        _pctAbsorb = GetEffectInfo(EFFECT_1).CalcValue();
+    }
+
+    void Absorb(AuraEffect* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+        {
+            absorbAmount = 0;
+            return;
+        }
+
+        absorbAmount = uint32(CalculatePct(dmgInfo.GetDamage(), _pctAbsorb));
+        AddAndRefreshStagger(caster, float(absorbAmount));
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_monk_guard::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_monk_guard::Absorb, EFFECT_0);
+    }
+};
+
 // 115069 - Stagger
 class spell_monk_stagger : public AuraScript
 {
@@ -786,7 +897,7 @@ class spell_monk_stagger : public AuraScript
             dmgInfo.AbsorbDamage(absorbAmount);
 
             // Cast stagger and make it tick on each tick
-            AddAndRefreshStagger(absorbAmount);
+            AddAndRefreshStagger(GetTarget(), absorbAmount);
         }
     }
 
@@ -794,51 +905,6 @@ class spell_monk_stagger : public AuraScript
     {
         OnEffectAbsorb += AuraEffectAbsorbFn(spell_monk_stagger::AbsorbNormal, EFFECT_1);
         OnEffectAbsorb += AuraEffectAbsorbFn(spell_monk_stagger::AbsorbMagic, EFFECT_2);
-    }
-
-private:
-    void AddAndRefreshStagger(float amount)
-    {
-        Unit* target = GetTarget();
-        if (Aura* auraStagger = FindExistingStaggerEffect(target))
-        {
-            AuraEffect* effStaggerRemaining = auraStagger->GetEffect(AuraStaggerEffectTotal);
-            if (!effStaggerRemaining)
-                return;
-
-            float newAmount = effStaggerRemaining->GetAmount() + amount;
-            uint32 spellId = GetStaggerSpellId(target, newAmount);
-            if (spellId == effStaggerRemaining->GetSpellInfo()->Id)
-            {
-                auraStagger->RefreshDuration();
-                effStaggerRemaining->ChangeAmount(newAmount, false, true /* reapply */);
-            }
-            else
-            {
-                // amount changed the stagger type so we need to change the stagger amount (e.g. from medium to light)
-                GetTarget()->RemoveAura(auraStagger);
-                AddNewStagger(target, spellId, newAmount);
-            }
-        }
-        else
-            AddNewStagger(target, GetStaggerSpellId(target, amount), amount);
-    }
-
-    uint32 GetStaggerSpellId(Unit* unit, float amount)
-    {
-        const float StaggerHeavy = 0.6f;
-        const float StaggerModerate = 0.3f;
-
-        float staggerPct = amount / float(unit->GetMaxHealth());
-        return (staggerPct >= StaggerHeavy) ? SPELL_MONK_STAGGER_HEAVY :
-            (staggerPct >= StaggerModerate) ? SPELL_MONK_STAGGER_MODERATE :
-            SPELL_MONK_STAGGER_LIGHT;
-    }
-
-    void AddNewStagger(Unit* unit, uint32 staggerSpellId, float staggerAmount)
-    {
-        // We only set the total stagger amount. The amount per tick will be set by the stagger spell script
-        unit->CastSpell(unit, staggerSpellId, CastSpellExtraArgs(SPELLVALUE_BASE_POINT1, staggerAmount).SetTriggerFlags(TRIGGERED_FULL_MASK));
     }
 };
 
@@ -967,6 +1033,8 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_power_strike_proc);
     RegisterSpellScript(spell_monk_pressure_points);
     RegisterSpellScript(spell_monk_provoke);
+    RegisterSpellScript(spell_monk_purifying_brew);
+    RegisterSpellScript(spell_monk_guard);
     RegisterSpellScript(spell_monk_rising_sun_kick);
     RegisterSpellScript(spell_monk_roll);
     RegisterSpellScript(spell_monk_roll_aura);
