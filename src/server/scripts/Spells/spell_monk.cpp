@@ -28,6 +28,7 @@
 #include "DB2Stores.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
+#include "Group.h"
 #include "PathGenerator.h"
 #include "Player.h"
 #include "Spell.h"
@@ -482,6 +483,61 @@ class spell_monk_jade_walk : public AuraScript
     void Register() override
     {
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_monk_jade_walk::HandlePeriodicTick, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
+    }
+};
+
+// 121253 - Keg Smash
+// Brewmaster's core AoE ability: applies a visual, the Weakened Blows debuff (shared with
+// Warrior's Thunder Clap - same spell id, 115798), energizes 2 Chi, and applies Dizzying Haze
+// (a slow/threat debuff). The 1-second internal cooldown on the energize prevents multi-target
+// cleave hits from granting more than one application of Chi per cast.
+class spell_monk_keg_smash : public SpellScript
+{
+    void HandleOnHit()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        caster->CastSpell(target, SPELL_MONK_KEG_SMASH_VISUAL, true);
+        caster->CastSpell(target, SPELL_MONK_WEAKENED_BLOWS, true);
+        caster->CastSpell(caster, SPELL_MONK_KEG_SMASH_ENERGIZE, true);
+        caster->GetSpellHistory()->AddCooldown(SPELL_MONK_KEG_SMASH_ENERGIZE, 0, std::chrono::seconds(1));
+        caster->CastSpell(target, SPELL_MONK_DIZZYING_HAZE, true);
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_monk_keg_smash::HandleOnHit);
+    }
+};
+
+// 115921 - Legacy of the Emperor
+// Applies the raid buff to all party members.
+// NOTE: the reference implementation uses Player::GetPartyMembers(), which doesn't exist in
+// ArgusCore - iterates the caster's Group directly instead (Group::GetMembers(), the standard
+// pattern already used internally by Group::BroadcastWorker in this engine).
+class spell_monk_legacy_of_the_emperor : public SpellScript
+{
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+
+        Group* group = caster->GetGroup();
+        if (!group)
+            return;
+
+        for (GroupReference const& itr : group->GetMembers())
+            if (Player* member = itr.GetSource())
+                caster->CastSpell(member, SPELL_MONK_LEGACY_OF_THE_EMPEROR, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_monk_legacy_of_the_emperor::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
     }
 };
 
@@ -1727,6 +1783,8 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_fortifying_brew);
     RegisterSpellScript(spell_monk_gift_of_the_ox_aura);
     RegisterSpellScript(spell_monk_jade_walk);
+    RegisterSpellScript(spell_monk_keg_smash);
+    RegisterSpellScript(spell_monk_legacy_of_the_emperor);
     RegisterSpellScript(spell_monk_life_cocoon);
     RegisterSpellScript(spell_monk_mastery_combo_strikes);
     RegisterSpellScript(spell_monk_mastery_combo_strikes_periodic_auras);

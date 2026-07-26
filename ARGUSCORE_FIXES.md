@@ -2866,6 +2866,58 @@ separate, smaller concern) remains unaddressed.
 Punch: cast it and confirm it now deals damage (previously dealt none).
 Zen Pulse: cast it and confirm both the damage and a self-heal land.
 
+### [DONE] Monk - Keg Smash and Legacy of the Emperor missing; Jab confirmed removed in Legion (skipped)
+
+**Subsystem:** Scripts/Spells (spell_monk)
+
+**Problem:** Keg Smash (121253), Brewmaster's core AoE ability, and Legacy
+of the Emperor (115921), the Monk raid stat buff, had no implementation
+anywhere in ArgusCore.
+
+**Keg Smash:** applies a visual, the Weakened Blows debuff (shared with
+Warrior's Thunder Clap — literally the same spell id, 115798, cross-
+validating both fixes), energizes 2 Chi, and applies Dizzying Haze. A
+1-second internal cooldown on the energize prevents multi-target cleave
+hits from granting more than one application of Chi per cast.
+
+**Legacy of the Emperor:** applies the raid buff to all party members. The
+reference implementation uses `Player::GetPartyMembers()`, which doesn't
+exist in ArgusCore (the same missing-convenience-method category as
+`GetPartyMembers` noted earlier for Soothing Mist's Jade Serpent Statue
+crossover). Worked around it by iterating the caster's `Group` directly via
+`Group::GetMembers()` — the same pattern `Group::BroadcastWorker` already
+uses internally in this exact engine, so not an invented technique.
+
+**Also investigated, confirmed removed content — skipped:** Jab. Web
+search confirms Jab was removed and merged into Tiger Palm as part of
+Windwalker's Legion redesign — implementing it would be backward drift,
+the same category of finding as Retaliation and Vigilance earlier this
+session (pre/post-Legion content present in the reference that doesn't
+belong in 7.3.5).
+
+**Files:** `src/server/scripts/Spells/spell_monk.cpp`. Added a `Group.h`
+include for `Group`/`GroupReference`.
+
+**Fix:** Added `spell_monk_keg_smash` and `spell_monk_legacy_of_the_emperor`
+classes, ported from the reference with the `GetPartyMembers` workaround
+noted above.
+
+**Database dependency:** searched ArgusCore's committed SQL for existing
+bindings on both script names — found none. Added both to a single
+dedicated file, `sql/updates/world/master/2026_07_26_11_world.sql`.
+
+**Risk:** Low — both small, self-contained, and Legacy of the Emperor's
+`Group::GetMembers()` substitution is a proven pattern already used
+elsewhere in this exact engine, not a novel workaround.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — Keg Smash: use it on
+an enemy and confirm Weakened Blows and Dizzying Haze both apply, and Chi
+generates (capped at one application per cast even against multiple
+targets). Legacy of the Emperor: cast it while grouped and confirm all
+party members receive the buff.
+
 ---
 
 ## P4 — Performance / Cleanup
