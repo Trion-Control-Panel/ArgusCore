@@ -2546,6 +2546,29 @@ class spell_pri_vampiric_embrace_target : public SpellScript
     }
 };
 
+// 32375 - Mass Dispel
+// Special-cases removing Cyclone (33786, plus its PvP-talent variant 209753) from friendly
+// targets - Cyclone is normally flagged undispellable by anything else, so this is a deliberate
+// carve-out on top of whatever this spell's own DB2 dispel effect already handles.
+class spell_pri_mass_dispel : public SpellScript
+{
+    void HandleHit(SpellEffIndex /*effIndex*/) const
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target || !caster->IsFriendlyTo(target))
+            return;
+
+        target->RemoveAura(33786);
+        target->RemoveAura(209753);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_pri_mass_dispel::HandleHit, EFFECT_0, SPELL_EFFECT_DISPEL);
+    }
+};
+
 // 34914 - Vampiric Touch
 class spell_pri_vampiric_touch : public AuraScript
 {
@@ -2636,5 +2659,6 @@ void AddSC_priest_spell_scripts()
     RegisterSpellScript(spell_pri_twist_of_fate);
     RegisterSpellScript(spell_pri_vampiric_embrace);
     RegisterSpellScript(spell_pri_vampiric_embrace_target);
+    RegisterSpellScript(spell_pri_mass_dispel);
     RegisterSpellScript(spell_pri_vampiric_touch);
 }
