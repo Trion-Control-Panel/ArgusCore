@@ -58,6 +58,7 @@ enum MonkSpells
     SPELL_MONK_OPEN_PALM_STRIKES_TALENT                 = 392970,
     SPELL_MONK_RENEWING_MIST                            = 119611,
     SPELL_MONK_RISING_SUN_KICK                          = 107428,
+    SPELL_MONK_RISING_THUNDER                           = 210804,
     SPELL_MONK_ROLL_BACKWARD                            = 109131,
     SPELL_MONK_ROLL_FORWARD                             = 107427,
     SPELL_MONK_SAVE_THEM_ALL_HEAL_BONUS                 = 390105,
@@ -72,6 +73,7 @@ enum MonkSpells
     SPELL_MONK_STAGGER_MODERATE                         = 124274,
     SPELL_MONK_SURGING_MIST_HEAL                        = 116995,
     SPELL_MONK_TEACHINGS_OF_THE_MONASTERY               = 116645,
+    SPELL_MONK_THUNDER_FOCUS_TEA                        = 116680,
     SPELL_MONK_TEACHINGS_OF_THE_MONASTERY_AURA          = 202090,
 };
 
@@ -556,24 +558,38 @@ class spell_monk_provoke : public SpellScript
 };
 
 // 107428 - Rising Sun Kick
+// NOTE: previously gated its entire HandleOnHit behind Load() requiring Combat Conditioning,
+// which was correct while Mortal Wounds application was the only thing this class did. Adding
+// the Rising Thunder (Mistweaver) interaction below meant that gate needed to move: Rising
+// Thunder and Combat Conditioning are unrelated talents (different specs), so gating the whole
+// script on Combat Conditioning would have silently prevented Rising Thunder's reset from ever
+// running. Removed Load() and moved the Combat Conditioning check inline instead, matching the
+// internal-HasAura-check pattern already used by sibling classes in this file
+// (spell_monk_pressure_points, etc.) - each condition is now independently checked.
 class spell_monk_rising_sun_kick : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_MONK_COMBAT_CONDITIONING, SPELL_MONK_MORTAL_WOUNDS });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->HasAura(SPELL_MONK_COMBAT_CONDITIONING);
+        return ValidateSpellInfo({ SPELL_MONK_COMBAT_CONDITIONING, SPELL_MONK_MORTAL_WOUNDS, SPELL_MONK_RISING_THUNDER, SPELL_MONK_THUNDER_FOCUS_TEA });
     }
 
     void HandleOnHit(SpellEffIndex /*effIndex*/) const
     {
-        GetCaster()->CastSpell(GetHitUnit(), SPELL_MONK_MORTAL_WOUNDS, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        if (caster->HasAura(SPELL_MONK_COMBAT_CONDITIONING))
+        {
+            caster->CastSpell(target, SPELL_MONK_MORTAL_WOUNDS, CastSpellExtraArgsInit{
+                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+                .TriggeringSpell = GetSpell()
+            });
+        }
+
+        if (caster->HasAura(SPELL_MONK_RISING_THUNDER))
+            caster->GetSpellHistory()->ResetCooldown(SPELL_MONK_THUNDER_FOCUS_TEA, true);
     }
 
     void Register() override

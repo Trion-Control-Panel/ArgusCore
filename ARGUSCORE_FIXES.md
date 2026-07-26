@@ -2328,6 +2328,61 @@ periodic damage roughly every 6th tick rather than every tick, and doesn't
 hang indefinitely (the visual sweep aura should end with the channel, not
 persist).
 
+### [DONE] Monk - Rising Sun Kick missing Rising Thunder interaction, and a scope-gating bug found while adding it
+
+**Subsystem:** Scripts/Spells (spell_monk)
+
+**Problem:** ArgusCore's existing `spell_monk_rising_sun_kick` only handled
+the Mortal Wounds application (Combat Conditioning talent). DestinyCore's
+equivalent also resets Thunder Focus Tea's cooldown when the caster has
+Rising Thunder (210804) — a Mistweaver talent, missing entirely from
+ArgusCore's version.
+
+**Bug found while adding it:** the existing class gated its entire
+`HandleOnHit` behind `Load()` requiring `SPELL_MONK_COMBAT_CONDITIONING` —
+correct while Mortal Wounds was the only thing this class did, but Rising
+Thunder and Combat Conditioning are unrelated talents for different specs.
+Naively adding the Rising Thunder check inside the existing method would
+have left it silently unreachable for any Mistweaver without Combat
+Conditioning (i.e. always, since Combat Conditioning is a different spec's
+talent). Removed `Load()` and moved the Combat Conditioning check inline
+instead, matching the internal-`HasAura`-check pattern already used by
+sibling classes in this file (e.g. `spell_monk_pressure_points`) — each
+condition is now independently evaluated rather than one gating the other.
+
+**Reference:** DestinyCore's implementation for the Rising Thunder piece.
+Note DestinyCore's own class *also* handled Mortal Wounds via an old
+spec-ID check (`TALENT_SPEC_MONK_BATTLEDANCER` — not a real Monk spec name,
+likely a pre-release internal codename) rather than a talent-presence
+check; ArgusCore's existing modern `HasAura(SPELL_MONK_COMBAT_CONDITIONING)`
+approach was already the more correct implementation of that piece, so only
+the Rising Thunder addition was actually new content here.
+
+**Files:** `src/server/scripts/Spells/spell_monk.cpp`
+
+**Fix:** Added `SPELL_MONK_RISING_THUNDER` (210804) and
+`SPELL_MONK_THUNDER_FOCUS_TEA` (116680) constants; restructured
+`spell_monk_rising_sun_kick` as described above and added the Rising
+Thunder → Thunder Focus Tea reset.
+
+**Database dependency:** none — this class already has an active
+`spell_script_names` binding from a pre-session migration
+(`sql/updates/world/master/2026_05_26_01_world.sql`); only its internal
+logic changed, not its name or bound spell id, so the existing binding
+picks up the new behavior automatically.
+
+**Risk:** Low-moderate — the Combat Conditioning behavior is unchanged in
+effect (just restructured), and the new Rising Thunder piece is small and
+self-contained. Worth confirming in-game that Combat Conditioning's Mortal
+Wounds application still fires correctly after the restructuring.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — with Combat
+Conditioning talented, confirm Rising Sun Kick still applies Mortal Wounds.
+Separately, as Mistweaver with Rising Thunder talented, confirm Rising Sun
+Kick occasionally resets Thunder Focus Tea's cooldown.
+
 ---
 
 ## P4 — Performance / Cleanup
