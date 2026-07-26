@@ -45,6 +45,10 @@ enum MonkSpells
     SPELL_MONK_BURST_OF_LIFE_TALENT                     = 399226,
     SPELL_MONK_BURST_OF_LIFE_HEAL                       = 399230,
     SPELL_MONK_CALMING_COALESCENCE                      = 388220,
+    SPELL_MONK_CHI_WAVE_DAMAGE_MISSILE                  = 132467,
+    SPELL_MONK_CHI_WAVE_HEAL                            = 132463,
+    SPELL_MONK_CHI_WAVE_HEAL_MISSILE                    = 132464,
+    SPELL_MONK_CHI_WAVE_TARGET_SELECTOR                 = 132466,
     SPELL_MONK_COMBAT_CONDITIONING                      = 128595,
     SPELL_MONK_CRACKLING_JADE_LIGHTNING_CHANNEL         = 117952,
     SPELL_MONK_CRACKLING_JADE_LIGHTNING_CHI_PROC        = 123333,
@@ -267,6 +271,197 @@ class spell_monk_burst_of_life_heal : public SpellScript
     {
         OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_monk_burst_of_life_heal::FilterTargets, EFFECT_1, TARGET_UNIT_DEST_AREA_ALLY);
     }
+};
+
+// 115098 - Chi Wave
+// Fires a bouncing dummy missile that alternates between healing the lowest-health ally and
+// damaging the nearest enemy, chaining through the 132466 target-selector spell up to
+// GetEffectValue() times before it runs out of bounces.
+class spell_monk_chi_wave : public SpellScript
+{
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        CastSpellExtraArgs args(SPELLVALUE_BASE_POINT1, GetEffectValue());
+        args.SetTriggerFlags(TRIGGERED_FULL_MASK);
+
+        if (caster->IsFriendlyTo(target))
+            caster->CastSpell(target, SPELL_MONK_CHI_WAVE_HEAL_MISSILE, args);
+        else if (caster->IsValidAttackTarget(target))
+            caster->CastSpell(target, SPELL_MONK_CHI_WAVE_DAMAGE_MISSILE, args);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_monk_chi_wave::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 132467 - Chi Wave (damage missile)
+// The direct-damage effect on this spell is handled entirely by its own DB2-defined effect;
+// this only continues the bounce chain once the missile's marker aura wears off.
+class spell_monk_chi_wave_damage_missile : public AuraScript
+{
+    void OnRemove(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetTarget();
+        if (!caster || !target)
+            return;
+
+        CastSpellExtraArgs args(SPELLVALUE_BASE_POINT1, aurEff->GetAmount() - 1);
+        args.SetTriggerFlags(TRIGGERED_FULL_MASK);
+        args.SetTriggeringAura(aurEff);
+        caster->CastSpell(target, SPELL_MONK_CHI_WAVE_TARGET_SELECTOR, args);
+    }
+
+    void Register() override
+    {
+        AfterEffectRemove += AuraEffectRemoveFn(spell_monk_chi_wave_damage_missile::OnRemove, EFFECT_1, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 132464 - Chi Wave (heal missile)
+class spell_monk_chi_wave_heal_missile : public AuraScript
+{
+    void OnRemove(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetTarget();
+        if (!caster || !target)
+            return;
+
+        caster->CastSpell(target, SPELL_MONK_CHI_WAVE_HEAL, true);
+
+        CastSpellExtraArgs args(SPELLVALUE_BASE_POINT1, aurEff->GetAmount() - 1);
+        args.SetTriggerFlags(TRIGGERED_FULL_MASK);
+        args.SetTriggeringAura(aurEff);
+        caster->CastSpell(target, SPELL_MONK_CHI_WAVE_TARGET_SELECTOR, args);
+    }
+
+    void Register() override
+    {
+        AfterEffectRemove += AuraEffectRemoveFn(spell_monk_chi_wave_heal_missile::OnRemove, EFFECT_1, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+namespace
+{
+    // Narrows an area-search target list down to the single nearest valid attack target within
+    // range, by mutating its own search radius as it walks the list (matches remove_if's
+    // guaranteed single left-to-right pass over the sequence).
+    class ChiWaveDamageTargetCheck
+    {
+    public:
+        ChiWaveDamageTargetCheck(Unit const* source, float range) : _source(source), _range(range) { }
+
+        bool operator()(WorldObject* object)
+        {
+            Unit* unit = object->ToUnit();
+            if (!unit)
+                return true;
+
+            if (_source->IsValidAttackTarget(unit) && unit->isTargetableForAttack() && _source->IsWithinDistInMap(unit, _range))
+            {
+                _range = _source->GetDistance(unit);
+                return false;
+            }
+
+            return true;
+        }
+
+    private:
+        Unit const* _source;
+        float _range;
+    };
+
+    class ChiWaveHealTargetCheck
+    {
+    public:
+        ChiWaveHealTargetCheck(Unit const* source) : _source(source) { }
+
+        bool operator()(WorldObject* object)
+        {
+            Unit* unit = object->ToUnit();
+            if (!unit)
+                return true;
+
+            return !_source->IsFriendlyTo(unit);
+        }
+
+    private:
+        Unit const* _source;
+    };
+}
+
+// 132466 - Chi Wave (target selector)
+// After a heal missile lands, the next hop searches for the nearest valid enemy within 25
+// yards; after a damage missile lands, the next hop searches for the lowest-health ally in the
+// original search radius. The relay unit (GetExplTargetUnit(), the spot the missile just
+// landed on) performs the next hop's cast so the travel animation visually chains from body to
+// body, while GetOriginalCaster() is threaded through explicitly so scaling/attribution always
+// stays on the real caster regardless of how many bodies the missile has bounced off of.
+class spell_monk_chi_wave_target_selector : public SpellScript
+{
+    void SelectTarget(std::list<WorldObject*>& targets)
+    {
+        if (targets.empty())
+            return;
+
+        SpellInfo const* triggeringSpell = GetTriggeringSpell();
+        if (!triggeringSpell)
+            return;
+
+        if (triggeringSpell->Id == SPELL_MONK_CHI_WAVE_DAMAGE_MISSILE)
+        {
+            targets.remove_if(ChiWaveHealTargetCheck(GetCaster()));
+            targets.sort(Trinity::Predicates::HealthPctOrderPred(false));
+            _shouldHeal = true;
+        }
+        else if (triggeringSpell->Id == SPELL_MONK_CHI_WAVE_HEAL_MISSILE)
+        {
+            targets.remove_if(ChiWaveDamageTargetCheck(GetCaster(), 25.0f));
+            _shouldHeal = false;
+        }
+        else
+            return;
+
+        if (targets.empty())
+            return;
+
+        WorldObject* target = targets.back();
+        targets.clear();
+        targets.push_back(target);
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        if (!GetEffectValue())
+            return;
+
+        Unit* relay = GetExplTargetUnit();
+        Unit* target = GetHitUnit();
+        Unit* originalCaster = GetOriginalCaster();
+        if (!relay || !target || !originalCaster)
+            return;
+
+        CastSpellExtraArgs args(SPELLVALUE_BASE_POINT1, GetEffectValue());
+        args.SetTriggerFlags(TRIGGERED_FULL_MASK);
+        args.SetOriginalCaster(originalCaster->GetGUID());
+        relay->CastSpell(target, _shouldHeal ? SPELL_MONK_CHI_WAVE_HEAL_MISSILE : SPELL_MONK_CHI_WAVE_DAMAGE_MISSILE, args);
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_monk_chi_wave_target_selector::SelectTarget, EFFECT_1, TARGET_UNIT_DEST_AREA_ENTRY);
+        OnEffectHitTarget += SpellEffectFn(spell_monk_chi_wave_target_selector::HandleDummy, EFFECT_1, SPELL_EFFECT_DUMMY);
+    }
+
+    bool _shouldHeal = true;
 };
 
 // 117952 - Crackling Jade Lightning
@@ -2112,6 +2307,10 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_breath_of_fire);
     RegisterSpellScript(spell_monk_burst_of_life);
     RegisterSpellScript(spell_monk_burst_of_life_heal);
+    RegisterSpellScript(spell_monk_chi_wave);
+    RegisterSpellScript(spell_monk_chi_wave_damage_missile);
+    RegisterSpellScript(spell_monk_chi_wave_heal_missile);
+    RegisterSpellScript(spell_monk_chi_wave_target_selector);
     RegisterSpellScript(spell_monk_crackling_jade_lightning);
     RegisterSpellScript(spell_monk_crackling_jade_lightning_knockback_proc_aura);
     RegisterSpellScript(spell_monk_dampen_harm);
