@@ -73,6 +73,7 @@ enum DemonHunterSpells
     SPELL_DH_CONSUME_SOUL_VENGEANCE_DEMON          = 210050,
     SPELL_DH_CONSUME_SOUL_VENGEANCE_SHATTERED      = 210047,
     SPELL_DH_DARKNESS_ABSORB                       = 209426,
+    SPELL_DH_DEMON_BLADES                          = 203555,
     SPELL_DH_DEMON_BLADES_DMG                      = 203796,
     SPELL_DH_DEMON_SPIKES                          = 203819,
     SPELL_DH_DEMON_SPIKES_TRIGGER                  = 203720,
@@ -96,6 +97,8 @@ enum DemonHunterSpells
     SPELL_DH_FEL_DEVASTATION                       = 212084,
     SPELL_DH_FEL_DEVASTATION_DMG                   = 212105,
     SPELL_DH_FEL_DEVASTATION_HEAL                  = 212106,
+    SPELL_DH_FEL_ERUPTION                          = 211881,
+    SPELL_DH_FEL_ERUPTION_DAMAGE                   = 225102,
     SPELL_DH_FEL_RUSH                              = 195072,
     SPELL_DH_FEL_RUSH_DMG                          = 192611,
     SPELL_DH_FEL_RUSH_GROUND                       = 197922,
@@ -115,6 +118,7 @@ enum DemonHunterSpells
     SPELL_DH_GLIDE                                 = 131347,
     SPELL_DH_GLIDE_DURATION                        = 197154,
     SPELL_DH_GLIDE_KNOCKBACK                       = 196353,
+    SPELL_DH_GLUTTONY                              = 227327,
     SPELL_DH_GLUTTONY_BUFF                         = 227330,
     SPELL_DH_HAVOC_MASTERY                         = 185164,
     SPELL_DH_ILLIDANS_GRASP                        = 205630,
@@ -183,6 +187,7 @@ enum DemonHunterSpells
     SPELL_DH_SOUL_CLEAVE_DMG                       = 228478,
     SPELL_DH_SOUL_FRAGMENT_COUNTER                 = 203981,
     SPELL_DH_SOUL_RENDING                          = 204909,
+    SPELL_DH_SOUL_RENDING_VENGEANCE                = 217996,
     SPELL_DH_SPIRIT_BOMB_DAMAGE                    = 218677,
     SPELL_DH_SPIRIT_BOMB_HEAL                      = 227255,
     SPELL_DH_SPIRIT_BOMB_VISUAL                    = 218678,
@@ -249,6 +254,58 @@ class spell_dh_chaos_nova : public SpellScript
     }
 };
 
+// 201427 - Annihilation
+// Metamorphosis (Havoc) form's replacement for Chaos Strike - splits into separate mainhand/
+// offhand trigger casts.
+class spell_dh_annihilation : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_ANNIHILATION, SPELL_DH_ANNIHILATION_MH, SPELL_DH_ANNIHILATION_OH });
+    }
+
+    void HandleMainhand(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetExplTargetUnit();
+        if (caster && target)
+            caster->CastSpell(target, SPELL_DH_ANNIHILATION_MH, true);
+    }
+
+    void HandleOffhand(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetExplTargetUnit();
+        if (caster && target)
+            caster->CastSpell(target, SPELL_DH_ANNIHILATION_OH, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_dh_annihilation::HandleMainhand, EFFECT_1, SPELL_EFFECT_TRIGGER_SPELL);
+        OnEffectHit += SpellEffectFn(spell_dh_annihilation::HandleOffhand, EFFECT_2, SPELL_EFFECT_TRIGGER_SPELL);
+    }
+};
+
+// 201428, 227518 - Annihilation (mainhand/offhand damage)
+// Guards against dealing damage to self, matching the reference's own safety check.
+class spell_dh_annihilation_damage : public SpellScript
+{
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (caster && target && caster == target)
+            PreventHitDamage();
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dh_annihilation_damage::HandleHit, EFFECT_0, SPELL_EFFECT_NORMALIZED_WEAPON_DMG);
+        OnEffectHitTarget += SpellEffectFn(spell_dh_annihilation_damage::HandleHit, EFFECT_1, SPELL_EFFECT_WEAPON_DAMAGE);
+    }
+};
+
 // 197125 - Chaos Strike
 class spell_dh_chaos_strike : public AuraScript
 {
@@ -269,6 +326,21 @@ class spell_dh_chaos_strike : public AuraScript
     void Register() override
     {
         OnEffectProc += AuraEffectProcFn(spell_dh_chaos_strike::HandleEffectProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
+
+// Blade Turning
+// Gates the talent aura's own DB2 proc data to a parried hit only.
+class spell_dh_blade_turning : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return (eventInfo.GetHitMask() & PROC_HIT_PARRY) != 0;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_dh_blade_turning::CheckProc);
     }
 };
 
@@ -424,6 +496,27 @@ public:
     explicit spell_dh_demonic(uint32 transformSpellId) : _transformSpellId(transformSpellId) { }
 };
 
+// Demonic Infusion
+// Directly grants Demon Spikes.
+class spell_dh_demonic_infusion : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_DEMON_SPIKES });
+    }
+
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        if (Unit* caster = GetCaster())
+            caster->AddAura(SPELL_DH_DEMON_SPIKES, caster);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dh_demonic_infusion::HandleOnHit, EFFECT_0, SPELL_EFFECT_ENERGIZE);
+    }
+};
+
 // 203720 - Demon Spikes
 class spell_dh_demon_spikes : public SpellScript
 {
@@ -443,6 +536,53 @@ class spell_dh_demon_spikes : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_dh_demon_spikes::HandleArmor, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 203819 - Demon Spikes (damage reduction)
+// The actual defensive value of Demon Spikes: reduces damage taken by a flat percentage, offset
+// slightly by the caster's own Mastery rating.
+class spell_dh_demon_spikes_buff : public AuraScript
+{
+    void CalcAmount(AuraEffect const* aurEff, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        Unit* caster = aurEff->GetCaster();
+        if (!caster)
+            return;
+
+        amount -= int32(std::ceil(caster->GetFloatValue(PLAYER_MASTERY)));
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dh_demon_spikes_buff::CalcAmount, EFFECT_1, SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN);
+    }
+};
+
+// 203555 - Demon Blades
+// Havoc's baseline auto-attack replacement: every attack has a chance to trigger a Fury strike.
+class spell_dh_demon_blades : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_DEMON_BLADES, SPELL_DH_DEMON_BLADES_DMG });
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = eventInfo.GetActionTarget();
+        if (!caster || !target)
+            return;
+
+        SpellInfo const* demonBlades = sSpellMgr->GetSpellInfo(SPELL_DH_DEMON_BLADES, DIFFICULTY_NONE);
+        if (demonBlades && roll_chance_i(demonBlades->GetEffect(EFFECT_0).CalcValue(caster)))
+            caster->CastSpell(target, SPELL_DH_DEMON_BLADES_DMG, true);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_dh_demon_blades::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -539,6 +679,27 @@ class spell_dh_eye_beam : public AuraScript
     void Register() override
     {
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_dh_eye_beam::HandleEffectPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
+    }
+};
+
+// 198013 - Eye Beam (initial cast, EFFECT_0 damage guard)
+// The cast's own initial hit shouldn't deal damage directly - the periodic tick above
+// (spell_dh_eye_beam) is what actually deals damage. Prevents a potential double-hit.
+class spell_dh_eye_beam_trigger : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_EYE_BEAM, SPELL_DH_EYE_BEAM_DAMAGE });
+    }
+
+    void PreventHit(SpellEffIndex /*effIndex*/)
+    {
+        PreventHitDamage();
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dh_eye_beam_trigger::PreventHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
     }
 };
 
@@ -839,6 +1000,30 @@ class spell_dh_fiery_brand_absorb : public AuraScript
     }
 };
 
+// 211881 - Fel Eruption
+// The stun applies via this spell's own DB2 effect data; this only fires the accompanying
+// damage payload on the same target.
+class spell_dh_fel_eruption : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_FEL_ERUPTION, SPELL_DH_FEL_ERUPTION_DAMAGE });
+    }
+
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetExplTargetUnit();
+        if (caster && target)
+            caster->CastSpell(target, SPELL_DH_FEL_ERUPTION_DAMAGE, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dh_fel_eruption::HandleOnHit, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
+    }
+};
+
 // 195072 - Fel Rush
 class spell_dh_fel_rush : public SpellScript
 {
@@ -898,6 +1083,34 @@ class spell_dh_fel_rush_charge : public SpellScript
     void Register() override
     {
         OnEffectHit += SpellEffectFn(spell_dh_fel_rush_charge::HandleDamage, EFFECT_0, SPELL_EFFECT_CHARGE_DEST);
+    }
+};
+
+// 192939 - Fel Mastery
+// Fel Rush's damage tick has a chance to generate Fury.
+class spell_dh_fel_mastery : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_DH_FEL_RUSH_DMG;
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        int32 amountToAdd = GetSpellInfo()->GetEffect(EFFECT_0).CalcValue(caster);
+        int32 fury = caster->GetPower(POWER_FURY);
+        int32 maxFury = caster->GetMaxPower(POWER_FURY);
+        caster->SetPower(POWER_FURY, std::min(fury + amountToAdd, maxFury));
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_dh_fel_mastery::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_dh_fel_mastery::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -1026,6 +1239,33 @@ class spell_dh_consume_soul : public SpellScript
     }
 };
 
+// 178963, 203794, 228532 - Consume Soul (Vengeance)
+// A second, independent script bound to the same spell ids as spell_dh_consume_soul above
+// (which gates the Fury/Pain refund behind Demonic Appetite) - this adds two unrelated
+// interactions: granting Gluttony's buff if talented, and boosting Soul Barrier's absorb amount
+// if the shield is currently up.
+class spell_dh_consume_soul_vengeance : public SpellScript
+{
+    void HandleCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (caster->HasAura(SPELL_DH_GLUTTONY))
+            caster->CastSpell(caster, SPELL_DH_GLUTTONY_BUFF, true);
+
+        if (Aura* soulBarrier = caster->GetAura(SPELL_DH_SOUL_BARRIER))
+            if (AuraEffect* aurEff = soulBarrier->GetEffect(EFFECT_0))
+                aurEff->SetAmount(aurEff->GetAmount() + int32(caster->GetTotalAttackPowerValue(BASE_ATTACK) * 2.5f));
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_dh_consume_soul_vengeance::HandleCast);
+    }
+};
+
 // 207760 - Burning Alive (Fiery Brand rank 2 spread)
 // When the branded target takes another hit, spreads the debuff to one random nearby enemy that
 // doesn't already have it, scaling the new application's damage off the caster's attack power.
@@ -1066,6 +1306,27 @@ class spell_dh_burning_alive : public SpellScript
         OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_dh_burning_alive::FilterTargets, EFFECT_0, TARGET_UNIT_DEST_AREA_ENEMY);
         OnEffectHitTarget += SpellEffectFn(spell_dh_burning_alive::OnHitEffect, EFFECT_0, SPELL_EFFECT_DUMMY);
         AfterHit += SpellHitFn(spell_dh_burning_alive::HandleAfterHit);
+    }
+};
+
+// 227225 - Soul Barrier
+// The absorb shield scales with 15x attack power.
+// NOTE: the reference also has this spell consume nearby Soul Fragment AreaTriggers for a bonus
+// effect, using the same hardcoded-AreaTrigger-entry-id/old fragment-consumption approach
+// already found and deferred for Soul Cleave (see that fix's writeup) - not ported here for the
+// same reason: it's a broader missing system, not something specific to this ability.
+class spell_dh_soul_barrier : public AuraScript
+{
+    void CalcAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (player)
+            amount = int32(15.0f * player->GetTotalAttackPowerValue(BASE_ATTACK));
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dh_soul_barrier::CalcAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
     }
 };
 
@@ -1956,6 +2217,55 @@ class spell_dh_metamorphosis_immunity : public SpellScript
     }
 };
 
+// 162264 - Metamorphosis (Havoc buffs)
+// Adds Leech while transformed, boosted further if Soul Rending is talented.
+class spell_dh_metamorphosis_buffs : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_METAMORPHOSIS_TRANSFORM });
+    }
+
+    void CalcLeech(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        amount += caster->HasAura(SPELL_DH_SOUL_RENDING) ? 100 : 30;
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dh_metamorphosis_buffs::CalcLeech, EFFECT_3, SPELL_AURA_MOD_LEECH);
+    }
+};
+
+// 187827 - Metamorphosis (Vengeance buffs)
+// Adds Leech while transformed if Soul Rending is talented.
+class spell_dh_metamorphosis_buffs_veng : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_METAMORPHOSIS_VENGEANCE_TRANSFORM });
+    }
+
+    void CalcLeech(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (caster->HasAura(SPELL_DH_SOUL_RENDING_VENGEANCE))
+            amount += 50;
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dh_metamorphosis_buffs_veng::CalcLeech, EFFECT_2, SPELL_AURA_MOD_LEECH);
+    }
+};
+
 // 200166 - Metamorphosis (Havoc impact damage)
 // Filters players from the AoE knockback — players hit by Metamorphosis receive a different spell.
 class spell_dh_metamorphosis_impact : public SpellScript
@@ -1991,13 +2301,19 @@ class spell_dh_metamorphosis_impact : public SpellScript
 
 void AddSC_demon_hunter_spell_scripts()
 {
+    RegisterSpellScript(spell_dh_annihilation);
+    RegisterSpellScript(spell_dh_annihilation_damage);
+    RegisterSpellScript(spell_dh_blade_turning);
     RegisterSpellScript(spell_dh_chaos_nova);
     RegisterSpellScript(spell_dh_chaos_strike);
     RegisterSpellScript(spell_dh_charred_warblades);
     RegisterSpellScript(spell_dh_darkness);
     RegisterSpellScriptWithArgs(spell_dh_demonic, "spell_dh_demonic_havoc", SPELL_DH_METAMORPHOSIS_TRANSFORM);
     RegisterSpellScriptWithArgs(spell_dh_demonic, "spell_dh_demonic_vengeance", SPELL_DH_METAMORPHOSIS_VENGEANCE_TRANSFORM);
+    RegisterSpellScript(spell_dh_demonic_infusion);
+    RegisterSpellScript(spell_dh_demon_blades);
     RegisterSpellScript(spell_dh_demon_spikes);
+    RegisterSpellScript(spell_dh_demon_spikes_buff);
     RegisterSpellScript(spell_dh_vengeful_retreat);
     RegisterSpellScript(spell_dh_vengeful_retreat_trigger);
     RegisterSpellScript(spell_dh_vengeful_retreat_fury_refiller);
@@ -2007,10 +2323,13 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_nether_bond);
     RegisterSpellScript(spell_dh_nether_bond_periodic);
     RegisterSpellScript(spell_dh_eye_beam);
+    RegisterSpellScript(spell_dh_eye_beam_trigger);
     RegisterSpellScript(spell_dh_feast_of_souls);
     RegisterSpellScript(spell_dh_fel_devastation);
     RegisterSpellScript(spell_dh_fel_devastation_damage);
     RegisterSpellScript(spell_dh_fel_devastation_heal);
+    RegisterSpellScript(spell_dh_fel_eruption);
+    RegisterSpellScript(spell_dh_fel_mastery);
     RegisterSpellScript(spell_dh_fel_rush);
     RegisterSpellScript(spell_dh_fel_rush_charge);
     RegisterSpellScript(spell_dh_felblade);
@@ -2019,7 +2338,9 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_fiery_brand);
     RegisterSpellScript(spell_dh_fiery_brand_absorb);
     RegisterSpellScript(spell_dh_consume_soul);
+    RegisterSpellScript(spell_dh_consume_soul_vengeance);
     RegisterSpellScript(spell_dh_burning_alive);
+    RegisterSpellScript(spell_dh_soul_barrier);
     RegisterSpellScript(spell_dh_last_resort);
     RegisterSpellScript(spell_dh_immolation_aura);
     RegisterSpellScript(spell_dh_sigil_of_chains);
@@ -2068,5 +2389,7 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_fueled_by_pain);
     RegisterSpellScript(spell_dh_metamorphosis);
     RegisterSpellScript(spell_dh_metamorphosis_immunity);
+    RegisterSpellScript(spell_dh_metamorphosis_buffs);
+    RegisterSpellScript(spell_dh_metamorphosis_buffs_veng);
     RegisterSpellScript(spell_dh_metamorphosis_impact);
 }
