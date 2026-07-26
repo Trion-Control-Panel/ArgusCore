@@ -23,7 +23,11 @@
 
 #include "AreaTrigger.h"
 #include "AreaTriggerAI.h"
+#include "CellImpl.h"
+#include "Containers.h"
 #include "DB2Stores.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 #include "PathGenerator.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -50,6 +54,7 @@ enum DemonHunterSpells
     SPELL_DH_ANNIHILATION_MH                       = 227518,
     SPELL_DH_ANNIHILATION_OH                       = 201428,
     SPELL_DH_AWAKEN_THE_DEMON_WITHIN_CD            = 207128,
+    SPELL_DH_BLOODLET_DOT                          = 207690,
     SPELL_DH_BLUR                                  = 212800,
     SPELL_DH_BLUR_TRIGGER                          = 198589,
     SPELL_DH_BURNING_ALIVE                         = 207739,
@@ -72,6 +77,7 @@ enum DemonHunterSpells
     SPELL_DH_DEMON_SPIKES                          = 203819,
     SPELL_DH_DEMON_SPIKES_TRIGGER                  = 203720,
     SPELL_DH_DEMONIC                               = 213410,
+    SPELL_DH_DEMONIC_APPETITE                      = 206478,
     SPELL_DH_DEMONIC_ORIGINS                       = 235893,
     SPELL_DH_DEMONIC_ORIGINS_BUFF                  = 235894,
     SPELL_DH_DEMONIC_TRAMPLE_DMG                   = 208645,
@@ -109,6 +115,7 @@ enum DemonHunterSpells
     SPELL_DH_GLIDE                                 = 131347,
     SPELL_DH_GLIDE_DURATION                        = 197154,
     SPELL_DH_GLIDE_KNOCKBACK                       = 196353,
+    SPELL_DH_GLUTTONY_BUFF                         = 227330,
     SPELL_DH_HAVOC_MASTERY                         = 185164,
     SPELL_DH_ILLIDANS_GRASP                        = 205630,
     SPELL_DH_ILLIDANS_GRASP_DAMAGE                 = 208618,
@@ -140,6 +147,10 @@ enum DemonHunterSpells
     SPELL_DH_NEMESIS_HUMANOIDS                     = 208605,
     SPELL_DH_NEMESIS_MECHANICALS                   = 208613,
     SPELL_DH_NEMESIS_UNDEAD                        = 208614,
+    SPELL_DH_NETHER_BOND                           = 207810,
+    SPELL_DH_NETHER_BOND_DAMAGE                    = 207812,
+    SPELL_DH_NETHER_BOND_PERIODIC                  = 207811,
+    SPELL_DH_PREPARED                              = 203551,
     SPELL_DH_RAIN_FROM_ABOVE                       = 206803,
     SPELL_DH_RAIN_OF_CHAOS                         = 205628,
     SPELL_DH_RAIN_OF_CHAOS_IMPACT                  = 232538,
@@ -179,6 +190,7 @@ enum DemonHunterSpells
     SPELL_DH_UNCONTAINED_FEL                       = 209261,
     SPELL_DH_VENGEANCE_DEMON_HUNTER                = 212613,
     SPELL_DH_VENGEFUL_RETREAT                      = 198813,
+    SPELL_DH_VENGEFUL_RETREAT_FURY                 = 203650,
     SPELL_DH_VENGEFUL_RETREAT_TRIGGER              = 198793,
 
     SPELL_DH_ANGUISH                            = 202443,
@@ -459,6 +471,56 @@ class spell_dh_vengeful_retreat : public SpellScript
     }
 };
 
+// 198813 - Vengeful Retreat (Prepared talent trigger)
+// A second, independent script bound to the same spell id as spell_dh_vengeful_retreat above
+// (which handles the unrelated Momentum interaction) - if the Prepared talent is known, grants
+// its Fury-regen buff.
+class spell_dh_vengeful_retreat_trigger : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_VENGEFUL_RETREAT, SPELL_DH_VENGEFUL_RETREAT_FURY });
+    }
+
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (caster->HasAura(SPELL_DH_PREPARED) && !caster->HasAura(SPELL_DH_VENGEFUL_RETREAT_FURY))
+            caster->CastSpell(caster, SPELL_DH_VENGEFUL_RETREAT_FURY, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dh_vengeful_retreat_trigger::HandleOnHit, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
+    }
+};
+
+// 203650 - Prepared (Fury refiller)
+// While active, periodically refunds Fury.
+class spell_dh_vengeful_retreat_fury_refiller : public AuraScript
+{
+    void Energize(AuraEffect const* /*aurEff*/)
+    {
+        PreventDefaultAction();
+
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        int32 fury = caster->GetPower(POWER_FURY);
+        int32 maxFury = caster->GetMaxPower(POWER_FURY);
+        caster->SetPower(POWER_FURY, std::min(fury + 4, maxFury));
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dh_vengeful_retreat_fury_refiller::Energize, EFFECT_0, SPELL_AURA_PERIODIC_ENERGIZE);
+    }
+};
+
 // 198013 - Eye Beam
 class spell_dh_eye_beam : public AuraScript
 {
@@ -507,26 +569,273 @@ class spell_dh_feast_of_souls : public SpellScript
     }
 };
 
+// 209400 - Razor Spikes
+// While Demon Spikes is active, melee attacks also slow the target.
+class spell_dh_razor_spikes : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_DEMON_SPIKES, SPELL_DH_RAZOR_SPIKES });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetDamageInfo() && (eventInfo.GetDamageInfo()->GetAttackType() == BASE_ATTACK || eventInfo.GetDamageInfo()->GetAttackType() == OFF_ATTACK);
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+    {
+        Unit* caster = eventInfo.GetDamageInfo() ? eventInfo.GetDamageInfo()->GetAttacker() : nullptr;
+        Unit* target = eventInfo.GetDamageInfo() ? eventInfo.GetDamageInfo()->GetVictim() : nullptr;
+        if (!caster || !target)
+            return;
+
+        if (caster->HasAura(SPELL_DH_DEMON_SPIKES))
+            caster->CastSpell(target, SPELL_DH_RAZOR_SPIKES, true);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_dh_razor_spikes::CheckProc);
+    }
+};
+
+// 203556 - Master of the Glaive
+// Gates the talent aura's own DB2 proc data to Throw Glaive only.
+class spell_dh_master_of_the_glaive : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_DH_THROW_GLAIVE;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_dh_master_of_the_glaive::CheckProc);
+    }
+};
+
+// 206473 - Bloodlet
+// Throw Glaive has a chance to apply/refresh a bleed scaled off 40% of its hit damage, folding
+// any remaining damage from the previous tick into the new application instead of losing it.
+class spell_dh_bloodlet : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_THROW_GLAIVE, SPELL_DH_BLOODLET_DOT });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_DH_THROW_GLAIVE;
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = eventInfo.GetActionTarget();
+        if (!caster || !target || !eventInfo.GetDamageInfo())
+            return;
+
+        int32 dmg = int32((eventInfo.GetDamageInfo()->GetDamage() * 2) / 5);
+
+        if (AuraEffect* dot = target->GetAuraEffect(SPELL_DH_BLOODLET_DOT, EFFECT_0, caster->GetGUID()))
+            dmg += int32(dot->GetAmount() * dot->GetRemainingTicks()) / 5;
+
+        caster->CastSpell(target, SPELL_DH_BLOODLET_DOT, CastSpellExtraArgs(SPELLVALUE_BASE_POINT0, dmg).SetTriggerFlags(TRIGGERED_FULL_MASK));
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_dh_bloodlet::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_dh_bloodlet::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 207810 - Nether Bond
+// Casts the periodic health-linking tick.
+class spell_dh_nether_bond : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_NETHER_BOND_PERIODIC });
+    }
+
+    void HandleCast()
+    {
+        Unit* caster = GetCaster();
+        if (caster)
+            caster->CastSpell(caster, SPELL_DH_NETHER_BOND_PERIODIC, true);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_dh_nether_bond::HandleCast);
+    }
+};
+
+// 207811 - Nether Bond (periodic)
+// Every tick, equalizes the caster's and the bonded ally's health percentage - whichever of the
+// two is higher gets damaged down and the other healed up to the midpoint.
+class spell_dh_nether_bond_periodic : public AuraScript
+{
+    Unit* _bondUnit = nullptr;
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_NETHER_BOND, SPELL_DH_NETHER_BOND_DAMAGE });
+    }
+
+    Unit* FindBondUnit(Unit* caster)
+    {
+        std::list<Unit*> units;
+        Trinity::AnyUnitInObjectRangeCheck check(caster, 100.0f);
+        Trinity::UnitListSearcher<Trinity::AnyUnitInObjectRangeCheck> searcher(caster, units, check);
+        Cell::VisitAllObjects(caster, searcher, 100.0f);
+
+        for (Unit* unit : units)
+            if (unit->HasAura(SPELL_DH_NETHER_BOND, caster->GetGUID()))
+                return unit;
+
+        return nullptr;
+    }
+
+    void HandleApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (Unit* caster = GetCaster())
+            _bondUnit = FindBondUnit(caster);
+    }
+
+    void HandlePeriodic(AuraEffect const* /*aurEff*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (!_bondUnit)
+            _bondUnit = FindBondUnit(caster);
+        if (!_bondUnit)
+            return;
+
+        float healthPct = (caster->GetHealthPct() + _bondUnit->GetHealthPct()) / 2.0f;
+
+        int32 casterHealBp = 0, casterDamageBp = 0, bondHealBp = 0, bondDamageBp = 0;
+
+        if (caster->GetHealthPct() < _bondUnit->GetHealthPct())
+        {
+            casterHealBp = int32(caster->CountPctFromMaxHealth(healthPct) - caster->GetHealth());
+            bondDamageBp = int32(_bondUnit->GetHealth() - _bondUnit->CountPctFromMaxHealth(healthPct));
+        }
+        else
+        {
+            casterDamageBp = int32(caster->GetHealth() - caster->CountPctFromMaxHealth(healthPct));
+            bondHealBp = int32(_bondUnit->CountPctFromMaxHealth(healthPct) - _bondUnit->GetHealth());
+        }
+
+        caster->CastSpell(caster, SPELL_DH_NETHER_BOND_DAMAGE, CastSpellExtraArgs(TRIGGERED_FULL_MASK)
+            .AddSpellMod(SPELLVALUE_BASE_POINT0, casterDamageBp).AddSpellMod(SPELLVALUE_BASE_POINT1, casterHealBp));
+        caster->CastSpell(_bondUnit, SPELL_DH_NETHER_BOND_DAMAGE, CastSpellExtraArgs(TRIGGERED_FULL_MASK)
+            .AddSpellMod(SPELLVALUE_BASE_POINT0, bondDamageBp).AddSpellMod(SPELLVALUE_BASE_POINT1, bondHealBp));
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_dh_nether_bond_periodic::HandleApply, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dh_nether_bond_periodic::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
 // 212084 - Fel Devastation
+// NOTE: correction to an earlier version of this class - it previously only cast the heal each
+// tick, never the damage, meaning Fel Devastation dealt zero damage in practice. Fixed to cast
+// both, matching the reference's own periodic driver.
 class spell_dh_fel_devastation : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_DH_FEL_DEVASTATION_HEAL });
+        return ValidateSpellInfo({ SPELL_DH_FEL_DEVASTATION_DMG, SPELL_DH_FEL_DEVASTATION_HEAL });
     }
 
     void HandlePeriodicEffect(AuraEffect const* aurEff) const
     {
-        if (Unit* caster = GetCaster())
-            caster->CastSpell(caster, SPELL_DH_FEL_DEVASTATION_HEAL, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringAura = aurEff
-            });
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        CastSpellExtraArgs args(CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringAura = aurEff
+        });
+        caster->CastSpell(caster, SPELL_DH_FEL_DEVASTATION_DMG, args);
+        caster->CastSpell(caster, SPELL_DH_FEL_DEVASTATION_HEAL, args);
     }
 
     void Register() override
     {
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_dh_fel_devastation::HandlePeriodicEffect, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
+    }
+};
+
+// 212105 - Fel Devastation (damage)
+class spell_dh_fel_devastation_damage : public SpellScript
+{
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        SetHitDamage(int32(caster->GetTotalAttackPowerValue(BASE_ATTACK) + 1.0f));
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dh_fel_devastation_damage::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 212106 - Fel Devastation (heal)
+class spell_dh_fel_devastation_heal : public SpellScript
+{
+    void HandleHeal(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        SetHitHeal(int32(caster->GetTotalAttackPowerValue(BASE_ATTACK) * 2.5f));
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dh_fel_devastation_heal::HandleHeal, EFFECT_0, SPELL_EFFECT_HEAL);
+    }
+};
+
+// 204022 - Fiery Brand (damage reduction)
+// While the target of this aura is being attacked by someone they have branded (i.e. who has
+// applied the Fiery Brand DoT to them), reduces that incoming hit by 40% - the actual defensive
+// payoff of using Fiery Brand as a tank cooldown.
+class spell_dh_fiery_brand_absorb : public AuraScript
+{
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = -1;
+    }
+
+    void HandleAbsorb(AuraEffect* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        Unit* attacker = dmgInfo.GetAttacker();
+        if (attacker && attacker->HasAura(SPELL_DH_FIERY_BRAND_DEBUFF_RANK_2))
+            absorbAmount = CalculatePct(dmgInfo.GetDamage(), 40);
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dh_fiery_brand_absorb::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_dh_fiery_brand_absorb::HandleAbsorb, EFFECT_0);
     }
 };
 
@@ -696,6 +1005,70 @@ private:
 };
 
 // 209258 - Last Resort
+// 178963, 203794, 228532 - Consume Soul
+// The Fury/Pain refund is gated behind Demonic Appetite - without that talent, this effect
+// shouldn't fire at all.
+class spell_dh_consume_soul : public SpellScript
+{
+    void PreventPower(SpellEffIndex effIndex)
+    {
+        Unit* caster = GetCaster();
+        if (caster && !caster->HasAura(SPELL_DH_DEMONIC_APPETITE))
+            PreventHitEffect(effIndex);
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_dh_consume_soul::PreventPower, EFFECT_1, SPELL_EFFECT_TRIGGER_SPELL);
+        OnEffectHitTarget += SpellEffectFn(spell_dh_consume_soul::PreventPower, EFFECT_1, SPELL_EFFECT_TRIGGER_SPELL);
+        OnEffectLaunch += SpellEffectFn(spell_dh_consume_soul::PreventPower, EFFECT_1, SPELL_EFFECT_TRIGGER_SPELL);
+        OnEffectLaunchTarget += SpellEffectFn(spell_dh_consume_soul::PreventPower, EFFECT_1, SPELL_EFFECT_TRIGGER_SPELL);
+    }
+};
+
+// 207760 - Burning Alive (Fiery Brand rank 2 spread)
+// When the branded target takes another hit, spreads the debuff to one random nearby enemy that
+// doesn't already have it, scaling the new application's damage off the caster's attack power.
+class spell_dh_burning_alive : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_FIERY_BRAND_DEBUFF_RANK_2 });
+    }
+
+    void FilterTargets(std::list<WorldObject*>& targets)
+    {
+        targets.remove_if(Trinity::UnitAuraCheck(true, SPELL_DH_FIERY_BRAND_DEBUFF_RANK_2));
+        Trinity::Containers::RandomResize(targets, 1);
+    }
+
+    void OnHitEffect(SpellEffIndex /*effIndex*/)
+    {
+        Unit* target = GetHitUnit();
+        if (target)
+            target->CastSpell(target, SPELL_DH_FIERY_BRAND_DEBUFF_RANK_2, true);
+    }
+
+    void HandleAfterHit()
+    {
+        Unit* caster = GetOriginalCaster();
+        Player* player = caster ? caster->ToPlayer() : nullptr;
+        Unit* target = GetHitUnit();
+        if (!player || !target || !target->HasAura(SPELL_DH_FIERY_BRAND_DEBUFF_RANK_2))
+            return;
+
+        if (AuraEffect* eff = target->GetAuraEffect(SPELL_DH_FIERY_BRAND_DEBUFF_RANK_2, EFFECT_0))
+            eff->SetAmount(int32(caster->GetTotalAttackPowerValue(BASE_ATTACK) * 0.5f));
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_dh_burning_alive::FilterTargets, EFFECT_0, TARGET_UNIT_DEST_AREA_ENEMY);
+        OnEffectHitTarget += SpellEffectFn(spell_dh_burning_alive::OnHitEffect, EFFECT_0, SPELL_EFFECT_DUMMY);
+        AfterHit += SpellHitFn(spell_dh_burning_alive::HandleAfterHit);
+    }
+};
+
 class spell_dh_last_resort : public AuraScript
 {
     bool Validate(SpellInfo const* spellInfo) override
@@ -1362,10 +1735,12 @@ class spell_dh_shatter_soul : public SpellScript
     }
 };
 
-// 228477 - Soul Cleave
-// The damage effect is handled entirely by this spell's own DB2 school-damage effect data; this
-// only computes the resource-scaled self-heal (Effect 3), which additionally benefits from how
-// much Pain was spent beyond the base cost, plus the Feast of Souls interaction.
+// 228477 - Soul Cleave (self-heal)
+// NOTE: correction to an earlier version of this fix - this does NOT cover the damage effect;
+// that's a separate script (spell_dh_soul_cleave_damage, below) which also handles actually
+// spending the Pain, not this one. This class only computes the resource-scaled self-heal
+// (Effect 3), which additionally benefits from how much Pain is currently banked, plus the
+// Feast of Souls interaction.
 // NOTE: the reference also consumes nearby Soul Fragment AreaTriggers from this same spell
 // (Effect 0) using an old WORLD_TRIGGER-summon hack. ArgusCore's own kept fragment-spawning
 // classes (spell_dh_shattered_souls/spell_dh_shatter_soul above) already use a cleaner, modern
@@ -1411,6 +1786,46 @@ class spell_dh_soul_cleave : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_dh_soul_cleave::HandleHeal, EFFECT_3, SPELL_EFFECT_HEAL);
+    }
+};
+
+// 228477 - Soul Cleave (damage)
+// Doubles the base weapon-percent damage, then scales the total by how much Pain is being spent
+// (0-300, floored at 50% since spending zero Pain still deals half as much again as the base
+// hit) - and is the one that actually spends the Pain, clearing Gluttony's buff in the process.
+class spell_dh_soul_cleave_damage : public SpellScript
+{
+    int32 _extraSpellCost = 0;
+
+    bool Load() override
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return false;
+
+        _extraSpellCost = std::min<int32>(caster->GetPower(POWER_PAIN), 300);
+        return true;
+    }
+
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        int32 dmg = GetHitDamage() * 2;
+        dmg = int32(dmg * ((float(_extraSpellCost) + 300.0f) / 600.0f));
+        SetHitDamage(dmg);
+
+        caster->SetPower(POWER_PAIN, caster->GetPower(POWER_PAIN) - _extraSpellCost);
+
+        if (caster->HasAura(SPELL_DH_GLUTTONY_BUFF))
+            caster->RemoveAurasDueToSpell(SPELL_DH_GLUTTONY_BUFF);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dh_soul_cleave_damage::HandleDamage, EFFECT_1, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
     }
 };
 
@@ -1584,15 +1999,27 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScriptWithArgs(spell_dh_demonic, "spell_dh_demonic_vengeance", SPELL_DH_METAMORPHOSIS_VENGEANCE_TRANSFORM);
     RegisterSpellScript(spell_dh_demon_spikes);
     RegisterSpellScript(spell_dh_vengeful_retreat);
+    RegisterSpellScript(spell_dh_vengeful_retreat_trigger);
+    RegisterSpellScript(spell_dh_vengeful_retreat_fury_refiller);
+    RegisterSpellScript(spell_dh_razor_spikes);
+    RegisterSpellScript(spell_dh_master_of_the_glaive);
+    RegisterSpellScript(spell_dh_bloodlet);
+    RegisterSpellScript(spell_dh_nether_bond);
+    RegisterSpellScript(spell_dh_nether_bond_periodic);
     RegisterSpellScript(spell_dh_eye_beam);
     RegisterSpellScript(spell_dh_feast_of_souls);
     RegisterSpellScript(spell_dh_fel_devastation);
+    RegisterSpellScript(spell_dh_fel_devastation_damage);
+    RegisterSpellScript(spell_dh_fel_devastation_heal);
     RegisterSpellScript(spell_dh_fel_rush);
     RegisterSpellScript(spell_dh_fel_rush_charge);
     RegisterSpellScript(spell_dh_felblade);
     RegisterSpellScript(spell_dh_felblade_charge);
     RegisterSpellScript(spell_dh_felblade_cooldown_reset_proc);
     RegisterSpellScript(spell_dh_fiery_brand);
+    RegisterSpellScript(spell_dh_fiery_brand_absorb);
+    RegisterSpellScript(spell_dh_consume_soul);
+    RegisterSpellScript(spell_dh_burning_alive);
     RegisterSpellScript(spell_dh_last_resort);
     RegisterSpellScript(spell_dh_immolation_aura);
     RegisterSpellScript(spell_dh_sigil_of_chains);
@@ -1636,6 +2063,7 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_shattered_souls);
     RegisterSpellScript(spell_dh_shatter_soul);
     RegisterSpellScript(spell_dh_soul_cleave);
+    RegisterSpellScript(spell_dh_soul_cleave_damage);
     RegisterSpellScript(spell_dh_flaming_soul);
     RegisterSpellScript(spell_dh_fueled_by_pain);
     RegisterSpellScript(spell_dh_metamorphosis);
