@@ -51,6 +51,11 @@ enum MonkSpells
     SPELL_MONK_FISTS_OF_FURY_DAMAGE                     = 117418,
     SPELL_MONK_FISTS_OF_FURY_VISUAL                     = 123154,
     SPELL_MONK_FORTIFYING_BREW                          = 120954,
+    SPELL_MONK_GIFT_OF_THE_OX_AURA                       = 124502,
+    SPELL_MONK_GIFT_OF_THE_OX_AT_RIGHT                   = 124503,
+    SPELL_MONK_GIFT_OF_THE_OX_AT_LEFT                    = 124506,
+    SPELL_MONK_GIFT_OF_THE_OX_HEAL                       = 178173,
+    SPELL_MONK_HEALING_SPHERE_COOLDOWN                   = 224863,
     SPELL_MONK_JADE_WALK                                = 450552,
     SPELL_MONK_MISTS_OF_LIFE                            = 388548,
     SPELL_MONK_MORTAL_WOUNDS                            = 115804,
@@ -897,6 +902,81 @@ struct at_monk_song_of_chi_ji : AreaTriggerAI
     }
 };
 
+// Gift of the Ox healing sphere - spawned by 124503/124506
+// Heals the caster on pickup (after a short delay to avoid instant self-pickup) and clears the
+// spawn cooldown marker when the sphere expires/is removed.
+struct at_monk_gift_of_the_ox_sphere : AreaTriggerAI
+{
+    using AreaTriggerAI::AreaTriggerAI;
+
+    uint32 pickupDelay = 1000;
+
+    void OnUpdate(uint32 diff) override
+    {
+        pickupDelay = (pickupDelay >= diff) ? (pickupDelay - diff) : 0;
+    }
+
+    void OnUnitEnter(Unit* unit) override
+    {
+        Unit* caster = at->GetCaster();
+        if (!caster || unit != caster || pickupDelay)
+            return;
+
+        caster->CastSpell(caster, SPELL_MONK_GIFT_OF_THE_OX_HEAL, true);
+        at->Remove();
+    }
+
+    void OnRemove() override
+    {
+        if (Unit* caster = at->GetCaster())
+            if (caster->HasAura(SPELL_MONK_HEALING_SPHERE_COOLDOWN))
+                caster->RemoveAura(SPELL_MONK_HEALING_SPHERE_COOLDOWN);
+    }
+};
+
+// 124502 - Gift of the Ox
+// Chance to spawn a healing sphere when taking damage, scaling with damage taken relative to
+// max health and increasing as the Monk's own health drops.
+// NOTE: DestinyCore's reference implements this as a global PlayerScript::OnTakeDamage hook -
+// ArgusCore's PlayerScript has no OnTakeDamage hook at all (a missing engine capability, the
+// same category of gap as Execute's missing OnTakePower earlier this session). Rather than
+// needing a new engine hook, implemented this as a self-contained proc-driven AuraScript on
+// the talent aura itself instead, matching the idiom used throughout this file/session
+// (Defensive Stance, Second Wind, etc.) - this assumes 124502's own DB2 proc data is scoped to
+// "on taking damage" (the entire point of this talent), which wasn't independently verified
+// but is a reasonable, low-risk assumption given the ability's name and purpose.
+class spell_monk_gift_of_the_ox_aura : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        DamageInfo const* dmgInfo = eventInfo.GetDamageInfo();
+        Unit* victim = GetTarget();
+        if (!dmgInfo || !dmgInfo->GetDamage() || !victim || !victim->GetMaxHealth())
+            return false;
+
+        float dmgRatio = float(dmgInfo->GetDamage()) / float(victim->GetMaxHealth());
+        float healthScaling = 3.f - 2.f * (victim->GetHealthPct() / 100.f);
+        return roll_chance_f(0.75f * dmgRatio * healthScaling * 100.f);
+    }
+
+    void HandleProc(ProcEventInfo& /*eventInfo*/)
+    {
+        Unit* victim = GetTarget();
+        if (!victim || victim->HasAura(SPELL_MONK_HEALING_SPHERE_COOLDOWN))
+            return;
+
+        static constexpr uint32 SpellsToCast[] = { SPELL_MONK_GIFT_OF_THE_OX_AT_RIGHT, SPELL_MONK_GIFT_OF_THE_OX_AT_LEFT };
+        victim->CastSpell(victim, SPELL_MONK_HEALING_SPHERE_COOLDOWN, true);
+        victim->CastSpell(victim, SpellsToCast[urand(0, 1)], true);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_monk_gift_of_the_ox_aura::CheckProc);
+        OnProc += AuraProcFn(spell_monk_gift_of_the_ox_aura::HandleProc);
+    }
+};
+
 // Utility for stagger scripts
 Aura* FindExistingStaggerEffect(Unit* unit)
 {
@@ -1261,6 +1341,7 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_fists_of_fury_visual_filter);
     RegisterSpellScript(spell_monk_fists_of_fury_visual);
     RegisterSpellScript(spell_monk_fortifying_brew);
+    RegisterSpellScript(spell_monk_gift_of_the_ox_aura);
     RegisterSpellScript(spell_monk_jade_walk);
     RegisterSpellScript(spell_monk_life_cocoon);
     RegisterSpellScript(spell_monk_mists_of_life);
@@ -1280,6 +1361,7 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_roll_aura);
     RegisterSpellScript(spell_monk_save_them_all);
     RegisterAreaTriggerAI(at_monk_song_of_chi_ji);
+    RegisterAreaTriggerAI(at_monk_gift_of_the_ox_sphere);
     RegisterSpellScript(spell_monk_stagger);
     RegisterSpellScript(spell_monk_stagger_damage_aura);
     RegisterSpellScript(spell_monk_stagger_debuff_aura);

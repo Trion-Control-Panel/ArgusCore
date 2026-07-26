@@ -2597,6 +2597,72 @@ damage is absorbed and a charge is consumed. Energizing Brew: confirm it
 fails to cast outside combat. Fortifying Brew: confirm the defensive buff
 applies on cast.
 
+### [DONE, partial] Monk/Brewmaster - Gift of the Ox missing; engine hook gap and DB2 data gap both found and worked around/flagged
+
+**Subsystem:** Scripts/Spells (spell_monk)
+
+**Problem:** Gift of the Ox (124502), the Brewmaster passive that spawns
+healing orbs when taking damage, had no implementation. Investigated as a
+prerequisite for Expel Harm (deferred in the previous fix).
+
+**Engine hook gap found and worked around:** DestinyCore's reference
+implements this as a global `PlayerScript::OnTakeDamage` hook.
+**ArgusCore's `PlayerScript` has no `OnTakeDamage` hook at all** — the same
+category of missing engine capability as Execute's missing `OnTakePower`
+earlier this session. Rather than needing a new engine hook, implemented
+this as a self-contained proc-driven `AuraScript` on the talent aura
+itself (124502) instead, matching the idiom used throughout this session
+(Defensive Stance, Second Wind, etc.). This assumes 124502's own DB2 proc
+data is scoped to "on taking damage" — not independently verified, but a
+reasonable low-risk assumption given the ability's entire purpose.
+
+**DB2 data gap found, left unresolved:** the companion piece —
+`at_monk_gift_of_the_ox_sphere`, an `AreaTriggerAI` that makes the spawned
+orb heal the Monk on pickup — is written (ported from DestinyCore, using
+ArgusCore's own already-proven `at_monk_song_of_chi_ji` as a structural
+template) but **not bound**. Binding an `AreaTriggerAI` requires a row in
+`areatrigger_create_properties` referencing real client DB2 visual/shape
+asset ids (`Id`, `AreaTriggerId`, `Shape`, `ShapeData0-5`, `MoveCurveId`,
+etc.) — confirmed by finding the schema via ArgusCore's own existing
+`at_monk_song_of_chi_ji` binding row. DestinyCore's own equivalent row uses
+a completely different, older/simpler table schema, so it couldn't be
+copied directly, and the correct values for Gift of the Ox's specific orb
+can't be inferred from the C++ alone. Guessing at these ids risked
+pointing at unrelated real client data, so left unbound rather than guess
+— same category of gap as Ravager's `creature_template` and Soothing
+Mist's Jade Serpent Statue, both also left unresolved this session.
+
+**Practical effect of the partial implementation:** Gift of the Ox now
+correctly rolls its proc chance and casts the orb-spawn spells when taking
+damage (scaling with damage taken and current health, matching
+DestinyCore's formula). The spell's own existing DB2 data should still
+spawn a visible orb. Picking it up will not yet trigger the heal, since
+the `AreaTriggerAI` that would handle that isn't bound to real orb data.
+
+**Files:** `src/server/scripts/Spells/spell_monk.cpp`
+
+**Fix:** Added `SPELL_MONK_GIFT_OF_THE_OX_AURA/_AT_RIGHT/_AT_LEFT/_HEAL`
+and `SPELL_MONK_HEALING_SPHERE_COOLDOWN` constants, the
+`at_monk_gift_of_the_ox_sphere` `AreaTriggerAI` struct (unbound, see
+above), and `spell_monk_gift_of_the_ox_aura` (`AuraScript`, bound and
+functional).
+
+**Database dependency:** added a `spell_script_names` binding for
+`spell_monk_gift_of_the_ox_aura` only, in its own dedicated file,
+`sql/updates/world/master/2026_07_26_06_world.sql`. No SQL was written for
+the `AreaTriggerAI` binding — see the DB2 data gap above.
+
+**Risk:** Low for the bound proc/spawn half; the unbound pickup-heal half
+is inert but harmless (a registered-but-unreferenced script, not a broken
+one).
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — as Brewmaster, take
+damage and confirm a healing orb occasionally spawns nearby (more
+frequently at lower health). Picking it up is expected to currently do
+nothing until the `areatrigger_create_properties` row is supplied.
+
 ---
 
 ## P4 — Performance / Cleanup
