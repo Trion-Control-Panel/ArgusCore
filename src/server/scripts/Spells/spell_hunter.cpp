@@ -56,6 +56,9 @@ enum HunterSpells
     SPELL_HUNTER_IMPLOSIVE_TRAP_DAMAGE              = 462033,
     SPELL_HUNTER_INTIMIDATION                       = 19577,
     SPELL_HUNTER_INTIMIDATION_MARKSMANSHIP          = 474421,
+    SPELL_HUNTER_KILL_COMMAND                       = 34026,
+    SPELL_HUNTER_KILL_COMMAND_CHARGE                = 118171,
+    SPELL_HUNTER_KILL_COMMAND_TRIGGER               = 83381,
     SPELL_HUNTER_LATENT_POISON_STACK                = 378015,
     SPELL_HUNTER_LATENT_POISON_DAMAGE               = 378016,
     SPELL_HUNTER_LATENT_POISON_INJECTORS_STACK      = 336903,
@@ -413,6 +416,98 @@ struct areatrigger_hun_implosive_trap : AreaTriggerAI
                 at->Remove();
             }
         }
+    }
+};
+
+// 34026 - Kill Command
+// NOTE: the reference also implements two Legion companion-pet mechanics ArgusCore has no
+// support for, dropped here rather than guessed at: "Aspect of the Beast" (which branches on
+// the pet's talent specialization - Ferocity/Cunning/Tenacity - via a hardcoded enum, but
+// ArgusCore's Pet::GetSpecialization() returns a raw DB2 ChrSpecialization id instead, and the
+// correct ids for those three pet specs weren't available to verify), and the Survival
+// Hunter's "Hati" artifact companion wolf (a second, non-Guardian-pet summon entirely -
+// Player::GetHati() doesn't exist anywhere in ArgusCore, no engine support for it at all). The
+// core "redirect the pet's attack onto the target and have it strike" mechanic below is
+// unaffected by either gap.
+class spell_hun_kill_command : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_HUNTER_KILL_COMMAND, SPELL_HUNTER_KILL_COMMAND_TRIGGER, SPELL_HUNTER_KILL_COMMAND_CHARGE });
+    }
+
+    SpellCastResult CheckCast()
+    {
+        Unit* caster = GetCaster();
+        Guardian* pet = caster ? caster->GetGuardianPet() : nullptr;
+        Unit* target = GetExplTargetUnit();
+
+        if (!pet || pet->isDead())
+            return SPELL_FAILED_NO_PET;
+
+        if (!target)
+            return SPELL_FAILED_NO_VALID_TARGETS;
+
+        if (!pet->IsWithinDist(target, 40.0f, true))
+            return SPELL_FAILED_OUT_OF_RANGE;
+
+        if (!target->IsWithinLOSInMap(pet))
+            return SPELL_FAILED_LINE_OF_SIGHT;
+
+        if (pet->HasAuraType(SPELL_AURA_MOD_STUN) || pet->HasAuraType(SPELL_AURA_MOD_CONFUSE) ||
+            pet->HasAuraType(SPELL_AURA_MOD_SILENCE) || pet->HasAuraType(SPELL_AURA_MOD_FEAR) ||
+            pet->HasAuraType(SPELL_AURA_MOD_FEAR_2))
+            return SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW;
+
+        return SPELL_CAST_OK;
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Guardian* pet = caster ? caster->GetGuardianPet() : nullptr;
+        Unit* target = GetExplTargetUnit();
+        if (!pet || !target)
+            return;
+
+        pet->CastSpell(target, SPELL_HUNTER_KILL_COMMAND_TRIGGER, true);
+
+        if (pet->GetVictim())
+            pet->AttackStop();
+        pet->AI()->AttackStart(target);
+
+        pet->CastSpell(target, SPELL_HUNTER_KILL_COMMAND_CHARGE, true);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_hun_kill_command::CheckCast);
+        OnEffectHit += SpellEffectFn(spell_hun_kill_command::HandleDummy, EFFECT_1, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+};
+
+// 83381 - Kill Command (damage)
+// Damage formula ported verbatim from the reference's own "Patch 7.2.5" comment - a real
+// Legion patch number, i.e. genuinely period-appropriate for 7.3.5, not independently
+// re-derived here.
+class spell_hun_kill_command_proc : public SpellScript
+{
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Player* owner = caster && caster->GetOwner() ? caster->GetOwner()->ToPlayer() : nullptr;
+        if (!owner)
+            return;
+
+        float rawDamage = 1.5f * (1.0f + owner->GetInt32Value(UNIT_FIELD_RANGED_ATTACK_POWER) * 3.6f);
+        rawDamage *= (0.5f + std::min<int32>(owner->GetLevel(), 20) * 0.025f) * (1.0f + owner->GetRatingBonusValue(CR_VERSATILITY_DAMAGE_DONE) / 100.0f);
+
+        SetHitDamage(int32(rawDamage));
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_hun_kill_command_proc::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
     }
 };
 
@@ -1208,6 +1303,8 @@ void AddSC_hunter_spell_scripts()
     RegisterSpellScript(spell_hun_explosive_shot);
     RegisterAreaTriggerAI(areatrigger_hun_high_explosive_trap);
     RegisterSpellScript(spell_hun_hunting_party);
+    RegisterSpellScript(spell_hun_kill_command);
+    RegisterSpellScript(spell_hun_kill_command_proc);
     RegisterAreaTriggerAI(areatrigger_hun_implosive_trap);
     RegisterSpellScript(spell_hun_last_stand_pet);
     RegisterSpellScript(spell_hun_latent_poison_damage);
