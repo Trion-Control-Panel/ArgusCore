@@ -1023,7 +1023,7 @@ class spell_dk_chill_streak : public SpellScript
 // 204167 - Chill Streak (damage)
 class spell_dk_chill_streak_damage : public SpellScript
 {
-    void HandleDummy(SpellEffIndex /*effIndex*/) const
+    void HandleDummy(SpellEffIndex /*effIndex*/)
     {
         if (Unit* target = GetHitUnit())
             SetHitDamage(int32(target->CountPctFromMaxHealth(GetEffectValue())));
@@ -1040,7 +1040,7 @@ class spell_dk_chill_streak_damage : public SpellScript
 // despawns the summon.
 class spell_dk_zombie_explosion : public SpellScript
 {
-    void HandleDummy(SpellEffIndex /*effIndex*/) const
+    void HandleDummy(SpellEffIndex /*effIndex*/)
     {
         Unit* target = GetHitUnit();
         if (!target)
@@ -1064,7 +1064,7 @@ class spell_dk_zombie_explosion : public SpellScript
 // effect) as bonus damage scaled by stack count, with an extra burst at maximum stacks.
 class spell_dk_cold_heart : public SpellScript
 {
-    void HandleDamage(SpellEffIndex /*effIndex*/) const
+    void HandleDamage(SpellEffIndex /*effIndex*/)
     {
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit();
