@@ -2267,6 +2267,67 @@ Blackout Kick and confirm: (1) damage scales up with stacks consumed, (2)
 Rising Sun Kick's cooldown/charges occasionally reset, (3) as Mistweaver
 with Spirit of the Crane, mana is refunded proportional to stacks consumed.
 
+### [DONE] Monk/Windwalker - Fists of Fury missing entirely
+
+**Subsystem:** Scripts/Spells (spell_monk)
+
+**Problem:** Fists of Fury (113656), Windwalker's other core Chi spender
+(alongside Blackout Kick), had no implementation anywhere in ArgusCore
+across any of its four constituent spell scripts.
+
+**Reference:** DestinyCore's implementation, spread across four classes
+bound to three different spell ids:
+- `spell_monk_fists_of_fury` (113656, the channeled aura) — ticks fast for
+  the visual pulse, but only fires the damage sub-spell every 6th tick.
+- `spell_monk_fists_of_fury_damage` (117418) — manual damage formula
+  (`AttackPower * 5.25`, then the normal damage-bonus-done/taken pipeline),
+  since this coefficient isn't expressible via a plain weapon-percent-damage
+  effect. The 5.25 coefficient is DestinyCore's own value, not
+  independently verified against Legion 7.3.5 client data.
+- `spell_monk_fists_of_fury_visual_filter` (also 117418 — confirmed this is
+  intentional dual-binding, not a data error: TrinityCore-style script
+  binding supports multiple independent script classes per spell id) —
+  prevents re-targeting a unit already hit by the visual sweep this tick.
+- `spell_monk_fists_of_fury_visual` (123154) — sets an explicit 1000ms
+  duration on the visual sweep aura, since DestinyCore's own comment notes
+  client data has no duration for it and it would never end otherwise; kept
+  as a defensive workaround rather than a guess, on the reference's own
+  explanation.
+
+**Deliberately not ported:** `spell_monk_fists_of_fury_stun`, a target-filter
+script for a stun-variant of this ability. DestinyCore's own registration
+function has it commented out (`//new spell_monk_fists_of_fury_stun();`) —
+disabled in the reference itself, so not treated as confirmed-working
+content worth porting.
+
+**Files:** `src/server/scripts/Spells/spell_monk.cpp`. Also added a
+`GridNotifiers.h` include for `Trinity::UnitAuraCheck`, not previously
+needed in this file.
+
+**Fix:** Added `SPELL_MONK_FISTS_OF_FURY_DAMAGE` (117418) and
+`SPELL_MONK_FISTS_OF_FURY_VISUAL` (123154) constants, plus all four classes
+ported directly from DestinyCore's logic with only API-convention
+adaptations (e.g. `SpellDamageBonusTaken`'s signature in this engine takes
+one fewer parameter than DestinyCore's call).
+
+**Database dependency:** searched ArgusCore's committed SQL for existing
+`spell_script_names` bindings on all three spell ids — found none. Added
+all four class bindings to a single dedicated file,
+`sql/updates/world/master/2026_07_26_02_world.sql`.
+
+**Risk:** Moderate — four interacting classes across three spell ids, and
+the damage coefficient (5.25) isn't independently verified. Needs real
+in-game testing of the full channel (visual sweep timing, periodic damage
+cadence, target filtering) together.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — as Windwalker, use
+Fists of Fury and confirm: the channel visually sweeps nearby enemies, deals
+periodic damage roughly every 6th tick rather than every tick, and doesn't
+hang indefinitely (the visual sweep aura should end with the channel, not
+persist).
+
 ---
 
 ## P4 — Performance / Cleanup

@@ -24,6 +24,7 @@
 #include "AreaTrigger.h"
 #include "AreaTriggerAI.h"
 #include "DB2Stores.h"
+#include "GridNotifiers.h"
 #include "PathGenerator.h"
 #include "Player.h"
 #include "Spell.h"
@@ -43,6 +44,8 @@ enum MonkSpells
     SPELL_MONK_CRACKLING_JADE_LIGHTNING_KNOCKBACK       = 117962,
     SPELL_MONK_CRACKLING_JADE_LIGHTNING_KNOCKBACK_CD    = 117953,
     SPELL_MONK_ENVELOPING_MIST                          = 124682,
+    SPELL_MONK_FISTS_OF_FURY_DAMAGE                     = 117418,
+    SPELL_MONK_FISTS_OF_FURY_VISUAL                     = 123154,
     SPELL_MONK_JADE_WALK                                = 450552,
     SPELL_MONK_MISTS_OF_LIFE                            = 388548,
     SPELL_MONK_MORTAL_WOUNDS                            = 115804,
@@ -239,6 +242,98 @@ class spell_monk_crackling_jade_lightning_knockback_proc_aura : public AuraScrip
     {
         DoCheckProc += AuraCheckProcFn(spell_monk_crackling_jade_lightning_knockback_proc_aura::CheckProc);
         OnEffectProc += AuraEffectProcFn(spell_monk_crackling_jade_lightning_knockback_proc_aura::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 113656 - Fists of Fury
+// Channeled aura; ticks fast for the visual pulse, but only fires the actual damage sub-spell
+// every 6th tick.
+class spell_monk_fists_of_fury : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_FISTS_OF_FURY_DAMAGE });
+    }
+
+    void HandlePeriodic(AuraEffect const* aurEff)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (aurEff->GetTickNumber() % 6 == 0)
+            caster->CastSpell(GetTarget(), SPELL_MONK_FISTS_OF_FURY_DAMAGE, true);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_monk_fists_of_fury::HandlePeriodic, EFFECT_2, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
+// 117418 - Fists of Fury (damage)
+// Manual damage formula (AttackPower * 5.25, then the normal damage-bonus-done/taken pipeline)
+// since this coefficient isn't expressible via a plain weapon-percent-damage effect. The
+// coefficient itself is DestinyCore's own value, not independently verified against Legion
+// 7.3.5 client data.
+class spell_monk_fists_of_fury_damage : public SpellScript
+{
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        int32 damage = int32(caster->GetTotalAttackPowerValue(BASE_ATTACK) * 5.25f);
+        damage = caster->SpellDamageBonusDone(target, GetSpellInfo(), damage, SPELL_DIRECT_DAMAGE, GetEffectInfo(EFFECT_0));
+        damage = target->SpellDamageBonusTaken(caster, GetSpellInfo(), damage, SPELL_DIRECT_DAMAGE);
+
+        SetHitDamage(damage);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_monk_fists_of_fury_damage::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 117418 - Fists of Fury (target filter)
+// Same spell id as the damage script above - TrinityCore-style script binding supports
+// multiple independent script classes on one spell id. Prevents re-targeting a unit already
+// hit by the visual sweep aura (123154) this tick.
+class spell_monk_fists_of_fury_visual_filter : public SpellScript
+{
+    void RemoveInvalidTargets(std::list<WorldObject*>& targets)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        targets.remove_if(Trinity::UnitAuraCheck(true, SPELL_MONK_FISTS_OF_FURY_VISUAL, caster->GetGUID()));
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_monk_fists_of_fury_visual_filter::RemoveInvalidTargets, EFFECT_1, TARGET_UNIT_CONE_ENEMY_24);
+    }
+};
+
+// 123154 - Fists of Fury (visual sweep)
+// This aura has no duration in client data and would never end without one - a defensive
+// workaround from DestinyCore's own reference, not a guessed value; the actual channel length
+// is governed by the main Fists of Fury cast (113656) regardless.
+class spell_monk_fists_of_fury_visual : public AuraScript
+{
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        SetMaxDuration(1000);
+        SetDuration(1000);
+    }
+
+    void Register() override
+    {
+        OnEffectApply += AuraEffectApplyFn(spell_monk_fists_of_fury_visual::OnApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -844,6 +939,10 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_burst_of_life_heal);
     RegisterSpellScript(spell_monk_crackling_jade_lightning);
     RegisterSpellScript(spell_monk_crackling_jade_lightning_knockback_proc_aura);
+    RegisterSpellScript(spell_monk_fists_of_fury);
+    RegisterSpellScript(spell_monk_fists_of_fury_damage);
+    RegisterSpellScript(spell_monk_fists_of_fury_visual_filter);
+    RegisterSpellScript(spell_monk_fists_of_fury_visual);
     RegisterSpellScript(spell_monk_jade_walk);
     RegisterSpellScript(spell_monk_life_cocoon);
     RegisterSpellScript(spell_monk_mists_of_life);
