@@ -1216,6 +1216,46 @@ class spell_dh_infernal_strike_jump : public SpellScript
     }
 };
 
+// 205630 - Illidan's Grasp
+// Vengeance's signature mobility/utility spike: casting it on an unmarked enemy sticks a spike
+// in them (the mark itself is this spell's own DB2 apply-aura effect data, no script needed for
+// that half); casting it again on an already-marked target instead pulls them to the caster and
+// deals damage.
+// NOTE: the only available reference (LegionCore-7.3.5/V2) tracks "did I mark this target" via
+// a non-standard per-unit "who has my aura" list (TargetsWhoHasMyAuras/m_whoHasMyAuras) that
+// doesn't exist anywhere in ArgusCore's engine. Substituted with a plain
+// HasAura(SPELL_DH_ILLIDANS_GRASP, casterGuid) check on the explicit hit target, which answers
+// the same "did I personally mark this target" question through a standard, already-used-
+// throughout-this-file API instead.
+class spell_dh_illidans_grasp : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_ILLIDANS_GRASP, SPELL_DH_ILLIDANS_GRASP_JUMP_DEST, SPELL_DH_ILLIDANS_GRASP_DAMAGE });
+    }
+
+    void HandleHit(SpellEffIndex effIndex)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        if (!target->HasAura(SPELL_DH_ILLIDANS_GRASP, caster->GetGUID()))
+            return;
+
+        PreventHitDefaultEffect(effIndex);
+        target->RemoveAura(SPELL_DH_ILLIDANS_GRASP, caster->GetGUID());
+        target->CastSpell(caster, SPELL_DH_ILLIDANS_GRASP_JUMP_DEST, true);
+        target->CastSpell(caster, SPELL_DH_ILLIDANS_GRASP_DAMAGE, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dh_illidans_grasp::HandleHit, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
+    }
+};
+
 // 192939 - Fel Mastery
 // Fel Rush's damage tick has a chance to generate Fury.
 class spell_dh_fel_mastery : public AuraScript
@@ -2461,6 +2501,7 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_fel_eruption);
     RegisterSpellScript(spell_dh_infernal_strike);
     RegisterSpellScript(spell_dh_infernal_strike_jump);
+    RegisterSpellScript(spell_dh_illidans_grasp);
     RegisterSpellScript(spell_dh_fel_mastery);
     RegisterSpellScript(spell_dh_fel_rush);
     RegisterSpellScript(spell_dh_fel_rush_charge);
