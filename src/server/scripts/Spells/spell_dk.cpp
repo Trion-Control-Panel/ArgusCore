@@ -52,6 +52,7 @@ enum DeathKnightSpells
     SPELL_DK_BLOOD_SHIELD_ABSORB                = 77535,
     SPELL_DK_BLOOD_SHIELD_MASTERY               = 77513,
     SPELL_DK_BONE_SHIELD                        = 195181,
+    SPELL_DK_BONESTORM_HEAL                     = 196545,
     SPELL_DK_BREATH_OF_SINDRAGOSA               = 152279,
     SPELL_DK_CHAINS_OF_ICE_ROOT                  = 53534,
     SPELL_DK_CHILBLAINS                          = 50041,
@@ -66,6 +67,7 @@ enum DeathKnightSpells
     SPELL_DK_DEATH_GRIP_DUMMY                   = 243912,
     SPELL_DK_DEATH_GRIP_JUMP                    = 49575,
     SPELL_DK_DEATH_GRIP_TAUNT                   = 51399,
+    SPELL_DK_DEATH_STRIKE                       = 49998,
     SPELL_DK_DEATH_STRIKE_ENABLER               = 89832, // Server Side
     SPELL_DK_DEATH_STRIKE_HEAL                  = 45470,
     SPELL_DK_DEATH_STRIKE_OFFHAND               = 66188,
@@ -1453,6 +1455,76 @@ class spell_dk_death_siphon : public SpellScript
     }
 };
 
+// 194844 - Bonestorm
+// Spends up to 90 Runic Power (rounded down to the nearest 10) on cast, extending the aura's
+// duration by 1 sec per 10 Runic Power spent and healing every tick for as long as it lasts.
+// NOTE: the reference computes the duration extension as raw milliseconds (duration + cost/10),
+// which for a cost of 90 adds all of 9ms - clearly missing the *1000 needed to turn "seconds
+// per 10 RP" into milliseconds, since the ability's own tooltip is "+1 sec per 10 Runic Power."
+// Corrected here rather than ported verbatim.
+class spell_dk_bonestorm : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_BONESTORM_HEAL });
+    }
+
+    bool Load() override
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return false;
+
+        int32 availablePower = std::min(caster->GetPower(POWER_RUNIC_POWER), 90);
+        _extraCost = availablePower - (availablePower % 10);
+        return true;
+    }
+
+    void HandleApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        SetDuration(GetDuration() + (_extraCost / 10) * 1000);
+
+        if (Unit* caster = GetCaster())
+            caster->SetPower(POWER_RUNIC_POWER, std::max(caster->GetPower(POWER_RUNIC_POWER) - _extraCost, 0));
+    }
+
+    void HandlePeriodic(AuraEffect const* /*aurEff*/)
+    {
+        if (Unit* caster = GetCaster())
+            caster->CastSpell(caster, SPELL_DK_BONESTORM_HEAL, true);
+    }
+
+    void Register() override
+    {
+        OnEffectApply += AuraEffectApplyFn(spell_dk_bonestorm::HandleApply, EFFECT_2, SPELL_AURA_PERIODIC_TRIGGER_SPELL, AURA_EFFECT_HANDLE_REAL);
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dk_bonestorm::HandlePeriodic, EFFECT_2, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
+    }
+
+private:
+    int32 _extraCost = 0;
+};
+
+// 101568 - Dark Succor
+// Gates the proc to Death Strike only; the free/cheap-cast buff itself is this aura's own DB2
+// proc-trigger-spell effect.
+class spell_dk_dark_succor : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_DEATH_STRIKE });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_DK_DEATH_STRIKE;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_dk_dark_succor::CheckProc);
+    }
+};
+
 // 55233 - Vampiric Blood
 class spell_dk_vampiric_blood : public AuraScript
 {
@@ -2137,6 +2209,8 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_obliterate);
     RegisterSpellScript(spell_dk_frozen_pulse);
     RegisterSpellScript(spell_dk_death_siphon);
+    RegisterSpellScript(spell_dk_bonestorm);
+    RegisterSpellScript(spell_dk_dark_succor);
     RegisterSpellScript(spell_dk_army_transform);
     RegisterSpellScript(spell_dk_blinding_sleet);
     RegisterSpellScript(spell_dk_blooddrinker);
