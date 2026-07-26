@@ -122,6 +122,9 @@ enum MonkSpells
     SPELL_MONK_VIVIFY                                   = 116670,
     SPELL_MONK_WHIRLING_DRAGON_PUNCH                    = 152175,
     SPELL_MONK_WHIRLING_DRAGON_PUNCH_DAMAGE             = 158221,
+    SPELL_MONK_ZEN_PILGRIMAGE                           = 126892,
+    SPELL_MONK_ZEN_PILGRIMAGE_RETURN                    = 126895,
+    SPELL_MONK_ZEN_PILGRIMAGE_RETURN_AURA               = 126896,
     SPELL_MONK_ZEN_PULSE_HEAL                           = 198487,
 };
 
@@ -2406,6 +2409,54 @@ class spell_monk_whirling_dragon_punch : public AuraScript
     }
 };
 
+// 126892 - Zen Pilgrimage, 126895 - Zen Pilgrimage: Return
+// Hearthstone-style pair: teleports to the class order hall (or Peak of Serenity below level
+// 98, before Order Halls unlock) and saves a recall position, then teleports back and clears
+// the travel-form aura on return. One shared class bound to both spell ids - each hook only
+// fires for the effect index/type present on its own spell's data, so no cross-firing risk.
+class spell_monk_zen_pilgrimage : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_ZEN_PILGRIMAGE, SPELL_MONK_ZEN_PILGRIMAGE_RETURN });
+    }
+
+    void HandleTeleport(SpellEffIndex effIndex)
+    {
+        PreventHitDefaultEffect(effIndex);
+        PreventHitEffect(effIndex);
+
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!player)
+            return;
+
+        player->SaveRecallPosition();
+        if (player->GetLevel() >= 98)
+            player->TeleportTo(1514, 882.933f, 3605.61f, 192.218f, player->GetOrientation());
+        else
+            player->TeleportTo(870, 3818.55f, 1793.18f, 950.35f, player->GetOrientation());
+    }
+
+    void HandleReturn(SpellEffIndex effIndex)
+    {
+        PreventHitDefaultEffect(effIndex);
+        PreventHitEffect(effIndex);
+
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!player)
+            return;
+
+        player->Recall();
+        player->RemoveAura(SPELL_MONK_ZEN_PILGRIMAGE_RETURN_AURA);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_monk_zen_pilgrimage::HandleTeleport, EFFECT_0, SPELL_EFFECT_TELEPORT_UNITS);
+        OnEffectHitTarget += SpellEffectFn(spell_monk_zen_pilgrimage::HandleReturn, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+};
+
 // 124081 - Zen Pulse
 // Casts a self-heal (198487) alongside its own damage effect.
 class spell_monk_zen_pulse : public SpellScript
@@ -2494,5 +2545,6 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_touch_of_death);
     RegisterSpellScript(spell_monk_touch_of_karma);
     RegisterSpellScript(spell_monk_whirling_dragon_punch);
+    RegisterSpellScript(spell_monk_zen_pilgrimage);
     RegisterSpellScript(spell_monk_zen_pulse);
 }
