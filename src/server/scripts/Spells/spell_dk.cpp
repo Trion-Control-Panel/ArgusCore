@@ -71,6 +71,9 @@ enum DeathKnightSpells
     SPELL_DK_DEATH_STRIKE_ENABLER               = 89832, // Server Side
     SPELL_DK_DEATH_STRIKE_HEAL                  = 45470,
     SPELL_DK_DEATH_STRIKE_OFFHAND               = 66188,
+    SPELL_DK_DEFILE_DAMAGE                      = 156000,
+    SPELL_DK_DEFILE_DUMMY                       = 156004,
+    SPELL_DK_DEFILE_MASTERY                     = 218100,
     SPELL_DK_FESTERING_WOUND                    = 194310,
     SPELL_DK_FROST                              = 137006,
     SPELL_DK_FROST_FEVER                        = 55095,
@@ -1804,6 +1807,59 @@ class spell_dk_defile : public AuraScript
     }
 };
 
+// 152280 - Defile (periodic driver)
+// A second, independent script on the same spell id as spell_dk_defile above (which only
+// suppresses an unused absorb effect) - this drives the actual ability: every tick, deals
+// damage at each of the caster's own Defile AreaTrigger positions, and grants Defile Mastery
+// while at least one enemy is standing inside. The ground effect's own growth-over-time comes
+// from SPELL_DK_DEFILE_DAMAGE's own stacking DB2 data, not from anything tracked here.
+class spell_dk_defile_periodic : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_DEFILE_DAMAGE, SPELL_DK_DEFILE_MASTERY });
+    }
+
+    void HandlePeriodic(AuraEffect const* /*aurEff*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        for (AreaTrigger* at : caster->GetAreaTriggers(GetId()))
+        {
+            caster->CastSpell(at->GetPosition(), SPELL_DK_DEFILE_DAMAGE, true);
+
+            if (!at->GetInsideUnits().empty())
+                caster->CastSpell(caster, SPELL_DK_DEFILE_MASTERY, true);
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dk_defile_periodic::HandlePeriodic, EFFECT_2, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
+// Spell 152280 - Defile
+// AreaTrigger 6212
+// Applies/removes the Defile ground-effect debuff as units cross the trigger boundary.
+struct at_dk_defile : AreaTriggerAI
+{
+    using AreaTriggerAI::AreaTriggerAI;
+
+    void OnUnitEnter(Unit* unit) override
+    {
+        if (Unit* caster = at->GetCaster())
+            caster->CastSpell(unit, SPELL_DK_DEFILE_DUMMY, true);
+    }
+
+    void OnUnitExit(Unit* unit) override
+    {
+        unit->RemoveAurasDueToSpell(SPELL_DK_DEFILE_DUMMY);
+    }
+};
+
 // 206967 - Will of the Necropolis
 class spell_dk_will_of_the_necropolis : public AuraScript
 {
@@ -2229,6 +2285,8 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_death_gate);
     RegisterSpellScript(spell_dk_death_gate_teleport);
     RegisterSpellScript(spell_dk_defile);
+    RegisterSpellScript(spell_dk_defile_periodic);
+    RegisterAreaTriggerAI(at_dk_defile);
     RegisterSpellScript(spell_dk_desecrated_ground);
     RegisterSpellScript(spell_dk_death_grip_initial);
     RegisterSpellScript(spell_dk_death_pact);
