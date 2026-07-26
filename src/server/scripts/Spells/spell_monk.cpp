@@ -23,8 +23,11 @@
 #include "ScriptMgr.h"
 #include "AreaTrigger.h"
 #include "AreaTriggerAI.h"
+#include "CellImpl.h"
+#include "CommonPredicates.h"
 #include "DB2Stores.h"
 #include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 #include "PathGenerator.h"
 #include "Player.h"
 #include "Spell.h"
@@ -44,6 +47,7 @@ enum MonkSpells
     SPELL_MONK_CRACKLING_JADE_LIGHTNING_KNOCKBACK       = 117962,
     SPELL_MONK_CRACKLING_JADE_LIGHTNING_KNOCKBACK_CD    = 117953,
     SPELL_MONK_ENVELOPING_MIST                          = 124682,
+    SPELL_MONK_ENVELOPING_MIST_HEAL                     = 132120,
     SPELL_MONK_FISTS_OF_FURY_DAMAGE                     = 117418,
     SPELL_MONK_FISTS_OF_FURY_VISUAL                     = 123154,
     SPELL_MONK_JADE_WALK                                = 450552,
@@ -64,6 +68,8 @@ enum MonkSpells
     SPELL_MONK_SAVE_THEM_ALL_HEAL_BONUS                 = 390105,
     SPELL_MONK_SONG_OF_CHI_JI_STUN                      = 198909,
     SPELL_MONK_SOOTHING_MIST                            = 115175,
+    SPELL_MONK_SOOTHING_MIST_ENERGIZE                   = 116335,
+    SPELL_MONK_SOOTHING_MIST_VISUAL                     = 125955,
     SPELL_MONK_SPIRIT_OF_THE_CRANE_AURA                 = 210802,
     SPELL_MONK_SPIRIT_OF_THE_CRANE_MANA                 = 210803,
     SPELL_MONK_STANCE_OF_THE_SPIRITED_CRANE             = 154436,
@@ -244,6 +250,28 @@ class spell_monk_crackling_jade_lightning_knockback_proc_aura : public AuraScrip
     {
         DoCheckProc += AuraCheckProcFn(spell_monk_crackling_jade_lightning_knockback_proc_aura::CheckProc);
         OnEffectProc += AuraEffectProcFn(spell_monk_crackling_jade_lightning_knockback_proc_aura::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 124682 - Enveloping Mist
+// Casts the actual heal (132120) after the cast completes. Already relied upon by the
+// existing spell_monk_mists_of_life class in this file, which casts 124682 directly and
+// expects it to heal - without this script, that talent's Enveloping Mist half was inert.
+class spell_monk_enveloping_mist : public SpellScript
+{
+    void HandleAfterCast()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        Unit* target = GetExplTargetUnit();
+        if (!caster || !target)
+            return;
+
+        caster->CastSpell(target, SPELL_MONK_ENVELOPING_MIST_HEAL, true);
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_monk_enveloping_mist::HandleAfterCast);
     }
 };
 
@@ -557,6 +585,74 @@ class spell_monk_provoke : public SpellScript
     }
 };
 
+// 115151 - Renewing Mist
+// Thin wrapper: applies the actual periodic HoT (119611, SPELL_MONK_RENEWING_MIST) on hit.
+class spell_monk_renewing_mist : public SpellScript
+{
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        caster->CastSpell(target, SPELL_MONK_RENEWING_MIST, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_monk_renewing_mist::HandleHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 119611 - Renewing Mist (periodic)
+// Legion's signature Renewing Mist redesign: when the current target reaches full health, the
+// HoT jumps to the most injured ally within 25 yards instead of just falling off, carrying its
+// remaining duration with it.
+class spell_monk_renewing_mist_periodic : public AuraScript
+{
+    void OnTick(AuraEffect const* /*aurEff*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetTarget();
+        if (!caster || !target)
+            return;
+
+        if (target->GetHealthPct() < 100.0f)
+            return;
+
+        Aura* thisAura = target->GetAura(SPELL_MONK_RENEWING_MIST);
+        if (!thisAura)
+            return;
+
+        int32 remainingDuration = thisAura->GetDuration();
+
+        std::list<Unit*> targets;
+        Trinity::AnyFriendlyUnitInObjectRangeCheck check(target, target, 25.0f);
+        Trinity::UnitListSearcher<Trinity::AnyFriendlyUnitInObjectRangeCheck> searcher(target, targets, check);
+        Cell::VisitAllObjects(target, searcher, 25.0f);
+
+        if (targets.empty())
+            return;
+
+        targets.sort(Trinity::Predicates::HealthPctOrderPred());
+
+        Unit* newTarget = targets.front();
+        caster->CastSpell(newTarget, SPELL_MONK_RENEWING_MIST, true);
+
+        if (Aura* newAura = newTarget->GetAura(SPELL_MONK_RENEWING_MIST))
+        {
+            newAura->SetDuration(remainingDuration);
+            target->RemoveAura(SPELL_MONK_RENEWING_MIST);
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_monk_renewing_mist_periodic::OnTick, EFFECT_0, SPELL_AURA_PERIODIC_HEAL);
+    }
+};
+
 // 107428 - Rising Sun Kick
 // NOTE: previously gated its entire HandleOnHit behind Load() requiring Combat Conditioning,
 // which was correct while Mortal Wounds application was the only thing this class did. Adding
@@ -787,6 +883,66 @@ void AddAndRefreshStagger(Unit* target, float amount)
     else
         AddNewStagger(target, GetStaggerSpellId(target, amount), amount);
 }
+
+// 115175 - Soothing Mist
+// Mistweaver's healing channel: applies a visual on the target while channeling, has a 25%
+// chance per tick to generate a Chi, and cleans up the visual when the channel ends.
+// NOTE: DestinyCore's reference also crosses over into the Jade Serpent Statue mechanic here
+// (redirecting the channel through a summoned totem, creature entry 60849) - not ported, since
+// that requires a creature_template row this repo's SQL has no record of (the same kind of
+// unverified NPC data dependency that blocked Ravager earlier this session). The core
+// player-facing healing channel and Chi generation are unaffected by omitting it.
+class spell_monk_soothing_mist : public AuraScript
+{
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (Unit* target = GetTarget())
+            target->CastSpell(target, SPELL_MONK_SOOTHING_MIST_VISUAL, true);
+    }
+
+    void HandlePeriodic(AuraEffect const* /*aurEff*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (roll_chance_i(25))
+            caster->CastSpell(caster, SPELL_MONK_SOOTHING_MIST_ENERGIZE, true);
+    }
+
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (Unit* target = GetTarget())
+            target->RemoveAura(SPELL_MONK_SOOTHING_MIST_VISUAL);
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_monk_soothing_mist::OnApply, EFFECT_0, SPELL_AURA_PERIODIC_HEAL, AURA_EFFECT_HANDLE_REAL);
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_monk_soothing_mist::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_HEAL);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_monk_soothing_mist::OnRemove, EFFECT_0, SPELL_AURA_PERIODIC_HEAL, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 193884 - Soothing Mist (redirect)
+// Lets other instant Mistweaver spells cast while channeling Soothing Mist without breaking
+// the channel, by re-casting Soothing Mist on the same target when this driver aura procs.
+class spell_monk_soothing_mist_aura : public AuraScript
+{
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !eventInfo.GetProcTarget())
+            return;
+
+        caster->CastSpell(eventInfo.GetActionTarget(), SPELL_MONK_SOOTHING_MIST, true);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_monk_soothing_mist_aura::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
 
 // 119582 - Purifying Brew
 // Halves whatever Stagger DoT is currently active (Light/Moderate/Heavy), using the existing
@@ -1021,6 +1177,7 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_burst_of_life_heal);
     RegisterSpellScript(spell_monk_crackling_jade_lightning);
     RegisterSpellScript(spell_monk_crackling_jade_lightning_knockback_proc_aura);
+    RegisterSpellScript(spell_monk_enveloping_mist);
     RegisterSpellScript(spell_monk_fists_of_fury);
     RegisterSpellScript(spell_monk_fists_of_fury_damage);
     RegisterSpellScript(spell_monk_fists_of_fury_visual_filter);
@@ -1035,7 +1192,11 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_provoke);
     RegisterSpellScript(spell_monk_purifying_brew);
     RegisterSpellScript(spell_monk_guard);
+    RegisterSpellScript(spell_monk_renewing_mist);
+    RegisterSpellScript(spell_monk_renewing_mist_periodic);
     RegisterSpellScript(spell_monk_rising_sun_kick);
+    RegisterSpellScript(spell_monk_soothing_mist);
+    RegisterSpellScript(spell_monk_soothing_mist_aura);
     RegisterSpellScript(spell_monk_roll);
     RegisterSpellScript(spell_monk_roll_aura);
     RegisterSpellScript(spell_monk_save_them_all);

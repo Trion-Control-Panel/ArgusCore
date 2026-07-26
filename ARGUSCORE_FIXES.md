@@ -2460,6 +2460,78 @@ is roughly halved. Guard: cast it on a nearby ally, have them take damage,
 confirm their damage taken is reduced and the Monk gains a corresponding
 Stagger debuff.
 
+### [DONE] Monk/Mistweaver - core healing kit missing entirely (Enveloping Mist, Renewing Mist, Soothing Mist)
+
+**Subsystem:** Scripts/Spells (spell_monk)
+
+**Problem:** Enveloping Mist, Renewing Mist, and Soothing Mist — Mistweaver's
+three foundational healing spells — had no implementation anywhere in
+ArgusCore, across five constituent spell scripts.
+
+**Reference:** DestinyCore's implementation for four of the five pieces;
+the fifth (the base Soothing Mist channel) was only partially ported — see
+below.
+
+- **Enveloping Mist** (124682) — casts the actual heal (132120) after cast
+  completes. Notably, ArgusCore's *already-existing* `spell_monk_mists_of_life`
+  class casts spell 124682 directly and has since this session began, but
+  the Enveloping Mist half of that talent was silently inert the whole time
+  without this script to make 124682 actually do anything.
+- **Renewing Mist** (115151) — thin wrapper applying the real periodic HoT
+  (119611, already present in ArgusCore's enum as `SPELL_MONK_RENEWING_MIST`
+  since an earlier fix, just never had its own binding/script).
+- **Renewing Mist (periodic)** (119611) — Legion's signature redesign of
+  this HoT: when the current target reaches full health, it jumps to the
+  most injured ally within 25 yards instead of falling off, carrying its
+  remaining duration along. Uses `Trinity::AnyFriendlyUnitInObjectRangeCheck`/
+  `UnitListSearcher`/`Cell::VisitAllObjects` for the nearby-ally search and
+  `Trinity::Predicates::HealthPctOrderPred` to pick the lowest-health
+  target — note the nested `Predicates` namespace, which differs from
+  DestinyCore's older `Trinity::HealthPctOrderPred` (no `Predicates::`)
+  reference.
+- **Soothing Mist (redirect)** (193884) — lets other instant Mistweaver
+  spells cast during the Soothing Mist channel without breaking it, by
+  re-casting Soothing Mist on the same target when this driver procs.
+
+**Soothing Mist (channel) — deliberately partial port:** DestinyCore's
+reference also crosses over into the Jade Serpent Statue mechanic here
+(redirecting the channel through a summoned totem, creature entry 60849).
+Not ported — same unverified NPC `creature_template` data dependency that
+blocked Ravager earlier this session; searched this repo's committed SQL
+and found no matching creature row. Implemented only the core player-facing
+piece: applies a visual while channeling, has a 25% chance per tick to
+generate a Chi, and cleans up the visual when the channel ends. The Jade
+Serpent Statue crossover can be added later if that NPC data is confirmed.
+
+**Files:** `src/server/scripts/Spells/spell_monk.cpp`. Added `CellImpl.h`,
+`CommonPredicates.h`, and `GridNotifiersImpl.h` includes for the nearby-ally
+search and health-percent sort needed by Renewing Mist's jump mechanic.
+
+**Fix:** Added `SPELL_MONK_ENVELOPING_MIST_HEAL` (132120),
+`SPELL_MONK_SOOTHING_MIST_ENERGIZE` (116335), and
+`SPELL_MONK_SOOTHING_MIST_VISUAL` (125955) constants, plus all five classes.
+
+**Database dependency:** searched ArgusCore's committed SQL for existing
+`spell_script_names` bindings on all five spell ids — found none. Added all
+five to a single dedicated file,
+`sql/updates/world/master/2026_07_26_04_world.sql`.
+
+**Risk:** Moderate — five interacting classes, the most complex being
+Renewing Mist's jump mechanic (untested grid-search/sort combination in
+this specific file, though the individual APIs are used elsewhere in
+ArgusCore's engine). The Jade Serpent Statue omission means Soothing Mist
+is functionally complete for solo healing but won't summon/route through
+that totem — a scoped-down but not broken implementation.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — as Mistweaver: cast
+Enveloping Mist and confirm it heals; cast Renewing Mist on an injured ally,
+let them reach full health, and confirm the HoT jumps to a different
+injured nearby ally rather than just expiring; channel Soothing Mist and
+confirm Chi generates periodically and the channel doesn't break when
+casting other instants.
+
 ---
 
 ## P4 — Performance / Cleanup
