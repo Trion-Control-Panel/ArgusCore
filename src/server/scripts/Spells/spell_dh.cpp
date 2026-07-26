@@ -1025,16 +1025,21 @@ class spell_dh_fel_eruption : public SpellScript
 };
 
 // 195072 - Fel Rush
+// The Momentum talent reads "Vengeful Retreat or Fel Rush increase movement speed" - this half
+// of that grant lives here; the Vengeful Retreat half is in spell_dh_vengeful_retreat below.
 class spell_dh_fel_rush : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_DH_FEL_RUSH_GROUND, SPELL_DH_FEL_RUSH_WATER_AIR, SPELL_DH_FEL_RUSH_DMG });
+        return ValidateSpellInfo({ SPELL_DH_FEL_RUSH_GROUND, SPELL_DH_FEL_RUSH_WATER_AIR, SPELL_DH_FEL_RUSH_DMG, SPELL_DH_MOMENTUM_TALENT, SPELL_DH_MOMENTUM });
     }
 
     void HandleDash()
     {
         Unit* caster = GetCaster();
+
+        if (caster->HasAura(SPELL_DH_MOMENTUM_TALENT))
+            caster->CastSpell(caster, SPELL_DH_MOMENTUM, true);
 
         // Cancel any active walking/running movement so W-key momentum doesn't add to the
         // charge velocity (most visible in the air where there's no ground collision).
@@ -1125,6 +1130,89 @@ class spell_dh_fel_rush_dash_AuraScript : public AuraScript
     {
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dh_fel_rush_dash_AuraScript::CalcSpeed, EFFECT_3, SPELL_AURA_MOD_MINIMUM_SPEED);
         AfterEffectRemove += AuraEffectRemoveFn(spell_dh_fel_rush_dash_AuraScript::AfterRemove, EFFECT_9, SPELL_AURA_MOD_MINIMUM_SPEED_RATE, AURA_EFFECT_HANDLE_SEND_FOR_CLIENT_MASK);
+    }
+};
+
+// 189110 - Infernal Strike
+// Vengeance's mobility/defensive cooldown: leap to the target destination and slam down,
+// dealing impact damage. The reference also grants a brief landing immunity from this same
+// spell's OnCast, but that's the same missing SPELL_AURA_ALLOW_ONLY_ABILITY-driven mechanic
+// already left unported for Metamorphosis's landing burst (see spell_dh_metamorphosis_immunity
+// above) - the leap and impact damage below are unaffected.
+class spell_dh_infernal_strike : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_INFERNAL_STRIKE_JUMP, SPELL_DH_INFERNAL_STRIKE_IMPACT_DAMAGE });
+    }
+
+    SpellCastResult CheckDestination()
+    {
+        if (WorldLocation const* dest = GetExplTargetDest())
+        {
+            if (GetCaster()->HasUnitMovementFlag(MOVEMENTFLAG_ROOT))
+                return SPELL_FAILED_ROOTED;
+
+            if (GetCaster()->GetMap()->Instanceable())
+            {
+                float range = GetSpellInfo()->GetMaxRange(true, GetCaster()) * 1.5f;
+
+                PathGenerator generatedPath(GetCaster());
+                generatedPath.SetPathLengthLimit(range);
+
+                bool result = generatedPath.CalculatePath(dest->GetPositionX(), dest->GetPositionY(), dest->GetPositionZ(), false);
+                if (generatedPath.GetPathType() & PATHFIND_SHORT)
+                    return SPELL_FAILED_OUT_OF_RANGE;
+                else if (!result || generatedPath.GetPathType() & PATHFIND_NOPATH)
+                    return SPELL_FAILED_NOPATH;
+            }
+            else if (dest->GetPositionZ() > GetCaster()->GetPositionZ() + 4.0f)
+                return SPELL_FAILED_NOPATH;
+
+            return SPELL_CAST_OK;
+        }
+
+        return SPELL_FAILED_NO_VALID_TARGETS;
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        WorldLocation const* dest = GetHitDest();
+        if (!caster || !dest)
+            return;
+
+        caster->CastSpell(*dest, SPELL_DH_INFERNAL_STRIKE_JUMP, true);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_dh_infernal_strike::CheckDestination);
+        OnEffectHit += SpellEffectFn(spell_dh_infernal_strike::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 189111 - Infernal Strike (jump)
+// Mirrors spell_dh_fel_rush_charge below: SPELL_EFFECT_CHARGE_DEST delays the HIT phase until
+// the leap's movement finishes, so the impact damage only lands once the caster touches down.
+class spell_dh_infernal_strike_jump : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_INFERNAL_STRIKE_IMPACT_DAMAGE });
+    }
+
+    void HandleImpact(SpellEffIndex /*effIndex*/) const
+    {
+        GetCaster()->CastSpell(GetCaster(), SPELL_DH_INFERNAL_STRIKE_IMPACT_DAMAGE, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_FULL_MASK,
+            .TriggeringSpell = GetSpell()
+        });
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_dh_infernal_strike_jump::HandleImpact, EFFECT_0, SPELL_EFFECT_CHARGE_DEST);
     }
 };
 
@@ -2371,6 +2459,8 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_fel_devastation_damage);
     RegisterSpellScript(spell_dh_fel_devastation_heal);
     RegisterSpellScript(spell_dh_fel_eruption);
+    RegisterSpellScript(spell_dh_infernal_strike);
+    RegisterSpellScript(spell_dh_infernal_strike_jump);
     RegisterSpellScript(spell_dh_fel_mastery);
     RegisterSpellScript(spell_dh_fel_rush);
     RegisterSpellScript(spell_dh_fel_rush_charge);
