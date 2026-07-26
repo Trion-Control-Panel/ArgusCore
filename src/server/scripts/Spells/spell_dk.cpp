@@ -26,6 +26,7 @@
 #include "AreaTriggerAI.h"
 #include "Containers.h"
 #include "DynamicObject.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Pet.h"
 #include "Player.h"
@@ -117,6 +118,7 @@ enum DeathKnightSpells
     SPELL_DK_RUNIC_POWER_REGEN                  = 195757,
     SPELL_DK_APOCALYPSE_SUMMON                  = 205491,
     SPELL_DK_DEATH_GATE_ACHERUS_FORTRESS        = 187753,
+    SPELL_DK_ASPHYXIATE_STUN                    = 93422,
     SPELL_DK_VIRULENT_PLAGUE                    = 191587,
     SPELL_DK_VIRULENT_ERUPTION                  = 191685,
     SPELL_DK_EPIDEMIC_DAMAGE_SINGLE             = 212739,
@@ -887,6 +889,66 @@ class spell_dk_epidemic_aoe : public SpellScript
 
 private:
     ObjectGuid _explicitTarget;
+};
+
+// 196780 - Outbreak (AoE spread)
+// A second effect carried by Outbreak's own cast, firing once per target in its AoE list:
+// applies Virulent Plague to each (refreshing it if already present) rather than replacing it.
+// This is the clean version of the "spread to nearby enemies" mechanic already documented as
+// skipped on spell_dk_outbreak (77575) above - that entry ported a periodic aura from a
+// different reference that searched for units *friendly* to the caster (almost certainly a
+// bug); this is a separate, correctly-targeted spell carrying its own AoE effect instead, with
+// no such issue.
+class spell_dk_outbreak_aoe_dummy : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_VIRULENT_PLAGUE });
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        if (Aura* plague = target->GetAura(SPELL_DK_VIRULENT_PLAGUE, caster->GetGUID()))
+            plague->RefreshTimers(true);
+        else
+            caster->CastSpell(target, SPELL_DK_VIRULENT_PLAGUE, true);
+    }
+
+    void Register() override
+    {
+        OnEffectLaunchTarget += SpellEffectFn(spell_dk_outbreak_aoe_dummy::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 108194 - Asphyxiate
+// Stuns the caster's current target after the cast completes - the stun is a separate spell,
+// not part of Asphyxiate's own effect list.
+class spell_dk_asphyxiate : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_ASPHYXIATE_STUN });
+    }
+
+    void HandleAfterCast() const
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (Unit* target = ObjectAccessor::GetUnit(*caster, caster->GetTarget()))
+            caster->CastSpell(target, SPELL_DK_ASPHYXIATE_STUN, true);
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_dk_asphyxiate::HandleAfterCast);
+    }
 };
 
 // 47496 - Explode, Ghoul spell for Corpse Explosion
@@ -2314,6 +2376,8 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_virulent_eruption);
     RegisterSpellScript(spell_dk_epidemic);
     RegisterSpellScript(spell_dk_epidemic_aoe);
+    RegisterSpellScript(spell_dk_outbreak_aoe_dummy);
+    RegisterSpellScript(spell_dk_asphyxiate);
     RegisterSpellScript(spell_dk_empower_rune_weapon);
     RegisterSpellScript(spell_dk_chilblains);
     RegisterSpellScript(spell_dk_obliterate);
