@@ -1086,6 +1086,48 @@ class spell_dh_fel_rush_charge : public SpellScript
     }
 };
 
+// 197923 - Fel Rush (air/water dash)
+// Governs using Fel Rush while airborne/underwater: a fixed dash speed while active, and
+// restoring normal gravity/fall/hover state once the dash ends.
+class spell_dh_fel_rush_dash : public SpellScript
+{
+    void PreventTrigger(SpellEffIndex effIndex)
+    {
+        PreventHitEffect(effIndex);
+    }
+
+    void Register() override
+    {
+        OnEffectLaunch += SpellEffectFn(spell_dh_fel_rush_dash::PreventTrigger, EFFECT_6, SPELL_EFFECT_TRIGGER_SPELL);
+        OnEffectHit += SpellEffectFn(spell_dh_fel_rush_dash::PreventTrigger, EFFECT_6, SPELL_EFFECT_TRIGGER_SPELL);
+    }
+};
+
+class spell_dh_fel_rush_dash_AuraScript : public AuraScript
+{
+    void AfterRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        caster->SetDisableGravity(false);
+        caster->SetFall(true);
+        caster->SetPlayHoverAnim(false);
+    }
+
+    void CalcSpeed(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = 1400;
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dh_fel_rush_dash_AuraScript::CalcSpeed, EFFECT_3, SPELL_AURA_MOD_MINIMUM_SPEED);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_dh_fel_rush_dash_AuraScript::AfterRemove, EFFECT_9, SPELL_AURA_MOD_MINIMUM_SPEED_RATE, AURA_EFFECT_HANDLE_SEND_FOR_CLIENT_MASK);
+    }
+};
+
 // 192939 - Fel Mastery
 // Fel Rush's damage tick has a chance to generate Fury.
 class spell_dh_fel_mastery : public AuraScript
@@ -2369,6 +2411,7 @@ void AddSC_demon_hunter_spell_scripts()
     // Vengeance & Havoc
 
     RegisterSpellAndAuraScriptPair(spell_dh_glide, spell_dh_glide_AuraScript);
+    RegisterSpellAndAuraScriptPair(spell_dh_fel_rush_dash, spell_dh_fel_rush_dash_AuraScript);
     RegisterSpellScript(spell_dh_glide_timer);
 
     RegisterSpellScript(spell_dh_sigil_of_misery_fear);
