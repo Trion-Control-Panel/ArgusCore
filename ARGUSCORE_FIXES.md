@@ -2185,6 +2185,88 @@ specifically in patch 7.3.5. Neither LegionCore nor TrinityCore-master have
 a comparable script to cross-check structurally. Left unimplemented rather
 than guess between several plausible-but-unconfirmed candidates.
 
+### [VERIFIED — no fix needed] Monk - Power Strikes/Tiger Palm interaction already works via existing generic proc system
+
+**Subsystem:** Scripts/Spells (spell_monk)
+
+**Context:** First fix of a new class pass (Warrior is now at 25 fixes this
+session and considered thoroughly audited for now). Compared ArgusCore's
+Monk scripts against DestinyCore's and found a dramatically larger gap than
+Warrior ever had — only ~19 scripts implemented in ArgusCore vs. ~75 in
+DestinyCore, with core rotational abilities missing across all three specs.
+User chose to start with Windwalker's basic builder/spender loop (Tiger
+Palm, Blackout Kick) as the highest-value starting point.
+
+**Investigated as a candidate gap, concluded no code change is needed.**
+DestinyCore's `spell_monk_tiger_palm` exists solely to check for a "Power
+Strikes Aura" on the caster and, if present, add its bonus to Tiger Palm's
+own chi generation before removing it. Tracing ArgusCore's existing
+(already-implemented, already-registered) `spell_monk_power_strike_periodic`
+and `spell_monk_power_strike_proc` classes showed this exact mechanic is
+already fully handled generically: a periodic driver aura (121817) casts a
+marker aura (129914) on a timer, and that marker aura's own `OnEffectProc`
+hook grants the chi bonus (121283) whenever its own DB2 proc data allows —
+which is scoped to Tiger Palm's own cast/hit, by design of the mechanic
+("Tiger Palm has a chance to generate an additional Chi"). DestinyCore's
+Tiger Palm-side check is a different, more manual implementation of the
+identical mechanic, not something ArgusCore is missing. No code added.
+
+### [DONE] Monk/Windwalker - Blackout Kick missing entirely
+
+**Subsystem:** Scripts/Spells (spell_monk)
+
+**Problem:** Blackout Kick (100784), Windwalker/Mistweaver's builder-
+consumer interaction with the Teachings of the Monastery talent, had no
+implementation anywhere in ArgusCore.
+
+**Reference:** DestinyCore's implementation. Cross-checked the core
+mechanic (Tiger Palm grants stacks, Blackout Kick consumes them for bonus
+damage, with a chance to reset Rising Sun Kick) against Wowhead/community
+sources, which confirm this general shape has been stable across many
+expansions — though the exact tuning numbers (proc %, max stacks) have
+changed repeatedly since Legion, up to and including a recent patch
+(10.2.0) increasing max stacks from 3 to 4. DestinyCore's own hardcoded
+15% RSK-reset chance was kept as the more directly Legion-sourced value
+over current-retail's documented 12%, consistent with how Tactician's
+proc-chance uncertainty was handled earlier.
+
+**Files:** `src/server/scripts/Spells/spell_monk.cpp`
+
+**Fix:** Added `SPELL_MONK_RISING_SUN_KICK` (107428),
+`SPELL_MONK_SPIRIT_OF_THE_CRANE_AURA`/`_MANA` (210802/210803), and
+`SPELL_MONK_TEACHINGS_OF_THE_MONASTERY`/`_AURA` (116645/202090) constants,
+plus a new `spell_monk_blackout_kick` `SpellScript` handling all three
+pieces: the RSK cooldown/charge reset roll, consuming Teachings of the
+Monastery stacks for bonus damage, and refunding mana via Spirit of the
+Crane when present.
+
+**Deliberate simplification from the reference:** DestinyCore re-deals the
+hit's damage once per consumed stack via a manually constructed
+`SpellNonMeleeDamage` object (producing N separate combat-log entries).
+That low-level manual damage-dealing pattern has no precedent anywhere
+else in ArgusCore's engine, and couldn't be verified to behave correctly
+without an existing usage to compare against. Used a simpler, functionally
+equivalent approach instead: multiply the single hit's damage by
+`(stacks + 1)`. This delivers the same total damage as one combat-log
+entry instead of several separate ones — a cosmetic/combat-log-granularity
+difference, not a gameplay difference.
+
+**Database dependency:** searched ArgusCore's committed SQL for an existing
+`spell_script_names` binding on spell 100784 — found none. Added its own
+dedicated file, `sql/updates/world/master/2026_07_26_01_world.sql`.
+
+**Risk:** Moderate — the most structurally complex Monk fix so far (three
+interacting sub-mechanics), and the RSK-reset percentage and the
+damage-multiplier simplification are both worth re-checking in-game.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — as Windwalker or
+Mistweaver, use Tiger Palm to build Teachings of the Monastery stacks, then
+Blackout Kick and confirm: (1) damage scales up with stacks consumed, (2)
+Rising Sun Kick's cooldown/charges occasionally reset, (3) as Mistweaver
+with Spirit of the Crane, mana is refunded proportional to stacks consumed.
+
 ---
 
 ## P4 — Performance / Cleanup

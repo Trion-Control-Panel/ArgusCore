@@ -54,17 +54,72 @@ enum MonkSpells
     SPELL_MONK_NO_FEATHER_FALL                          = 79636,
     SPELL_MONK_OPEN_PALM_STRIKES_TALENT                 = 392970,
     SPELL_MONK_RENEWING_MIST                            = 119611,
+    SPELL_MONK_RISING_SUN_KICK                          = 107428,
     SPELL_MONK_ROLL_BACKWARD                            = 109131,
     SPELL_MONK_ROLL_FORWARD                             = 107427,
     SPELL_MONK_SAVE_THEM_ALL_HEAL_BONUS                 = 390105,
     SPELL_MONK_SONG_OF_CHI_JI_STUN                      = 198909,
     SPELL_MONK_SOOTHING_MIST                            = 115175,
+    SPELL_MONK_SPIRIT_OF_THE_CRANE_AURA                 = 210802,
+    SPELL_MONK_SPIRIT_OF_THE_CRANE_MANA                 = 210803,
     SPELL_MONK_STANCE_OF_THE_SPIRITED_CRANE             = 154436,
     SPELL_MONK_STAGGER_DAMAGE_AURA                      = 124255,
     SPELL_MONK_STAGGER_HEAVY                            = 124273,
     SPELL_MONK_STAGGER_LIGHT                            = 124275,
     SPELL_MONK_STAGGER_MODERATE                         = 124274,
     SPELL_MONK_SURGING_MIST_HEAL                        = 116995,
+    SPELL_MONK_TEACHINGS_OF_THE_MONASTERY               = 116645,
+    SPELL_MONK_TEACHINGS_OF_THE_MONASTERY_AURA          = 202090,
+};
+
+// 100784 - Blackout Kick
+// Windwalker/Mistweaver builder-consumer interaction with Teachings of the Monastery: Tiger
+// Palm grants stacks of a buff (202090) that Blackout Kick consumes for bonus damage, and
+// separately has a chance to reset Rising Sun Kick's cooldown/charges if the talent (116645)
+// is known. Mistweavers with Spirit of the Crane (210802) refund mana based on stacks consumed.
+// NOTE: DestinyCore's reference re-deals the hit's damage once per stack via a manually
+// constructed SpellNonMeleeDamage (producing N separate combat-log entries) - that low-level
+// damage-dealing pattern has no precedent anywhere in ArgusCore's engine and couldn't be
+// verified to behave correctly here, so this instead multiplies the single hit's damage by
+// (stacks + 1), which delivers the same total damage as one combat-log entry rather than N.
+// The RSK-reset percentage (15%) is DestinyCore's own value, not independently verified
+// against Legion 7.3.5 client data - flagged the same way Tactician's proc-chance was earlier.
+class spell_monk_blackout_kick : public SpellScript
+{
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        if (caster->HasAura(SPELL_MONK_TEACHINGS_OF_THE_MONASTERY) && roll_chance_i(15))
+        {
+            caster->GetSpellHistory()->ResetCooldown(SPELL_MONK_RISING_SUN_KICK, true);
+            if (SpellInfo const* risingSunKick = sSpellMgr->GetSpellInfo(SPELL_MONK_RISING_SUN_KICK, DIFFICULTY_NONE))
+                caster->GetSpellHistory()->ResetCharges(risingSunKick->ChargeCategoryId);
+        }
+
+        if (Aura* teachings = caster->GetAura(SPELL_MONK_TEACHINGS_OF_THE_MONASTERY_AURA))
+        {
+            int32 stacks = teachings->GetStackAmount();
+            caster->RemoveAurasDueToSpell(SPELL_MONK_TEACHINGS_OF_THE_MONASTERY_AURA);
+
+            SetHitDamage(GetHitDamage() * (stacks + 1));
+
+            if (caster->HasAura(SPELL_MONK_SPIRIT_OF_THE_CRANE_AURA))
+            {
+                CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
+                args.AddSpellBP0(int32(0.65f * float(stacks)));
+                caster->CastSpell(caster, SPELL_MONK_SPIRIT_OF_THE_CRANE_MANA, args);
+            }
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_monk_blackout_kick::HandleOnHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
 };
 
 // 399226 - Burst of Life (attached to 116849 - Life Cocoon)
@@ -784,6 +839,7 @@ class spell_monk_tigers_lust : public SpellScript
 
 void AddSC_monk_spell_scripts()
 {
+    RegisterSpellScript(spell_monk_blackout_kick);
     RegisterSpellScript(spell_monk_burst_of_life);
     RegisterSpellScript(spell_monk_burst_of_life_heal);
     RegisterSpellScript(spell_monk_crackling_jade_lightning);
