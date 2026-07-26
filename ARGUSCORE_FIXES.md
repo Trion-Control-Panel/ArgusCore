@@ -2918,6 +2918,60 @@ generates (capped at one application per cast even against multiple
 targets). Legacy of the Emperor: cast it while grouped and confirm all
 party members receive the buff.
 
+### [DONE] Monk - Black Ox Brew, Breath of Fire, Flying Serpent Kick, Spear Hand Strike missing
+
+**Subsystem:** Scripts/Spells (spell_monk)
+
+**Problem:** Four more Monk abilities had no implementation anywhere in
+ArgusCore: Black Ox Brew (115399), Breath of Fire (115181), Flying Serpent
+Kick (115057), and Spear Hand Strike (116705).
+
+- **Black Ox Brew:** trivially simple — resets Purifying Brew's charges.
+- **Breath of Fire:** applies a burning DoT if the target already has
+  Dizzying Haze, or is showing whatever debuff Keg Smash's own DB2-driven
+  effects leave on it (`SPELL_MONK_KEG_SMASH_AURA` shares the same id as
+  Keg Smash's own outer spell, 121253 — not something the earlier Keg Smash
+  fix needed to cast separately, it's already covered by that spell's own
+  client data).
+- **Flying Serpent Kick:** cleans up a legacy/superseded aura (101545) —
+  the same "id renamed mid-expansion" pattern already seen with Bladestorm
+  earlier this session — removes a PvP-glove-item-driven slow if the
+  relevant set bonus is active, then triggers the AoE damage/knockback
+  sub-spell (123586, the same id Mastery: Combo Strikes already tracks
+  bonus damage for, confirming the two fixes fit together correctly).
+- **Spear Hand Strike:** interrupt/silence, gated on facing (`isInFront`),
+  with a self-applied cooldown.
+
+**Also investigated, deliberately skipped: Jab.** Confirmed via web search
+(see the previous entry) that Jab was removed and merged into Tiger Palm in
+Legion — not implemented, matching that decision.
+
+**Files:** `src/server/scripts/Spells/spell_monk.cpp`
+
+**Fix:** Added `SPELL_MONK_BREATH_OF_FIRE_DOT`, `SPELL_MONK_FLYING_SERPENT_KICK`/`_AOE`/`_NEW`,
+`SPELL_MONK_ITEM_PVP_GLOVES_BONUS`, `SPELL_MONK_KEG_SMASH_AURA`,
+`SPELL_MONK_PURIFYING_BREW`, and `SPELL_MONK_SPEAR_HAND_STRIKE_SILENCE`
+constants, plus all four classes ported directly from the reference
+implementation with no structural changes needed.
+
+**Database dependency:** searched ArgusCore's committed SQL for existing
+bindings on all four script names — found none (some coincidental,
+unrelated numeric matches in creature/gameobject spawn data for id 115057,
+not real `spell_script_names` rows). Added all four to a single dedicated
+file, `sql/updates/world/master/2026_07_26_12_world.sql`.
+
+**Risk:** Low — all four are small, self-contained, single-spell mechanics
+with no missing-engine-capability or NPC-data dependencies.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — Black Ox Brew: use
+it and confirm Purifying Brew's charges reset. Breath of Fire: use it on a
+target with Dizzying Haze or a fresh Keg Smash debuff and confirm the burn
+DoT applies. Flying Serpent Kick: confirm it deals AoE damage on landing.
+Spear Hand Strike: confirm it silences a target only when used from the
+front, not from behind.
+
 ---
 
 ## P4 — Performance / Cleanup

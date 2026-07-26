@@ -40,6 +40,7 @@
 
 enum MonkSpells
 {
+    SPELL_MONK_BREATH_OF_FIRE_DOT                       = 123725,
     SPELL_MONK_BURST_OF_LIFE_TALENT                     = 399226,
     SPELL_MONK_BURST_OF_LIFE_HEAL                       = 399230,
     SPELL_MONK_CALMING_COALESCENCE                      = 388220,
@@ -52,6 +53,9 @@ enum MonkSpells
     SPELL_MONK_ENVELOPING_MIST_HEAL                     = 132120,
     SPELL_MONK_FISTS_OF_FURY_DAMAGE                     = 117418,
     SPELL_MONK_FISTS_OF_FURY_VISUAL                     = 123154,
+    SPELL_MONK_FLYING_SERPENT_KICK                      = 101545,
+    SPELL_MONK_FLYING_SERPENT_KICK_AOE                  = 123586,
+    SPELL_MONK_FLYING_SERPENT_KICK_NEW                  = 115057,
     SPELL_MONK_FORTIFYING_BREW                          = 120954,
     SPELL_MONK_GIFT_OF_THE_OX_AURA                       = 124502,
     SPELL_MONK_GIFT_OF_THE_OX_AT_RIGHT                   = 124503,
@@ -60,7 +64,9 @@ enum MonkSpells
     SPELL_MONK_HEALING_SPHERE_COOLDOWN                   = 224863,
     SPELL_MONK_HIT_COMBO                                = 196740,
     SPELL_MONK_HIT_COMBO_AURA                           = 196741,
+    SPELL_MONK_ITEM_PVP_GLOVES_BONUS                    = 124489,
     SPELL_MONK_JADE_WALK                                = 450552,
+    SPELL_MONK_KEG_SMASH_AURA                           = 121253,
     SPELL_MONK_MASTERY_COMBO_STRIKES                    = 115636,
     SPELL_MONK_MISTS_OF_LIFE                            = 388548,
     SPELL_MONK_MORTAL_WOUNDS                            = 115804,
@@ -71,6 +77,7 @@ enum MonkSpells
     SPELL_MONK_PROVOKE_AOE                              = 118635,
     SPELL_MONK_NO_FEATHER_FALL                          = 79636,
     SPELL_MONK_OPEN_PALM_STRIKES_TALENT                 = 392970,
+    SPELL_MONK_PURIFYING_BREW                           = 119582,
     SPELL_MONK_RENEWING_MIST                            = 119611,
     SPELL_MONK_RISING_SUN_KICK                          = 107428,
     SPELL_MONK_RISING_THUNDER                           = 210804,
@@ -79,6 +86,7 @@ enum MonkSpells
     SPELL_MONK_SAVE_THEM_ALL_HEAL_BONUS                 = 390105,
     SPELL_MONK_SONG_OF_CHI_JI_STUN                      = 198909,
     SPELL_MONK_SOOTHING_MIST                            = 115175,
+    SPELL_MONK_SPEAR_HAND_STRIKE_SILENCE                = 116709,
     SPELL_MONK_SPINNING_CRANE_KICK                      = 101546,
     SPELL_MONK_SPINNING_CRANE_KICK_DAMAGE               = 107270,
     SPELL_MONK_SOOTHING_MIST_ENERGIZE                   = 116335,
@@ -113,6 +121,32 @@ enum MonkSpells
 // (stacks + 1), which delivers the same total damage as one combat-log entry rather than N.
 // The RSK-reset percentage (15%) is the reference's own value, not independently verified
 // against Legion 7.3.5 client data - flagged the same way Tactician's proc-chance was earlier.
+
+// 115399 - Black Ox Brew
+// Resets Purifying Brew's charges.
+class spell_monk_black_ox_brew : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_PURIFYING_BREW });
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (SpellInfo const* purifyingBrew = sSpellMgr->GetSpellInfo(SPELL_MONK_PURIFYING_BREW, DIFFICULTY_NONE))
+            caster->GetSpellHistory()->ResetCharges(purifyingBrew->ChargeCategoryId);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_monk_black_ox_brew::HandleHit, EFFECT_0, SPELL_EFFECT_ENERGIZE);
+    }
+};
+
 class spell_monk_blackout_kick : public SpellScript
 {
     void HandleOnHit(SpellEffIndex /*effIndex*/)
@@ -148,6 +182,30 @@ class spell_monk_blackout_kick : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_monk_blackout_kick::HandleOnHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 115181 - Breath of Fire
+// Applies a burning DoT if the target already has Dizzying Haze or is showing Keg Smash's own
+// DB2-driven debuff aura (SPELL_MONK_KEG_SMASH_AURA shares the same id as Keg Smash's own outer
+// spell, 121253 - it's whatever aura Keg Smash's own client-defined effects leave on the
+// target, not something this script or spell_monk_keg_smash needs to cast separately).
+class spell_monk_breath_of_fire : public SpellScript
+{
+    void HandleAfterHit()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        if (target->HasAura(SPELL_MONK_DIZZYING_HAZE) || target->HasAura(SPELL_MONK_KEG_SMASH_AURA))
+            caster->CastSpell(target, SPELL_MONK_BREATH_OF_FIRE_DOT, true);
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_monk_breath_of_fire::HandleAfterHit);
     }
 };
 
@@ -440,6 +498,39 @@ class spell_monk_fists_of_fury_visual : public AuraScript
     void Register() override
     {
         OnEffectApply += AuraEffectApplyFn(spell_monk_fists_of_fury_visual::OnApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 115057 - Flying Serpent Kick
+// Cleans up a legacy/superseded aura (101545) if present - the same "id renamed mid-expansion"
+// pattern already seen with Bladestorm earlier this session - removes a PvP-glove-item-driven
+// slow if the relevant set bonus is active, then triggers the AoE damage/knockback sub-spell
+// (123586, the same id Mastery: Combo Strikes already tracks bonus damage for).
+class spell_monk_flying_serpent_kick : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_FLYING_SERPENT_KICK_NEW });
+    }
+
+    void HandleOnCast()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+
+        if (caster->HasAura(SPELL_MONK_FLYING_SERPENT_KICK))
+            caster->RemoveAura(SPELL_MONK_FLYING_SERPENT_KICK);
+
+        if (caster->HasAura(SPELL_MONK_ITEM_PVP_GLOVES_BONUS))
+            caster->RemoveAurasByType(SPELL_AURA_MOD_DECREASE_SPEED);
+
+        caster->CastSpell(caster, SPELL_MONK_FLYING_SERPENT_KICK_AOE, true);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_monk_flying_serpent_kick::HandleOnCast);
     }
 };
 
@@ -1395,6 +1486,29 @@ class spell_monk_soothing_mist_aura : public AuraScript
     }
 };
 
+// 116705 - Spear Hand Strike
+// Interrupt/silence: only applies if the target is in front of the caster, and self-applies a
+// hardcoded 15s cooldown matching the outer spell's own id (mirrors the reference's literal
+// value; not independently verified against Legion 7.3.5 tooltip data).
+class spell_monk_spear_hand_strike : public SpellScript
+{
+    void HandleOnHit()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        Unit* target = GetHitUnit();
+        if (!caster || !target || !target->isInFront(caster))
+            return;
+
+        caster->CastSpell(target, SPELL_MONK_SPEAR_HAND_STRIKE_SILENCE, true);
+        caster->GetSpellHistory()->AddCooldown(116705, 0, std::chrono::seconds(15));
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_monk_spear_hand_strike::HandleOnHit);
+    }
+};
+
 // 119582 - Purifying Brew
 // Halves whatever Stagger DoT is currently active (Light/Moderate/Heavy), using the existing
 // FindExistingStaggerEffect helper shared with the other Stagger scripts in this file.
@@ -1768,7 +1882,9 @@ class spell_monk_zen_pulse : public SpellScript
 
 void AddSC_monk_spell_scripts()
 {
+    RegisterSpellScript(spell_monk_black_ox_brew);
     RegisterSpellScript(spell_monk_blackout_kick);
+    RegisterSpellScript(spell_monk_breath_of_fire);
     RegisterSpellScript(spell_monk_burst_of_life);
     RegisterSpellScript(spell_monk_burst_of_life_heal);
     RegisterSpellScript(spell_monk_crackling_jade_lightning);
@@ -1780,6 +1896,7 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_fists_of_fury_damage);
     RegisterSpellScript(spell_monk_fists_of_fury_visual_filter);
     RegisterSpellScript(spell_monk_fists_of_fury_visual);
+    RegisterSpellScript(spell_monk_flying_serpent_kick);
     RegisterSpellScript(spell_monk_fortifying_brew);
     RegisterSpellScript(spell_monk_gift_of_the_ox_aura);
     RegisterSpellScript(spell_monk_jade_walk);
@@ -1796,6 +1913,7 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_pressure_points);
     RegisterSpellScript(spell_monk_provoke);
     RegisterSpellScript(spell_monk_purifying_brew);
+    RegisterSpellScript(spell_monk_spear_hand_strike);
     RegisterSpellScript(spell_monk_guard);
     RegisterSpellScript(spell_monk_renewing_mist);
     RegisterSpellScript(spell_monk_renewing_mist_periodic);
