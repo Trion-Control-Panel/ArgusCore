@@ -148,6 +148,7 @@ enum PriestSpells
     SPELL_PRIEST_POWER_LEECH_SHADOWFIEND_INSANITY   = 262485,
     SPELL_PRIEST_POWER_OF_THE_DARK_SIDE             = 198069,
     SPELL_PRIEST_POWER_OF_THE_DARK_SIDE_TINT        = 225795,
+    SPELL_PRIEST_POWER_WORD_BARRIER_BUFF            = 81782,
     SPELL_PRIEST_POWER_WORD_LIFE                    = 373481,
     SPELL_PRIEST_POWER_WORD_RADIANCE                = 194509,
     SPELL_PRIEST_POWER_WORD_SHIELD                  = 17,
@@ -873,6 +874,33 @@ struct areatrigger_pri_halo : AreaTriggerAI
                 caster->CastSpell(unit, at->GetSpellId() == SPELL_PRIEST_HALO_SHADOW ? SPELL_PRIEST_HALO_SHADOW_HEAL : SPELL_PRIEST_HALO_HOLY_HEAL,
                     TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_CAST_IN_PROGRESS);
         }
+    }
+};
+
+// 62618 - Power Word: Barrier
+// AreaTriggerId - 1489
+struct areatrigger_pri_power_word_barrier : AreaTriggerAI
+{
+    areatrigger_pri_power_word_barrier(AreaTrigger* areatrigger) : AreaTriggerAI(areatrigger) {}
+
+    void OnUnitEnter(Unit* unit) override
+    {
+        Unit* caster = at->GetCaster();
+        if (!caster || !unit)
+            return;
+
+        if (caster->IsFriendlyTo(unit))
+            caster->CastSpell(unit, SPELL_PRIEST_POWER_WORD_BARRIER_BUFF, true);
+    }
+
+    void OnUnitExit(Unit* unit) override
+    {
+        Unit* caster = at->GetCaster();
+        if (!caster || !unit)
+            return;
+
+        if (unit->HasAura(SPELL_PRIEST_POWER_WORD_BARRIER_BUFF, caster->GetGUID()))
+            unit->RemoveAurasDueToSpell(SPELL_PRIEST_POWER_WORD_BARRIER_BUFF, caster->GetGUID());
     }
 };
 
@@ -2717,6 +2745,7 @@ void AddSC_priest_spell_scripts()
     RegisterSpellScript(spell_pri_halo_shadow);
     RegisterAreaTriggerAI(areatrigger_pri_halo);
     RegisterSpellScript(spell_pri_holy_words);
+    RegisterAreaTriggerAI(areatrigger_pri_power_word_barrier);
     RegisterSpellScript(spell_pri_item_t6_trinket);
     RegisterSpellScript(spell_pri_leap_of_faith_effect_trigger);
     RegisterSpellScript(spell_pri_levitate);
