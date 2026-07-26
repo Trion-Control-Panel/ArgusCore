@@ -51,6 +51,7 @@ enum MonkSpells
     SPELL_MONK_CRACKLING_JADE_LIGHTNING_KNOCKBACK_CD    = 117953,
     SPELL_MONK_ENVELOPING_MIST                          = 124682,
     SPELL_MONK_ENVELOPING_MIST_HEAL                     = 132120,
+    SPELL_MONK_ESSENCE_FONT_HEAL                        = 191840,
     SPELL_MONK_FISTS_OF_FURY_DAMAGE                     = 117418,
     SPELL_MONK_FISTS_OF_FURY_VISUAL                     = 123154,
     SPELL_MONK_FLYING_SERPENT_KICK                      = 101545,
@@ -61,6 +62,7 @@ enum MonkSpells
     SPELL_MONK_GIFT_OF_THE_OX_AT_RIGHT                   = 124503,
     SPELL_MONK_GIFT_OF_THE_OX_AT_LEFT                    = 124506,
     SPELL_MONK_GIFT_OF_THE_OX_HEAL                       = 178173,
+    SPELL_MONK_HEALING_ELIXIRS_RESTORE_HEALTH            = 122281,
     SPELL_MONK_HEALING_SPHERE_COOLDOWN                   = 224863,
     SPELL_MONK_HIT_COMBO                                = 196740,
     SPELL_MONK_HIT_COMBO_AURA                           = 196741,
@@ -79,6 +81,8 @@ enum MonkSpells
     SPELL_MONK_OPEN_PALM_STRIKES_TALENT                 = 392970,
     SPELL_MONK_PURIFYING_BREW                           = 119582,
     SPELL_MONK_RENEWING_MIST                            = 119611,
+    SPELL_MONK_RING_OF_PEACE_DISARM                     = 137461,
+    SPELL_MONK_RING_OF_PEACE_SILENCE                    = 137460,
     SPELL_MONK_RISING_SUN_KICK                          = 107428,
     SPELL_MONK_RISING_THUNDER                           = 210804,
     SPELL_MONK_ROLL_BACKWARD                            = 109131,
@@ -406,6 +410,43 @@ class spell_monk_enveloping_mist : public SpellScript
     void Register() override
     {
         AfterCast += SpellCastFn(spell_monk_enveloping_mist::HandleAfterCast);
+    }
+};
+
+// 191840 - Essence Font (heal)
+// Redistributes the heal to whichever nearby ally most needs it: excludes the caster and
+// anyone already freshly affected (aura still has more than 5 sec remaining, meaning it was
+// applied less than 1 sec ago given the spell's own duration), then picks the single lowest-
+// health remaining candidate.
+class spell_monk_essence_font_heal : public SpellScript
+{
+    void FilterTargets(std::list<WorldObject*>& targets)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        targets.remove_if([caster](WorldObject* object)
+        {
+            Unit* unit = object ? object->ToUnit() : nullptr;
+            if (!unit || unit == caster)
+                return true;
+
+            Aura* existing = unit->GetAura(SPELL_MONK_ESSENCE_FONT_HEAL);
+            return existing && existing->GetDuration() > 5 * IN_MILLISECONDS;
+        });
+
+        if (targets.size() > 1)
+        {
+            targets.sort(Trinity::Predicates::HealthPctOrderPred());
+            targets.resize(1);
+        }
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_monk_essence_font_heal::FilterTargets, EFFECT_0, TARGET_UNIT_DEST_AREA_ALLY);
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_monk_essence_font_heal::FilterTargets, EFFECT_1, TARGET_UNIT_DEST_AREA_ALLY);
     }
 };
 
@@ -892,6 +933,32 @@ class spell_monk_renewing_mist_periodic : public AuraScript
     }
 };
 
+// 140023 - Ring of Peace
+// Proc-driven: applies a silence and a disarm to whoever triggers the effect.
+class spell_monk_ring_of_peace_aura : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_RING_OF_PEACE_SILENCE, SPELL_MONK_RING_OF_PEACE_DISARM });
+    }
+
+    void HandleDummyProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetTarget();
+        if (!caster)
+            return;
+
+        caster->CastSpell(target, SPELL_MONK_RING_OF_PEACE_SILENCE, true);
+        caster->CastSpell(target, SPELL_MONK_RING_OF_PEACE_DISARM, true);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_monk_ring_of_peace_aura::HandleDummyProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
 // 107428 - Rising Sun Kick
 // NOTE: previously gated its entire HandleOnHit behind Load() requiring Combat Conditioning,
 // which was correct while Mortal Wounds application was the only thing this class did. Adding
@@ -1132,6 +1199,35 @@ class spell_monk_gift_of_the_ox_aura : public AuraScript
     {
         DoCheckProc += AuraCheckProcFn(spell_monk_gift_of_the_ox_aura::CheckProc);
         OnProc += AuraProcFn(spell_monk_gift_of_the_ox_aura::HandleProc);
+    }
+};
+
+// 122280 - Healing Elixirs
+// Proc-driven self-heal when damage taken drops the caster below 35% health, gated by a
+// charge system (consuming one charge of the heal spell's own charge category per trigger).
+class spell_monk_healing_elixirs_aura : public AuraScript
+{
+    void OnProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+    {
+        PreventDefaultAction();
+
+        Unit* caster = GetCaster();
+        DamageInfo const* dmgInfo = eventInfo.GetDamageInfo();
+        if (!caster || !dmgInfo || !dmgInfo->GetDamage())
+            return;
+
+        if (!caster->HealthBelowPctDamaged(35, dmgInfo->GetDamage()))
+            return;
+
+        caster->CastSpell(caster, SPELL_MONK_HEALING_ELIXIRS_RESTORE_HEALTH, true);
+
+        if (SpellInfo const* healSpell = sSpellMgr->GetSpellInfo(SPELL_MONK_HEALING_ELIXIRS_RESTORE_HEALTH, DIFFICULTY_NONE))
+            caster->GetSpellHistory()->ConsumeCharge(healSpell->ChargeCategoryId);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_monk_healing_elixirs_aura::OnProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
     }
 };
 
@@ -1892,6 +1988,7 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_dampen_harm);
     RegisterSpellScript(spell_monk_energizing_brew);
     RegisterSpellScript(spell_monk_enveloping_mist);
+    RegisterSpellScript(spell_monk_essence_font_heal);
     RegisterSpellScript(spell_monk_fists_of_fury);
     RegisterSpellScript(spell_monk_fists_of_fury_damage);
     RegisterSpellScript(spell_monk_fists_of_fury_visual_filter);
@@ -1899,6 +1996,7 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_flying_serpent_kick);
     RegisterSpellScript(spell_monk_fortifying_brew);
     RegisterSpellScript(spell_monk_gift_of_the_ox_aura);
+    RegisterSpellScript(spell_monk_healing_elixirs_aura);
     RegisterSpellScript(spell_monk_jade_walk);
     RegisterSpellScript(spell_monk_keg_smash);
     RegisterSpellScript(spell_monk_legacy_of_the_emperor);
@@ -1917,6 +2015,7 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_guard);
     RegisterSpellScript(spell_monk_renewing_mist);
     RegisterSpellScript(spell_monk_renewing_mist_periodic);
+    RegisterSpellScript(spell_monk_ring_of_peace_aura);
     RegisterSpellScript(spell_monk_rising_sun_kick);
     RegisterSpellScript(spell_monk_soothing_mist);
     RegisterSpellScript(spell_monk_soothing_mist_aura);

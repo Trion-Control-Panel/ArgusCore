@@ -2972,6 +2972,53 @@ DoT applies. Flying Serpent Kick: confirm it deals AoE damage on landing.
 Spear Hand Strike: confirm it silences a target only when used from the
 front, not from behind.
 
+### [DONE] Monk - Essence Font, Healing Elixirs, Ring of Peace missing
+
+**Subsystem:** Scripts/Spells (spell_monk)
+
+**Problem:** Three more Monk abilities had no implementation anywhere in
+ArgusCore: Essence Font (191840), Healing Elixirs (122280), and Ring of
+Peace (140023).
+
+- **Essence Font (heal):** redistributes the heal to whichever nearby ally
+  most needs it — excludes the caster and anyone still freshly affected
+  (aura duration remaining > 5 sec, meaning it was applied less than 1 sec
+  ago given the spell's own duration), then picks the single lowest-health
+  remaining candidate via the same `Trinity::Predicates::HealthPctOrderPred`
+  sort already proven working for Renewing Mist's jump mechanic.
+- **Healing Elixirs:** proc-driven self-heal when damage taken drops the
+  caster below 35% health, gated by a charge system. Adapted one API
+  mismatch: the reference calls `ConsumeCharge` with a spell id directly,
+  but ArgusCore's `SpellHistory::ConsumeCharge` signature takes a
+  `chargeCategoryId` — resolved the same way Black Ox Brew's `ResetCharges`
+  call already does (look up the spell's own `ChargeCategoryId` first).
+- **Ring of Peace:** proc-driven — applies a silence and a disarm to
+  whoever triggers the effect.
+
+**Files:** `src/server/scripts/Spells/spell_monk.cpp`
+
+**Fix:** Added `SPELL_MONK_ESSENCE_FONT_HEAL`,
+`SPELL_MONK_HEALING_ELIXIRS_RESTORE_HEALTH`, and
+`SPELL_MONK_RING_OF_PEACE_SILENCE`/`_DISARM` constants, plus all three
+classes ported directly from the reference implementation with only the
+`ConsumeCharge` signature adaptation noted above.
+
+**Database dependency:** searched ArgusCore's committed SQL for existing
+bindings on all three script names — found none. Added all three to a
+single dedicated file, `sql/updates/world/master/2026_07_26_13_world.sql`.
+
+**Risk:** Low — all three are small, self-contained, single-spell mechanics
+with no missing-engine-capability or NPC-data dependencies.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — Essence Font: use it
+on a raid/party with mixed health levels and confirm the heal lands on the
+lowest-health target rather than randomly. Healing Elixirs: drop below 35%
+health from a single hit and confirm the self-heal triggers and a charge is
+consumed. Ring of Peace: confirm it silences and disarms its target on
+proc.
+
 ---
 
 ## P4 — Performance / Cleanup
