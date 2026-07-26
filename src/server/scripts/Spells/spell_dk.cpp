@@ -62,6 +62,7 @@ enum DeathKnightSpells
     SPELL_DK_DEATH_AND_DECAY                    = 43265,
     SPELL_DK_DEATH_AND_DECAY_DAMAGE             = 52212,
     SPELL_DK_DEATH_COIL_DAMAGE                  = 47632,
+    SPELL_DK_DEATH_SIPHON_HEAL                  = 116783,
     SPELL_DK_DEATH_GRIP_DUMMY                   = 243912,
     SPELL_DK_DEATH_GRIP_JUMP                    = 49575,
     SPELL_DK_DEATH_GRIP_TAUNT                   = 51399,
@@ -1397,6 +1398,61 @@ class spell_dk_chilblains : public SpellScript
     }
 };
 
+// 49020 - Obliterate
+// Frost's core Killing Machine consumer: removes the guaranteed-crit buff on hit.
+class spell_dk_obliterate : public SpellScript
+{
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        GetCaster()->RemoveAurasDueToSpell(SPELL_DK_KILLING_MACHINE_PROC);
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_dk_obliterate::HandleHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 194909 - Frozen Pulse
+// Only procs (dealing AoE damage via this aura's own DB2 trigger-spell effect) while at very
+// low rune count.
+class spell_dk_frozen_pulse : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& /*eventInfo*/)
+    {
+        Unit* caster = GetCaster();
+        return caster && caster->GetPower(POWER_RUNES) <= GetEffectInfo(EFFECT_1).CalcValue(caster);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_dk_frozen_pulse::CheckProc);
+    }
+};
+
+// 108196 - Death Siphon
+// Heals for a portion of the damage it deals.
+class spell_dk_death_siphon : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_DEATH_SIPHON_HEAL });
+    }
+
+    void HandleScriptEffect(SpellEffIndex /*effIndex*/)
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (player && GetHitUnit())
+            player->CastSpell(player, SPELL_DK_DEATH_SIPHON_HEAL, CastSpellExtraArgs(TRIGGERED_FULL_MASK)
+                .AddSpellMod(SPELLVALUE_BASE_POINT0, GetHitDamage()));
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dk_death_siphon::HandleScriptEffect, EFFECT_1, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+};
+
 // 55233 - Vampiric Blood
 class spell_dk_vampiric_blood : public AuraScript
 {
@@ -2078,6 +2134,9 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_epidemic_aoe);
     RegisterSpellScript(spell_dk_empower_rune_weapon);
     RegisterSpellScript(spell_dk_chilblains);
+    RegisterSpellScript(spell_dk_obliterate);
+    RegisterSpellScript(spell_dk_frozen_pulse);
+    RegisterSpellScript(spell_dk_death_siphon);
     RegisterSpellScript(spell_dk_army_transform);
     RegisterSpellScript(spell_dk_blinding_sleet);
     RegisterSpellScript(spell_dk_blooddrinker);
