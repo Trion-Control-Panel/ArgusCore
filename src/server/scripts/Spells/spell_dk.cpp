@@ -99,8 +99,8 @@ enum DeathKnightSpells
     SPELL_DK_RUNIC_RETURN                       = 61258,
     SPELL_DK_SLUDGE_BELCHER                     = 207313,
     SPELL_DK_SLUDGE_BELCHER_SUMMON              = 212027,
-    SPELL_DK_SOUL_REAPER                        = 343294,
-    SPELL_DK_SOUL_REAPER_DAMAGE                 = 343295,
+    SPELL_DK_SOUL_REAPER                        = 114866,
+    SPELL_DK_SOUL_REAPER_DAMAGE                 = 114867,
     SPELL_DK_UNHOLY                             = 137007,
     SPELL_DK_UNHOLY_VIGOR                       = 196263,
     SPELL_DK_PURGATORY_STACKS                   = 116888,
@@ -1461,8 +1461,7 @@ class spell_dk_rime : public AuraScript
     }
 };
 
-// 343294 - Soul Reaper
-// 469180 - Soul Reaper
+// 114866, 130735, 130736 - Soul Reaper (three per-copy spell ids sharing this script)
 class spell_dk_soul_reaper : public AuraScript
 {
 public:
@@ -2582,7 +2581,6 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_raise_dead);
     RegisterSpellScript(spell_dk_rime);
     RegisterSpellScriptWithArgs(spell_dk_soul_reaper, "spell_dk_soul_reaper", EFFECT_1, EFFECT_2);
-    RegisterSpellScriptWithArgs(spell_dk_soul_reaper, "spell_dk_soul_reaper_reaper_of_souls", EFFECT_0, Optional<SpellEffIndex>());
     RegisterSpellScript(spell_dk_t20_2p_rune_empowered);
     RegisterSpellScript(spell_dk_tombstone);
     RegisterSpellScript(spell_dk_vampiric_blood);
