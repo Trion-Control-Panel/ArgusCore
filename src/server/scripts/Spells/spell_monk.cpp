@@ -45,6 +45,10 @@ enum MonkSpells
     SPELL_MONK_BURST_OF_LIFE_TALENT                     = 399226,
     SPELL_MONK_BURST_OF_LIFE_HEAL                       = 399230,
     SPELL_MONK_CALMING_COALESCENCE                      = 388220,
+    SPELL_MONK_CHI_BURST_DAMAGE                         = 148135,
+    SPELL_MONK_CHI_BURST_HEAL                           = 130654,
+    SPELL_MONK_CHI_TORPEDO_DAMAGE                       = 117993,
+    SPELL_MONK_CHI_TORPEDO_HEAL                         = 124040,
     SPELL_MONK_CHI_WAVE_DAMAGE_MISSILE                  = 132467,
     SPELL_MONK_CHI_WAVE_HEAL                            = 132463,
     SPELL_MONK_CHI_WAVE_HEAL_MISSILE                    = 132464,
@@ -74,6 +78,8 @@ enum MonkSpells
     SPELL_MONK_ITEM_PVP_GLOVES_BONUS                    = 124489,
     SPELL_MONK_JADE_WALK                                = 450552,
     SPELL_MONK_KEG_SMASH_AURA                           = 121253,
+    SPELL_MONK_LIFECYCLES_ENVELOPING_MIST               = 197919,
+    SPELL_MONK_LIFECYCLES_VIVIFY                        = 197916,
     SPELL_MONK_MASTERY_COMBO_STRIKES                    = 115636,
     SPELL_MONK_MISTS_OF_LIFE                            = 388548,
     SPELL_MONK_MORTAL_WOUNDS                            = 115804,
@@ -113,6 +119,7 @@ enum MonkSpells
     SPELL_MONK_TEACHINGS_OF_THE_MONASTERY_AURA          = 202090,
     SPELL_MONK_TOUCH_OF_DEATH                           = 115080,
     SPELL_MONK_TOUCH_OF_KARMA_REDIRECT_DAMAGE           = 124280,
+    SPELL_MONK_VIVIFY                                   = 116670,
     SPELL_MONK_WHIRLING_DRAGON_PUNCH                    = 152175,
     SPELL_MONK_WHIRLING_DRAGON_PUNCH_DAMAGE             = 158221,
     SPELL_MONK_ZEN_PULSE_HEAL                           = 198487,
@@ -270,6 +277,70 @@ class spell_monk_burst_of_life_heal : public SpellScript
     void Register() override
     {
         OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_monk_burst_of_life_heal::FilterTargets, EFFECT_1, TARGET_UNIT_DEST_AREA_ALLY);
+    }
+};
+
+// 130654 - Chi Burst (heal)
+// The heal payload needs its own attack-power-scaled formula rather than relying on the base
+// spell data's default scaling - ported the reference's own coefficient (4.125x attack power)
+// verbatim, not independently re-derived.
+class spell_monk_chi_burst_heal : public SpellScript
+{
+    void HandleHeal(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        SpellInfo const* spellInfo = GetSpellInfo();
+        SpellEffectInfo const& effectInfo = spellInfo->GetEffect(EFFECT_0);
+
+        int32 healing = int32(caster->GetTotalAttackPowerValue(BASE_ATTACK) * 4.125f);
+        healing = caster->SpellDamageBonusDone(target, spellInfo, healing, HEAL, effectInfo);
+        healing = target->SpellDamageBonusTaken(caster, spellInfo, healing, HEAL);
+
+        SetHitHeal(healing);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_monk_chi_burst_heal::HandleHeal, EFFECT_0, SPELL_EFFECT_HEAL);
+    }
+};
+
+// 115008 - Chi Torpedo
+// Roll replacement talent: while rolling forward, damages enemies and heals allies (including
+// the Monk) caught in a 60-degree cone in front of the Monk within 20 yards.
+class spell_monk_chi_torpedo : public SpellScript
+{
+    void HandleAfterCast()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+
+        std::list<Unit*> targets;
+        Trinity::AnyUnitInObjectRangeCheck check(caster, 20.0f);
+        Trinity::UnitListSearcher<Trinity::AnyUnitInObjectRangeCheck> searcher(caster, targets, check);
+        Cell::VisitAllObjects(caster, searcher, 20.0f);
+
+        for (Unit* target : targets)
+        {
+            if (target->GetGUID() != caster->GetGUID() && !target->isInFront(caster, float(M_PI / 3)))
+                continue;
+
+            uint32 spellId = caster->IsValidAttackTarget(target) ? SPELL_MONK_CHI_TORPEDO_DAMAGE : SPELL_MONK_CHI_TORPEDO_HEAL;
+            caster->CastSpell(target, spellId, true);
+        }
+
+        if (caster->HasAura(SPELL_MONK_ITEM_PVP_GLOVES_BONUS))
+            caster->RemoveAurasByType(SPELL_AURA_MOD_DECREASE_SPEED);
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_monk_chi_torpedo::HandleAfterCast);
     }
 };
 
@@ -898,6 +969,32 @@ class spell_monk_life_cocoon : public SpellScript
     }
 };
 
+// 197915 - Lifecycles
+// Passive: casting Vivify grants a buff reducing the mana cost of the next Enveloping Mist,
+// and casting Enveloping Mist grants the reverse - rewards alternating between the two heals
+// instead of spamming either one. The mana-cost-reduction itself lives entirely in the
+// granted buff's own DB2 aura data; this only needs to apply the correct buff on proc.
+class spell_monk_lifecycles : public AuraScript
+{
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+    {
+        Unit* caster = GetCaster();
+        SpellInfo const* procSpell = eventInfo.GetSpellInfo();
+        if (!caster || !procSpell)
+            return;
+
+        if (procSpell->Id == SPELL_MONK_VIVIFY)
+            caster->CastSpell(caster, SPELL_MONK_LIFECYCLES_ENVELOPING_MIST, true);
+        else if (procSpell->Id == SPELL_MONK_ENVELOPING_MIST_HEAL)
+            caster->CastSpell(caster, SPELL_MONK_LIFECYCLES_VIVIFY, true);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_monk_lifecycles::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
 // 388548 - Mists of Life (attached to 116849 - Life Cocoon)
 class spell_monk_mists_of_life : public SpellScript
 {
@@ -1384,6 +1481,36 @@ struct at_monk_gift_of_the_ox_sphere : AreaTriggerAI
         if (Unit* caster = at->GetCaster())
             if (caster->HasAura(SPELL_MONK_HEALING_SPHERE_COOLDOWN))
                 caster->RemoveAura(SPELL_MONK_HEALING_SPHERE_COOLDOWN);
+    }
+};
+
+// Chi Burst (damage half) - spawned by 123986, AreaTriggerId 5302
+// (areatrigger_create_properties.Id 1315 in the base world DB, ScriptName column empty until
+// this binding - unlike Gift of the Ox's orb, this row's visual/shape/curve data already ships
+// with the base database, so no unverifiable DB2 asset guessing was needed here).
+struct at_monk_chi_burst_damage : AreaTriggerAI
+{
+    using AreaTriggerAI::AreaTriggerAI;
+
+    void OnUnitEnter(Unit* unit) override
+    {
+        if (Unit* caster = at->GetCaster())
+            if (caster->IsValidAttackTarget(unit))
+                caster->CastSpell(unit, SPELL_MONK_CHI_BURST_DAMAGE, true);
+    }
+};
+
+// Chi Burst (heal half) - spawned by 123986, AreaTriggerId 5300
+// (areatrigger_create_properties.Id 1316 - see at_monk_chi_burst_damage above).
+struct at_monk_chi_burst_heal : AreaTriggerAI
+{
+    using AreaTriggerAI::AreaTriggerAI;
+
+    void OnUnitEnter(Unit* unit) override
+    {
+        if (Unit* caster = at->GetCaster())
+            if (caster->IsValidAssistTarget(unit))
+                caster->CastSpell(unit, SPELL_MONK_CHI_BURST_HEAL, true);
     }
 };
 
@@ -2307,6 +2434,8 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_breath_of_fire);
     RegisterSpellScript(spell_monk_burst_of_life);
     RegisterSpellScript(spell_monk_burst_of_life_heal);
+    RegisterSpellScript(spell_monk_chi_burst_heal);
+    RegisterSpellScript(spell_monk_chi_torpedo);
     RegisterSpellScript(spell_monk_chi_wave);
     RegisterSpellScript(spell_monk_chi_wave_damage_missile);
     RegisterSpellScript(spell_monk_chi_wave_heal_missile);
@@ -2329,6 +2458,7 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_keg_smash);
     RegisterSpellScript(spell_monk_legacy_of_the_emperor);
     RegisterSpellScript(spell_monk_life_cocoon);
+    RegisterSpellScript(spell_monk_lifecycles);
     RegisterSpellScript(spell_monk_mastery_combo_strikes);
     RegisterSpellScript(spell_monk_mastery_combo_strikes_periodic_auras);
     RegisterSpellScript(spell_monk_mastery_combo_strikes_periodic_triggers);
@@ -2355,6 +2485,8 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_save_them_all);
     RegisterAreaTriggerAI(at_monk_song_of_chi_ji);
     RegisterAreaTriggerAI(at_monk_gift_of_the_ox_sphere);
+    RegisterAreaTriggerAI(at_monk_chi_burst_damage);
+    RegisterAreaTriggerAI(at_monk_chi_burst_heal);
     RegisterSpellScript(spell_monk_stagger);
     RegisterSpellScript(spell_monk_stagger_damage_aura);
     RegisterSpellScript(spell_monk_stagger_debuff_aura);
