@@ -2663,6 +2663,64 @@ damage and confirm a healing orb occasionally spawns nearby (more
 frequently at lower health). Picking it up is expected to currently do
 nothing until the `areatrigger_create_properties` row is supplied.
 
+### [DONE] Monk - Touch of Death and Touch of Karma missing; Mastery: Combo Strikes scoped out as a separate, larger task
+
+**Subsystem:** Scripts/Spells (spell_monk)
+
+**Context:** Investigated Mastery: Combo Strikes (Windwalker's core
+mastery) as the next candidate, but found it's a fundamentally different
+scale of change than anything else this session: DestinyCore's reference
+needs the same script bound to essentially every Windwalker damage-dealing
+spell individually (not one spell id), and depends on a `PlayerStorage`
+per-player persistence system that **does not exist anywhere in
+ArgusCore**. Presented this to the user, who chose to defer Combo Strikes
+as its own separately-scoped task and continue with two clean,
+self-contained candidates instead.
+
+**Problem:** Touch of Death (115080) and Touch of Karma (122470) had no
+implementation anywhere in ArgusCore.
+
+**Touch of Death:** deals damage equal to a percentage of the *caster's*
+(not the target's) max health, halved against player targets — the
+well-known Legion design (an execute-style instant kill vs. NPCs, scaled
+down for PvP balance). Self-referential structure: each tick recomputes the
+damage and re-casts the same spell id (115080) on the original target with
+the new value as a custom base point. **Deliberately omitted** DestinyCore's
+own Combo Strikes integration line, which is commented out in the reference
+itself (with an author TODO, "need to merge, already did" — left
+unfinished) — not treated as confirmed content, consistent with the
+decision to scope Combo Strikes out entirely this session.
+
+**Touch of Karma:** absorbs damage up to the caster's max health,
+redirecting 1/16th of the *cumulative* absorbed total back to the attacker
+as periodic damage (recalculated from the running total on each hit, not
+just the latest one).
+
+**Files:** `src/server/scripts/Spells/spell_monk.cpp`
+
+**Fix:** Added `SPELL_MONK_TOUCH_OF_DEATH` (115080) and
+`SPELL_MONK_TOUCH_OF_KARMA_REDIRECT_DAMAGE` (124280) constants, plus both
+classes ported from DestinyCore with only API-convention adaptations
+(`CastCustomSpell` → `CastSpellExtraArgs`/`AddSpellBP0`, matching the
+pattern established for every other custom-value cast this session).
+
+**Database dependency:** searched ArgusCore's committed SQL for existing
+`spell_script_names` bindings on both spell ids — found none. Added both to
+a single dedicated file,
+`sql/updates/world/master/2026_07_26_07_world.sql`.
+
+**Risk:** Low — both are small, self-contained, single-spell mechanics with
+no cross-spell binding requirements or missing engine capabilities.
+
+**Commit:** `<pending>`
+
+**Test:** Pending manual build/runtime verification — Touch of Death: use
+it on a low-health NPC target and confirm a lethal/near-lethal damage tick;
+against a player target, confirm the damage is roughly half of what it
+would be against an NPC. Touch of Karma: take repeated hits while it's
+active and confirm damage is absorbed and the attacker takes periodic
+damage back, scaling with cumulative damage absorbed.
+
 ---
 
 ## P4 — Performance / Cleanup

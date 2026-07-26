@@ -87,6 +87,8 @@ enum MonkSpells
     SPELL_MONK_TEACHINGS_OF_THE_MONASTERY               = 116645,
     SPELL_MONK_THUNDER_FOCUS_TEA                        = 116680,
     SPELL_MONK_TEACHINGS_OF_THE_MONASTERY_AURA          = 202090,
+    SPELL_MONK_TOUCH_OF_DEATH                           = 115080,
+    SPELL_MONK_TOUCH_OF_KARMA_REDIRECT_DAMAGE           = 124280,
 };
 
 // 100784 - Blackout Kick
@@ -1326,6 +1328,99 @@ class spell_monk_tigers_lust : public SpellScript
     }
 };
 
+// 115080 - Touch of Death
+// Deals damage equal to a percentage of the caster's (not the target's) max health - halved
+// against player targets, matching Legion's well-known Touch of Death design (execute-style
+// instant kill vs. NPCs, balanced down for PvP). Self-referential: each tick recomputes the
+// damage and re-casts this same spell id on the original target with the new value as a
+// custom base point, rather than driving a separate damage sub-spell.
+// NOTE: DestinyCore's own CalculateAmount has a Mastery: Combo Strikes integration commented
+// out (with an author TODO note, "need to merge, already did" — never finished). Not ported,
+// since that would require the broader Combo Strikes system this session deliberately deferred
+// (see the Mastery: Combo Strikes entry in the backlog) - matches the file's own disabled state.
+class spell_monk_touch_of_death : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_TOUCH_OF_DEATH });
+    }
+
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& canBeRecalculated)
+    {
+        Unit* caster = GetCaster();
+        Unit* owner = GetUnitOwner();
+        if (!caster || !owner)
+            return;
+
+        canBeRecalculated = false;
+
+        int32 pct = GetEffectInfo(EFFECT_1).CalcValue(caster);
+        amount = int32(caster->CountPctFromMaxHealth(owner->GetTypeId() == TYPEID_PLAYER ? (pct / 2) : pct));
+    }
+
+    void OnTick(AuraEffect const* aurEff)
+    {
+        Unit* caster = GetCaster();
+        Unit* owner = GetUnitOwner();
+        if (!caster || !owner || !caster->IsAlive())
+            return;
+
+        CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
+        args.AddSpellBP0(aurEff->GetAmount());
+        caster->CastSpell(owner, SPELL_MONK_TOUCH_OF_DEATH, args);
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_monk_touch_of_death::CalculateAmount, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_monk_touch_of_death::OnTick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
+// 122470 - Touch of Karma
+// Absorbs damage up to the caster's max health, redirecting 1/16th of total absorbed damage
+// back to the attacker as periodic damage - tracked cumulatively across the aura's duration
+// (each new hit recalculates the redirect from the running total, not just the latest hit).
+class spell_monk_touch_of_karma : public AuraScript
+{
+    uint32 _totalAbsorbAmount = 0;
+
+    bool Load() override
+    {
+        _totalAbsorbAmount = 0;
+        return true;
+    }
+
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        if (Unit* caster = GetCaster())
+            amount = int32(caster->GetMaxHealth());
+    }
+
+    void OnAbsorb(AuraEffect* aurEff, DamageInfo& dmgInfo, uint32& /*absorbAmount*/)
+    {
+        Unit* caster = dmgInfo.GetVictim();
+        Unit* attacker = dmgInfo.GetAttacker();
+        if (!caster || !attacker)
+            return;
+
+        _totalAbsorbAmount += dmgInfo.GetDamage();
+
+        if (attacker->HasAura(aurEff->GetSpellInfo()->Id, caster->GetGUID()))
+        {
+            CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
+            args.AddSpellBP0(int32(_totalAbsorbAmount / 16));
+            caster->CastSpell(attacker, SPELL_MONK_TOUCH_OF_KARMA_REDIRECT_DAMAGE, args);
+        }
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_monk_touch_of_karma::CalculateAmount, EFFECT_1, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_monk_touch_of_karma::OnAbsorb, EFFECT_1);
+    }
+};
+
 void AddSC_monk_spell_scripts()
 {
     RegisterSpellScript(spell_monk_blackout_kick);
@@ -1366,4 +1461,6 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_stagger_damage_aura);
     RegisterSpellScript(spell_monk_stagger_debuff_aura);
     RegisterSpellScript(spell_monk_tigers_lust);
+    RegisterSpellScript(spell_monk_touch_of_death);
+    RegisterSpellScript(spell_monk_touch_of_karma);
 }
