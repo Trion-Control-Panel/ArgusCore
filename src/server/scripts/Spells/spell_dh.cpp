@@ -958,6 +958,38 @@ class spell_dh_sigil_of_chains : public SpellScript
 };
 
 
+// 207685 - Sigil of Misery (fear)
+// Breaks the fear early once the target has taken more than 10% of its max health in cumulative
+// damage while feared - standard "fear breaks on sufficient damage" behavior, which isn't
+// automatic engine behavior and needs to be tracked explicitly.
+// NOTE: the reference tracks the running damage total via `Aura::Variables`, a generic runtime
+// key-value scripting-storage member that doesn't exist anywhere in ArgusCore's engine. Since
+// an AuraScript instance already lives for exactly one aura application's lifetime, a plain
+// member variable on the script class itself does the same job with no functional difference.
+class spell_dh_sigil_of_misery_fear : public AuraScript
+{
+    uint64 _damage = 0;
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        Unit* target = eventInfo.GetActionTarget();
+        if (!target || !eventInfo.GetDamageInfo())
+            return false;
+
+        _damage += eventInfo.GetDamageInfo()->GetDamage();
+        if (_damage > target->CountPctFromMaxHealth(10))
+            if (Aura* fear = GetAura())
+                fear->SetDuration(0);
+
+        return true;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_dh_sigil_of_misery_fear::CheckProc);
+    }
+};
+
 // 202443 - Anguish
 // On aura removal fires accumulated stacks as a single burst hit.
 class spell_dh_anguish : public AuraScript
@@ -1591,6 +1623,7 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellAndAuraScriptPair(spell_dh_glide, spell_dh_glide_AuraScript);
     RegisterSpellScript(spell_dh_glide_timer);
 
+    RegisterSpellScript(spell_dh_sigil_of_misery_fear);
     RegisterSpellScript(spell_dh_anguish);
     RegisterSpellScript(spell_dh_anguish_damage);
     RegisterSpellScript(spell_dh_nemesis);
