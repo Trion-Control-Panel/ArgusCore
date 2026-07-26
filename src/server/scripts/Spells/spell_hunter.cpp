@@ -772,10 +772,10 @@ class spell_hun_flanking_strike : public SpellScript
 
         switch (rand() % 4)
         {
-            case 0: caster->GetSpellHistory()->ModifyCooldown(SPELL_HUNTER_HARPOON, -3000); break;
-            case 1: caster->GetSpellHistory()->ModifyCooldown(SPELL_HUNTER_ASPECT_OF_THE_EAGLE, -3000); break;
-            case 2: caster->GetSpellHistory()->ModifyCooldown(SPELL_HUNTER_MONGOOSE_BITE, -3000); break;
-            case 3: caster->GetSpellHistory()->ModifyCooldown(SPELL_HUNTER_FLANKING_STRIKE, -3000); break;
+            case 0: caster->GetSpellHistory()->ModifyCooldown(SPELL_HUNTER_HARPOON, Milliseconds(-3000)); break;
+            case 1: caster->GetSpellHistory()->ModifyCooldown(SPELL_HUNTER_ASPECT_OF_THE_EAGLE, Milliseconds(-3000)); break;
+            case 2: caster->GetSpellHistory()->ModifyCooldown(SPELL_HUNTER_MONGOOSE_BITE, Milliseconds(-3000)); break;
+            case 3: caster->GetSpellHistory()->ModifyCooldown(SPELL_HUNTER_FLANKING_STRIKE, Milliseconds(-3000)); break;
         }
     }
 
