@@ -77,6 +77,7 @@ enum DemonHunterSpells
     SPELL_DH_DEMONIC_TRAMPLE_DMG                   = 208645,
     SPELL_DH_DEMONIC_TRAMPLE_STUN                  = 213491,
     SPELL_DH_DEMONS_BITE                           = 162243,
+    SPELL_DH_DEMON_REBORN                          = 193897,
     SPELL_DH_EYE_BEAM                              = 198013,
     SPELL_DH_EYE_BEAM_DAMAGE                       = 198030,
     SPELL_DH_EYE_OF_LEOTHERAS_DMG                  = 206650,
@@ -122,6 +123,7 @@ enum DemonHunterSpells
     SPELL_DH_MANA_RIFT_DMG_POWER_BURN              = 235904,
     SPELL_DH_METAMORPHOSIS                         = 191428,
     SPELL_DH_METAMORPHOSIS_DUMMY                   = 191427,
+    SPELL_DH_METAMORPHOSIS_IMMUNITY                = 201453,
     SPELL_DH_METAMORPHOSIS_IMPACT_DAMAGE           = 200166,
     SPELL_DH_METAMORPHOSIS_TRANSFORM               = 162264,
     SPELL_DH_METAMORPHOSIS_VENGEANCE_TRANSFORM     = 187827,
@@ -203,6 +205,34 @@ enum DemonHunterSpellCategories
 {
     SPELL_CATEGORY_DH_EYE_BEAM      = 1582,
     SPELL_CATEGORY_DH_BLADE_DANCE   = 1640
+};
+
+// 179057 - Chaos Nova
+// AoE stun; the stun itself is applied by this spell's own DB2 effect data (EFFECT_0). This
+// only computes EFFECT_1's damage, scaled off attack power.
+class spell_dh_chaos_nova : public SpellScript
+{
+    void HandleDamage(SpellEffIndex effIndex)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        int32 ap = caster->GetTotalAttackPowerValue(BASE_ATTACK);
+        AddPct(ap, 25);
+        int32 damage = 1 + ap;
+
+        damage = caster->SpellDamageBonusDone(target, GetSpellInfo(), damage, SPELL_DIRECT_DAMAGE, GetEffectInfo(effIndex));
+        damage = target->SpellDamageBonusTaken(caster, GetSpellInfo(), damage, SPELL_DIRECT_DAMAGE);
+
+        SetHitDamage(damage);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dh_chaos_nova::HandleDamage, EFFECT_1, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
 };
 
 // 197125 - Chaos Strike
@@ -1308,6 +1338,66 @@ class spell_dh_fueled_by_pain : public AuraScript
     }
 };
 
+// 191427 - Metamorphosis
+// Leaps to the target destination and, for Vengeance, briefly transforms; the actual buff aura
+// (162264 Havoc / 187827 Vengeance) is applied by this spell's own DB2 effect data, not by this
+// script - this only drives the leap itself and the Demon Reborn interaction.
+class spell_dh_metamorphosis : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_METAMORPHOSIS });
+    }
+
+    void HandleLeap()
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!player)
+            return;
+
+        if (WorldLocation const* dest = GetExplTargetDest())
+            player->CastSpell(*dest, SPELL_DH_METAMORPHOSIS, true);
+
+        if (player->HasAura(SPELL_DH_DEMON_REBORN))
+        {
+            player->GetSpellHistory()->ResetCooldown(SPELL_DH_CHAOS_NOVA, true);
+            if (SpellInfo const* blur = sSpellMgr->GetSpellInfo(SPELL_DH_BLUR, DIFFICULTY_NONE))
+                player->GetSpellHistory()->ResetCharges(blur->ChargeCategoryId);
+            player->GetSpellHistory()->ResetCooldown(SPELL_DH_EYE_BEAM, true);
+        }
+    }
+
+    void Register() override
+    {
+        BeforeCast += SpellCastFn(spell_dh_metamorphosis::HandleLeap);
+    }
+};
+
+// 201453 - Metamorphosis (temporary immunity while leaping)
+// Havoc gets a brief immunity window during the leap animation; Vengeance doesn't.
+// NOTE: the reference also drives the landing-impact trigger (Havoc: cast 200166's stun/damage/
+// snare burst; Vengeance: proc Infernal Strike's landing damage, plus Sigil of Flame if Flame
+// Crash is talented) from this same spell's OnRemove, keyed off an EFFECT_1 aura type
+// (SPELL_AURA_ALLOW_ONLY_ABILITY) that doesn't exist anywhere in ArgusCore's engine. Left that
+// half unported rather than guess at a different effect index/aura type without real client
+// data to verify against - the leap, transform, and Demon Reborn interaction above are
+// unaffected, but no landing burst fires yet.
+class spell_dh_metamorphosis_immunity : public SpellScript
+{
+    void PreventImmunity(SpellEffIndex effIndex)
+    {
+        Unit* caster = GetCaster();
+        if (caster && caster->HasAura(SPELL_DH_METAMORPHOSIS_VENGEANCE_TRANSFORM))
+            PreventHitEffect(effIndex);
+    }
+
+    void Register() override
+    {
+        OnEffectLaunch += SpellEffectFn(spell_dh_metamorphosis_immunity::PreventImmunity, EFFECT_1, SPELL_AURA_SCHOOL_IMMUNITY);
+        OnEffectHit += SpellEffectFn(spell_dh_metamorphosis_immunity::PreventImmunity, EFFECT_1, SPELL_AURA_SCHOOL_IMMUNITY);
+    }
+};
+
 // 200166 - Metamorphosis (Havoc impact damage)
 // Filters players from the AoE knockback — players hit by Metamorphosis receive a different spell.
 class spell_dh_metamorphosis_impact : public SpellScript
@@ -1343,6 +1433,7 @@ class spell_dh_metamorphosis_impact : public SpellScript
 
 void AddSC_demon_hunter_spell_scripts()
 {
+    RegisterSpellScript(spell_dh_chaos_nova);
     RegisterSpellScript(spell_dh_chaos_strike);
     RegisterSpellScript(spell_dh_charred_warblades);
     RegisterSpellScript(spell_dh_darkness);
@@ -1400,5 +1491,7 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_shatter_soul);
     RegisterSpellScript(spell_dh_flaming_soul);
     RegisterSpellScript(spell_dh_fueled_by_pain);
+    RegisterSpellScript(spell_dh_metamorphosis);
+    RegisterSpellScript(spell_dh_metamorphosis_immunity);
     RegisterSpellScript(spell_dh_metamorphosis_impact);
 }
