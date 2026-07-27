@@ -22,10 +22,13 @@
  */
 
 #include "ScriptMgr.h"
+#include "Item.h"
 #include "Map.h"
 #include "MoveSpline.h"
+#include "ObjectMgr.h"
 #include "PathGenerator.h"
 #include "Player.h"
+#include "ScriptedCreature.h"
 #include "Spell.h"
 #include "SpellMgr.h"
 #include "SpellAuraEffects.h"
@@ -78,6 +81,11 @@ enum WarriorSpells
     SPELL_WARRIOR_RALLYING_CRY                      = 97462,
     SPELL_WARRIOR_RAMPAGE                           = 184367,
     SPELL_WARRIOR_RAVAGER                           = 228920,
+    SPELL_WARRIOR_RAVAGER_FURY_PROT                 = 152277,
+    SPELL_WARRIOR_RAVAGER_DAMAGE                    = 156287,
+    SPELL_WARRIOR_RAVAGER_SUMMON                    = 227876,
+    SPELL_WARRIOR_RAVAGER_VISUAL                    = 153709,
+    NPC_WARRIOR_RAVAGER                             = 76168,
     SPELL_WARRIOR_RECKLESSNESS                      = 1719,
     SPELL_WARRIOR_REVENGE                           = 6572,
     SPELL_WARRIOR_RUMBLING_EARTH                    = 275339,
@@ -190,6 +198,7 @@ class spell_warr_anger_management_proc : public AuraScript
             SPELL_WARRIOR_COLOSSUS_SMASH,
             SPELL_WARRIOR_BLADESTORM,
             SPELL_WARRIOR_RAVAGER,
+            SPELL_WARRIOR_RAVAGER_FURY_PROT,
             SPELL_WARRIOR_WARBREAKER,
             SPELL_WARRIOR_RECKLESSNESS,
             SPELL_WARRIOR_AVATAR,
@@ -235,8 +244,8 @@ class spell_warr_anger_management_proc : public AuraScript
 
     static constexpr FloatMilliseconds CooldownReduction = 1s;
     static constexpr std::array<int32, 4> ArmsSpellIds = { SPELL_WARRIOR_COLOSSUS_SMASH, SPELL_WARRIOR_WARBREAKER, SPELL_WARRIOR_BLADESTORM, SPELL_WARRIOR_RAVAGER };
-    static constexpr std::array<int32, 3> FurySpellIds = { SPELL_WARRIOR_RECKLESSNESS, SPELL_WARRIOR_BLADESTORM, SPELL_WARRIOR_RAVAGER };
-    static constexpr std::array<int32, 2> ProtectionSpellIds = { SPELL_WARRIOR_AVATAR, SPELL_WARRIOR_SHIELD_WALL };
+    static constexpr std::array<int32, 3> FurySpellIds = { SPELL_WARRIOR_RECKLESSNESS, SPELL_WARRIOR_BLADESTORM, SPELL_WARRIOR_RAVAGER_FURY_PROT };
+    static constexpr std::array<int32, 3> ProtectionSpellIds = { SPELL_WARRIOR_AVATAR, SPELL_WARRIOR_SHIELD_WALL, SPELL_WARRIOR_RAVAGER_FURY_PROT };
 };
 
 // 107574 - Avatar
@@ -1337,6 +1346,110 @@ class spell_warr_war_machine : public AuraScript
     }
 };
 
+// 152277 - Ravager (Fury/Protection talent - Arms' own Ravager, 228920, is a separate,
+// differently-delivered version tracked elsewhere in this file for cooldown purposes only and
+// is not implemented here)
+// Throws a whirling weapon to the target location; it lodges there for 7 sec, periodically
+// dealing damage to nearby enemies through the summoned Ravager NPC. Protection additionally
+// gains bonus parry chance while it's active (Fury does not).
+class spell_warr_ravager_fury_prot : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_RAVAGER_SUMMON });
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        if (WorldLocation* dest = GetHitDest())
+            GetCaster()->CastSpell(*dest, SPELL_WARRIOR_RAVAGER_SUMMON, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_warr_ravager_fury_prot::HandleDummy, EFFECT_1, SPELL_EFFECT_DUMMY);
+    }
+};
+
+class spell_warr_ravager_fury_prot_aura : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_RAVAGER_DAMAGE });
+    }
+
+    void CalculateParryPct(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/) const
+    {
+        Player* player = Object::ToPlayer(GetCaster());
+        if (!player || player->GetPrimarySpecialization() != ChrSpecialization::WarriorProtection)
+            amount = 0;
+    }
+
+    void OnTick(AuraEffect const* aurEff) const
+    {
+        if (aurEff->GetTickNumber() > uint32(GetEffectInfo(EFFECT_3).CalcValue(GetCaster())))
+            return;
+
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        for (Unit* controlled : caster->m_Controlled)
+        {
+            if (controlled->GetEntry() == NPC_WARRIOR_RAVAGER)
+            {
+                caster->CastSpell(controlled, SPELL_WARRIOR_RAVAGER_DAMAGE, true);
+                break;
+            }
+        }
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_warr_ravager_fury_prot_aura::CalculateParryPct, EFFECT_0, SPELL_AURA_MOD_PARRY_PERCENT);
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_warr_ravager_fury_prot_aura::OnTick, EFFECT_2, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
+// NPC 76168 - Ravager
+// DB note: creature_template.ScriptName must be 'npc_warr_ravager' for entry 76168.
+// Cosmetic-only AI: adopts the summoning Warrior's current weapon appearance (transmog-aware)
+// so the whirling weapon on the ground matches what they're holding. All actual damage is
+// driven by the caster periodically casting SPELL_WARRIOR_RAVAGER_DAMAGE through this NPC
+// (see spell_warr_ravager_fury_prot_aura::OnTick above), not by anything this AI does itself.
+struct npc_warr_ravager : public ScriptedAI
+{
+    npc_warr_ravager(Creature* creature) : ScriptedAI(creature) { }
+
+    void IsSummonedBy(WorldObject* summoner) override
+    {
+        me->CastSpell(me, SPELL_WARRIOR_RAVAGER_VISUAL, true);
+        me->SetReactState(REACT_PASSIVE);
+        me->AddUnitState(UNIT_STATE_ROOT);
+        me->SetUnitFlag(UNIT_FLAG_UNINTERACTIBLE);
+
+        Player* player = summoner ? summoner->ToPlayer() : nullptr;
+        if (!player)
+            return;
+
+        if (Item* mainHand = player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND))
+        {
+            if (ItemTemplate const* transmog = sObjectMgr->GetItemTemplate(mainHand->GetModifier(ITEM_MODIFIER_TRANSMOG_APPEARANCE_ALL_SPECS)))
+                me->SetVirtualItem(0, transmog->GetId());
+            else
+                me->SetVirtualItem(0, mainHand->GetTemplate()->GetId());
+        }
+
+        if (Item* offHand = player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND))
+        {
+            if (ItemTemplate const* transmog = sObjectMgr->GetItemTemplate(offHand->GetModifier(ITEM_MODIFIER_TRANSMOG_APPEARANCE_ALL_SPECS)))
+                me->SetVirtualItem(2, transmog->GetId());
+            else
+                me->SetVirtualItem(2, offHand->GetTemplate()->GetId());
+        }
+    }
+};
+
 // 184367 - Rampage
 // Consumes the Whirlwind Cleave Aura (85739, granted by Whirlwind via ApplyWhirlwindCleaveAura
 // above - the same spell a reference implementation names "Meat Cleaver Proc") so Rampage also hits nearby
@@ -2119,6 +2232,8 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_overpower_proc);
     RegisterSpellScript(spell_warr_precise_strikes);
     RegisterSpellScript(spell_warr_rallying_cry);
+    RegisterSpellAndAuraScriptPair(spell_warr_ravager_fury_prot, spell_warr_ravager_fury_prot_aura);
+    RegisterCreatureAI(npc_warr_ravager);
     RegisterSpellScript(spell_warr_last_stand);
     RegisterSpellScript(spell_warr_vigilance_trigger);
     RegisterSpellScript(spell_warr_war_machine);
