@@ -72,12 +72,10 @@ enum MageSpells
     SPELL_MAGE_CONE_OF_COLD_SLOW                 = 212792,
     SPELL_MAGE_CONJURE_REFRESHMENT               = 116136,
     SPELL_MAGE_CONJURE_REFRESHMENT_TABLE         = 167145,
+    SPELL_MAGE_DISPLACEMENT_BEACON               = 212799,
     SPELL_MAGE_DRAGONHAWK_FORM                   = 32818,
     SPELL_MAGE_DRAGONS_BREATH                    = 31661,
     SPELL_MAGE_ALEXSTRASZAS_FURY                 = 235870,
-    SPELL_MAGE_ETHEREAL_BLINK                    = 410939,
-    SPELL_MAGE_EVERWARM_SOCKS                    = 320913,
-    SPELL_MAGE_FEEL_THE_BURN                     = 383391,
     SPELL_MAGE_FINGERS_OF_FROST                  = 44544,
     SPELL_MAGE_FIRE_BLAST                        = 108853,
     SPELL_MAGE_FIREBALL                          = 133,
@@ -884,114 +882,33 @@ class spell_mage_conjure_refreshment : public SpellScript
     }
 };
 
-// 410939 - Ethereal Blink
-class spell_mage_ethereal_blink : public AuraScript
+// 195676 - Displacement
+// A one-button toggle: if a Displacement Beacon is already on the ground, teleport to it and
+// remove it (short-circuiting the cast) instead of the normal cast flow placing a new one - the
+// beacon's own placement is handled entirely by this spell's own DB2 effect data, no script
+// needed for that half.
+class spell_mage_displacement : public SpellScript
 {
-    bool Validate(SpellInfo const* /*spellInfo*/) override
+    void HandleBeforeCast() const
     {
-        return ValidateSpellInfo({ SPELL_MAGE_BLINK, SPELL_MAGE_SHIMMER });
-    }
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
 
-    void HandleProc(AuraEffect* aurEff, ProcEventInfo& procInfo)
-    {
-        PreventDefaultAction();
-
-        // this proc only works for players because teleport relocation happens after an ACK
-        GetTarget()->CastSpell(*procInfo.GetProcSpell()->m_targets.GetDst(), aurEff->GetSpellEffectInfo().TriggerSpell, CastSpellExtraArgs(aurEff)
-            .SetTriggeringSpell(procInfo.GetProcSpell())
-            .SetCustomArg(GetTarget()->GetPosition()));
+        if (AreaTrigger* beacon = caster->GetAreaTrigger(SPELL_MAGE_DISPLACEMENT_BEACON))
+        {
+            caster->NearTeleportTo(beacon->GetPosition());
+            caster->RemoveAura(SPELL_MAGE_DISPLACEMENT_BEACON);
+        }
     }
 
     void Register() override
     {
-        OnEffectProc += AuraEffectProcFn(spell_mage_ethereal_blink::HandleProc, EFFECT_1, SPELL_AURA_PROC_TRIGGER_SPELL);
-    }
-};
-
-// 410941 - Ethereal Blink
-class spell_mage_ethereal_blink_triggered : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_MAGE_BLINK, SPELL_MAGE_SHIMMER, SPELL_MAGE_SLOW })
-            && ValidateSpellEffect({ { SPELL_MAGE_ETHEREAL_BLINK, EFFECT_3 } });
-    }
-
-    void FilterTargets(std::list<WorldObject*>& targets)
-    {
-        Position const* src = std::any_cast<Position>(&GetSpell()->m_customArg);
-        WorldLocation const* dst = GetExplTargetDest();
-        if (!src || !dst)
-        {
-            targets.clear();
-            return;
-        }
-
-        targets.remove_if([&](WorldObject* target)
-        {
-            return !target->IsInBetween(*src, *dst, (target->GetCombatReach() + GetCaster()->GetCombatReach()) / 2.0f);
-        });
-
-        AuraEffect const* reductionEffect = GetCaster()->GetAuraEffect(SPELL_MAGE_ETHEREAL_BLINK, EFFECT_2);
-        if (!reductionEffect)
-            return;
-
-        Seconds reduction = Seconds(reductionEffect->GetAmount()) * targets.size();
-
-        if (AuraEffect const* cap = GetCaster()->GetAuraEffect(SPELL_MAGE_ETHEREAL_BLINK, EFFECT_3))
-            if (reduction > Seconds(cap->GetAmount()))
-                reduction = Seconds(cap->GetAmount());
-
-        if (reduction > 0s)
-        {
-            GetCaster()->GetSpellHistory()->ModifyCooldown(SPELL_MAGE_BLINK, -reduction);
-            GetCaster()->GetSpellHistory()->ModifyCooldown(SPELL_MAGE_SHIMMER, -reduction);
-        }
-    }
-
-    void TriggerSlow(SpellEffIndex /*effIndex*/)
-    {
-        int32 effectivenessPct = 100;
-        if (AuraEffect const* effectivenessEffect = GetCaster()->GetAuraEffect(SPELL_MAGE_ETHEREAL_BLINK, EFFECT_1))
-            effectivenessPct = effectivenessEffect->GetAmount();
-
-        int32 slowPct = sSpellMgr->AssertSpellInfo(SPELL_MAGE_SLOW, DIFFICULTY_NONE)->GetEffect(EFFECT_0).CalcBaseValue(GetCaster(), GetHitUnit(), 0, -1);
-        ApplyPct(slowPct, effectivenessPct);
-
-        GetCaster()->CastSpell(GetHitUnit(), SPELL_MAGE_SLOW, CastSpellExtraArgs(GetSpell())
-            .AddSpellMod(SPELLVALUE_BASE_POINT0, slowPct));
-    }
-
-    void Register() override
-    {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_mage_ethereal_blink_triggered::FilterTargets, EFFECT_0, TARGET_UNIT_DEST_AREA_ENEMY);
-        OnEffectHitTarget += SpellEffectFn(spell_mage_ethereal_blink_triggered::TriggerSlow, EFFECT_0, SPELL_EFFECT_DUMMY);
+        BeforeCast += SpellCastFn(spell_mage_displacement::HandleBeforeCast);
     }
 };
 
 // 383395 - Feel the Burn
-class spell_mage_feel_the_burn : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_MAGE_FEEL_THE_BURN });
-    }
-
-    void CalcAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& canBeRecalculated)
-    {
-        if (Unit* caster = GetCaster())
-            if (AuraEffect const* valueHolder = caster->GetAuraEffect(SPELL_MAGE_FEEL_THE_BURN, EFFECT_0))
-                amount = valueHolder->GetAmount();
-
-        canBeRecalculated = false;
-    }
-
-    void Register() override
-    {
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_mage_feel_the_burn::CalcAmount, EFFECT_0, SPELL_AURA_MASTERY);
-    }
-};
-
 // 112965 - Fingers of Frost
 class spell_mage_fingers_of_frost : public AuraScript
 {
@@ -1463,34 +1380,6 @@ class spell_mage_ice_barrier : public AuraScript
     {
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_mage_ice_barrier::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
         OnEffectProc += AuraEffectProcFn(spell_mage_ice_barrier::HandleProc, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
-    }
-};
-
-// 45438 - Ice Block
-class spell_mage_ice_block : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_MAGE_EVERWARM_SOCKS });
-    }
-
-    void PreventStunWithEverwarmSocks(WorldObject*& target)
-    {
-        if (GetCaster()->HasAura(SPELL_MAGE_EVERWARM_SOCKS))
-            target = nullptr;
-    }
-
-    void PreventEverwarmSocks(WorldObject*& target)
-    {
-        if (!GetCaster()->HasAura(SPELL_MAGE_EVERWARM_SOCKS))
-            target = nullptr;
-    }
-
-    void Register() override
-    {
-        OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_mage_ice_block::PreventStunWithEverwarmSocks, EFFECT_0, TARGET_UNIT_CASTER);
-        OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_mage_ice_block::PreventEverwarmSocks, EFFECT_5, TARGET_UNIT_CASTER);
-        OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_mage_ice_block::PreventEverwarmSocks, EFFECT_6, TARGET_UNIT_CASTER);
     }
 };
 
@@ -2333,9 +2222,7 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_comet_storm_damage);
     RegisterSpellScript(spell_mage_cone_of_cold);
     RegisterSpellScript(spell_mage_conjure_refreshment);
-    RegisterSpellScript(spell_mage_ethereal_blink);
-    RegisterSpellScript(spell_mage_ethereal_blink_triggered);
-    RegisterSpellScript(spell_mage_feel_the_burn);
+    RegisterSpellScript(spell_mage_displacement);
     RegisterSpellScript(spell_mage_fingers_of_frost);
     RegisterSpellScript(spell_mage_firestarter);
     RegisterSpellScript(spell_mage_firestarter_dots);
@@ -2356,7 +2243,6 @@ void AddSC_mage_spell_scripts()
     RegisterAreaTriggerAI(at_mage_meteor_timer);
     RegisterAreaTriggerAI(at_mage_meteor_burn);
     RegisterSpellScript(spell_mage_ice_barrier);
-    RegisterSpellScript(spell_mage_ice_block);
     RegisterSpellScript(spell_mage_chilled_to_the_core);
     RegisterSpellScript(spell_mage_ice_lance);
     RegisterSpellScript(spell_mage_ice_lance_damage);
