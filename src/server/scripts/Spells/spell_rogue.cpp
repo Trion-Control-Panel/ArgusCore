@@ -33,22 +33,15 @@
 
 enum RogueSpells
 {
-    SPELL_ROGUE_ACROBATIC_STRIKES_PROC              = 455144,
     SPELL_ROGUE_ADRENALINE_RUSH                     = 13750,
-    SPELL_ROGUE_AIRBORNE_IRRITANT                   = 200733,
     SPELL_ROGUE_BETWEEN_THE_EYES                    = 199804,
-    SPELL_ROGUE_BLACKJACK_TALENT                    = 379005,
-    SPELL_ROGUE_BLACKJACK                           = 394119,
     SPELL_ROGUE_BLADE_FLURRY                        = 13877,
     SPELL_ROGUE_BLADE_FLURRY_EXTRA_ATTACK           = 22482,
-    SPELL_ROGUE_BLIND_AREA                          = 427773,
     SPELL_ROGUE_BROADSIDE                           = 193356,
     SPELL_ROGUE_BURIED_TREASURE                     = 199600,
     SPELL_ROGUE_CHEAT_DEATH_DUMMY                   = 31231,
     SPELL_ROGUE_CHEATED_DEATH                       = 45181,
     SPELL_ROGUE_CHEATING_DEATH                      = 45182,
-    SPELL_ROGUE_CLOAKED_IN_SHADOWS_TALENT           = 382515,
-    SPELL_ROGUE_CLOAKED_IN_SHADOWS_ABSORB           = 386165,
     SPELL_ROGUE_CRIPPLING_POISON                    = 3408,
     SPELL_ROGUE_CRIPPLING_POISON_DEBUFF             = 3409,
     SPELL_ROGUE_DEADLY_POISON                       = 2823,
@@ -78,19 +71,13 @@ enum RogueSpells
     SPELL_ROGUE_SHADOW_FOCUS                        = 108209,
     SPELL_ROGUE_SHADOW_FOCUS_EFFECT                 = 112942,
     SPELL_ROGUE_SHADOWS_GRASP                       = 206760,
-    SPELL_ROGUE_SHOT_IN_THE_DARK_TALENT             = 257505,
-    SPELL_ROGUE_SHOT_IN_THE_DARK_BUFF               = 257506,
     SPELL_ROGUE_SHURIKEN_STORM_DAMAGE               = 197835,
     SPELL_ROGUE_SHURIKEN_STORM_ENERGIZE             = 212743,
     SPELL_ROGUE_SLICE_AND_DICE                      = 5171,
     SPELL_ROGUE_SPRINT                              = 2983,
-    SPELL_ROGUE_SOOTHING_DARKNESS_TALENT            = 393970,
-    SPELL_ROGUE_SOOTHING_DARKNESS_HEAL              = 393971,
     SPELL_ROGUE_STEALTH                             = 1784,
     SPELL_ROGUE_STEALTH_STEALTH_AURA                = 158185,
     SPELL_ROGUE_STEALTH_SHAPESHIFT_AURA             = 158188,
-    SPELL_ROGUE_SYMBOLS_OF_DEATH_CRIT_AURA          = 227151,
-    SPELL_ROGUE_SYMBOLS_OF_DEATH_RANK2              = 328077,
     SPELL_ROGUE_TRUE_BEARING                        = 193359,
     SPELL_ROGUE_TURN_THE_TABLES_BUFF                = 198027,
     SPELL_ROGUE_VANISH                              = 1856,
@@ -130,69 +117,6 @@ bool IsFinishingMove(Spell const* spell)
     return GetFinishingMoveCPCost(spell).has_value();
 }
 
-// 455143 - Acrobatic Strikes
-class spell_rog_acrobatic_strikes : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_ROGUE_ACROBATIC_STRIKES_PROC });
-    }
-
-    void HandleProc(AuraEffect const* aurEff, ProcEventInfo& /*eventInfo*/) const
-    {
-        GetTarget()->CastSpell(GetTarget(), SPELL_ROGUE_ACROBATIC_STRIKES_PROC, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringAura = aurEff
-        });
-    }
-
-    void Register() override
-    {
-        OnEffectProc += AuraEffectProcFn(spell_rog_acrobatic_strikes::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
-
-// Called by 2094 - Blind
-class spell_rog_airborne_irritant : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_ROGUE_AIRBORNE_IRRITANT, SPELL_ROGUE_BLIND_AREA });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->HasAura(SPELL_ROGUE_AIRBORNE_IRRITANT);
-    }
-
-    void HandleHit(SpellEffIndex /*effIndex*/) const
-    {
-        GetCaster()->CastSpell(GetHitUnit(), SPELL_ROGUE_BLIND_AREA, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
-    }
-
-    void Register() override
-    {
-        OnEffectHit += SpellEffectFn(spell_rog_airborne_irritant::HandleHit, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
-    }
-};
-
-// 427773 - Blind
-class spell_rog_airborne_irritant_target_selection : public SpellScript
-{
-    void FilterTargets(std::list<WorldObject*>& targets) const
-    {
-        targets.remove(GetExplTargetWorldObject());
-    }
-
-    void Register() override
-    {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_rog_airborne_irritant_target_selection::FilterTargets, EFFECT_ALL, TARGET_UNIT_DEST_AREA_ENEMY);
-    }
-};
-
 // 53 - Backstab
 class spell_rog_backstab : public SpellScript
 {
@@ -219,28 +143,6 @@ class spell_rog_backstab : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_rog_backstab::HandleHitDamage, EFFECT_1, SPELL_EFFECT_SCHOOL_DAMAGE);
-    }
-};
-
-// 379005 - Blackjack
-// Called by Sap - 6770 and Blind - 2094
-class spell_rog_blackjack : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_ROGUE_BLACKJACK_TALENT, SPELL_ROGUE_BLACKJACK });
-    }
-
-    void EffectRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/) const
-    {
-        if (Unit* caster = GetCaster())
-            if (caster->HasAura(SPELL_ROGUE_BLACKJACK_TALENT))
-                caster->CastSpell(GetTarget(), SPELL_ROGUE_BLACKJACK, true);
-    }
-
-    void Register() override
-    {
-        AfterEffectRemove += AuraEffectApplyFn(spell_rog_blackjack::EffectRemove, EFFECT_0, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -312,43 +214,6 @@ class spell_rog_cheat_death : public AuraScript
     void Register() override
     {
         OnEffectAbsorb += AuraEffectAbsorbFn(spell_rog_cheat_death::HandleAbsorb, EFFECT_0);
-    }
-};
-
-// 382515 - Cloaked in Shadows (attached to 1856 - Vanish)
-class spell_rog_cloaked_in_shadows : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_ROGUE_CLOAKED_IN_SHADOWS_ABSORB })
-            && ValidateSpellEffect({ { SPELL_ROGUE_CLOAKED_IN_SHADOWS_TALENT, EFFECT_0 } });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->HasAuraEffect(SPELL_ROGUE_CLOAKED_IN_SHADOWS_TALENT, EFFECT_0);
-    }
-
-    void HandleCloakedInShadows() const
-    {
-        Unit* caster = GetCaster();
-
-        AuraEffect const* cloakedInShadows = caster->GetAuraEffect(SPELL_ROGUE_CLOAKED_IN_SHADOWS_TALENT, EFFECT_0);
-        if (!cloakedInShadows)
-            return;
-
-        int32 amount = caster->CountPctFromMaxHealth(cloakedInShadows->GetAmount());
-
-        caster->CastSpell(caster, SPELL_ROGUE_CLOAKED_IN_SHADOWS_ABSORB, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell(),
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, amount } }
-        });
-    }
-
-    void Register() override
-    {
-        AfterCast += SpellCastFn(spell_rog_cloaked_in_shadows::HandleCloakedInShadows);
     }
 };
 
@@ -1014,53 +879,6 @@ class spell_rog_shadow_focus : public AuraScript
     }
 };
 
-// 257505 - Shot in the Dark (attached to 1784 - Stealth and 185313 - Shadow Dance)
-class spell_rog_shot_in_the_dark : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_ROGUE_SHOT_IN_THE_DARK_TALENT, SPELL_ROGUE_SHOT_IN_THE_DARK_BUFF });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->HasAura(SPELL_ROGUE_SHOT_IN_THE_DARK_TALENT);
-    }
-
-    void HandleAfterCast() const
-    {
-        Unit* caster = GetCaster();
-        caster->CastSpell(caster, SPELL_ROGUE_SHOT_IN_THE_DARK_BUFF, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
-    }
-
-    void Register() override
-    {
-        AfterCast += SpellCastFn(spell_rog_shot_in_the_dark::HandleAfterCast);
-    }
-};
-
-// 257506 - Shot in the Dark (attached to 185422 - Shadow Dance and 158185 - Stealth)
-class spell_rog_shot_in_the_dark_buff : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_ROGUE_SHOT_IN_THE_DARK_BUFF });
-    }
-
-    void HandleEffectRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/) const
-    {
-        GetTarget()->RemoveAurasDueToSpell(SPELL_ROGUE_SHOT_IN_THE_DARK_BUFF);
-    }
-
-    void Register() override
-    {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_rog_shot_in_the_dark_buff::HandleEffectRemove, EFFECT_0, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL);
-    }
-};
-
 // 197835 - Shuriken Storm
 class spell_rog_shuriken_storm : public SpellScript
 {
@@ -1154,33 +972,6 @@ class spell_rog_saber_slash : public SpellScript
     }
 };
 
-// Called by 1856 - Vanish
-class spell_rog_soothing_darkness : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_ROGUE_SOOTHING_DARKNESS_TALENT, SPELL_ROGUE_SOOTHING_DARKNESS_HEAL });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->HasAura(SPELL_ROGUE_SOOTHING_DARKNESS_TALENT);
-    }
-
-    void Heal() const
-    {
-        GetCaster()->CastSpell(GetCaster(), SPELL_ROGUE_SOOTHING_DARKNESS_HEAL, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
-    }
-
-    void Register() override
-    {
-        AfterCast += SpellCastFn(spell_rog_soothing_darkness::Heal);
-    }
-};
-
 // 1784 - Stealth
 class spell_rog_stealth : public AuraScript
 {
@@ -1224,26 +1015,6 @@ class spell_rog_stealth : public AuraScript
     {
         AfterEffectApply += AuraEffectApplyFn(spell_rog_stealth::HandleEffectApply, EFFECT_1, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
         AfterEffectRemove += AuraEffectRemoveFn(spell_rog_stealth::HandleEffectRemove, EFFECT_1, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
-    }
-};
-
-// 212283 - Symbols of Death
-class spell_rog_symbols_of_death : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_ROGUE_SYMBOLS_OF_DEATH_RANK2, SPELL_ROGUE_SYMBOLS_OF_DEATH_CRIT_AURA });
-    }
-
-    void HandleEffectHitTarget(SpellEffIndex /*effIndex*/)
-    {
-        if (GetCaster()->HasAura(SPELL_ROGUE_SYMBOLS_OF_DEATH_RANK2))
-            GetCaster()->CastSpell(GetCaster(), SPELL_ROGUE_SYMBOLS_OF_DEATH_CRIT_AURA, true);
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_rog_symbols_of_death::HandleEffectHitTarget, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
     }
 };
 
@@ -1423,14 +1194,9 @@ class spell_rog_venomous_wounds : public AuraScript
 
 void AddSC_rogue_spell_scripts()
 {
-    RegisterSpellScript(spell_rog_acrobatic_strikes);
-    RegisterSpellScript(spell_rog_airborne_irritant);
-    RegisterSpellScript(spell_rog_airborne_irritant_target_selection);
     RegisterSpellScript(spell_rog_backstab);
-    RegisterSpellScript(spell_rog_blackjack);
     RegisterSpellScript(spell_rog_blade_flurry);
     RegisterSpellScript(spell_rog_cheat_death);
-    RegisterSpellScript(spell_rog_cloaked_in_shadows);
     RegisterSpellScript(spell_rog_deadly_poison);
     RegisterSpellScript(spell_rog_deepening_shadows);
     RegisterSpellScript(spell_rog_envenom);
@@ -1453,14 +1219,10 @@ void AddSC_rogue_spell_scripts()
     RegisterSpellScript(spell_rog_ruthlessness);
     RegisterSpellScript(spell_rog_shadowstrike);
     RegisterSpellScript(spell_rog_shadow_focus);
-    RegisterSpellScript(spell_rog_shot_in_the_dark);
-    RegisterSpellScript(spell_rog_shot_in_the_dark_buff);
     RegisterSpellScript(spell_rog_shuriken_storm);
     RegisterSpellScript(spell_rog_shuriken_tornado);
     RegisterSpellScript(spell_rog_saber_slash);
-    RegisterSpellScript(spell_rog_soothing_darkness);
     RegisterSpellScript(spell_rog_stealth);
-    RegisterSpellScript(spell_rog_symbols_of_death);
     RegisterSpellAndAuraScriptPair(spell_rog_tricks_of_the_trade, spell_rog_tricks_of_the_trade_aura);
     RegisterSpellScript(spell_rog_tricks_of_the_trade_proc);
     RegisterSpellScript(spell_rog_turn_the_tables);
