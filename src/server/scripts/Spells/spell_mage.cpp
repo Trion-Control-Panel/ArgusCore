@@ -94,7 +94,11 @@ enum MageSpells
     SPELL_MAGE_ICE_BARRIER                       = 11426,
     SPELL_MAGE_ICE_BLOCK                         = 45438,
     SPELL_MAGE_ICE_FLOES                         = 108839,
+    SPELL_MAGE_ICE_LANCE                         = 30455,
+    SPELL_MAGE_ICE_NOVA                          = 157997,
     SPELL_MAGE_IGNITE                            = 12654,
+    SPELL_MAGE_JOUSTER                           = 214626,
+    SPELL_MAGE_FINGERS_OF_FROST_VISUAL_UI        = 126084,
     SPELL_MAGE_INCANTERS_FLOW                    = 116267,
     SPELL_MAGE_PHOENIX_FLAMES                    = 194466,
     SPELL_MAGE_PYROBLAST                         = 11366,
@@ -1386,6 +1390,36 @@ class spell_mage_ice_barrier : public AuraScript
     }
 };
 
+// 157997 - Ice Nova, 157980 - Supernova
+// Shared script: doubles damage against the unit that was the explicit cast target.
+class spell_mage_nova_talent : public SpellScript
+{
+    void HandleOnCast()
+    {
+        if (Unit* target = GetExplTargetUnit())
+            _explicitTargetGUID = target->GetGUID();
+    }
+
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        if (target->GetGUID() == _explicitTargetGUID && !target->IsFriendlyTo(caster))
+            SetHitDamage(GetHitDamage() * 2);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_mage_nova_talent::HandleOnCast);
+        OnEffectHitTarget += SpellEffectFn(spell_mage_nova_talent::HandleDamage, EFFECT_1, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+
+    ObjectGuid _explicitTargetGUID;
+};
+
 // Ice Lance - 30455
 class spell_mage_ice_lance : public SpellScript
 {
@@ -1494,6 +1528,42 @@ class spell_mage_ice_lance_damage : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_mage_ice_lance_damage::ApplyDamageMultiplier, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 214626 - Jouster (Frost artifact trait)
+class spell_mage_jouster : public AuraScript
+{
+    static bool CheckProc(AuraScript const&, ProcEventInfo const& eventInfo)
+    {
+        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
+        return spellInfo && spellInfo->Id == SPELL_MAGE_ICE_LANCE;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_mage_jouster::CheckProc);
+    }
+};
+
+// 195391 - Jouster (damage-taken reduction buff)
+class spell_mage_jouster_buff : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_JOUSTER });
+    }
+
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/) const
+    {
+        if (Unit* caster = GetCaster())
+            if (AuraEffect const* jousterRank = caster->GetAuraEffect(SPELL_MAGE_JOUSTER, EFFECT_0))
+                amount = jousterRank->GetAmount();
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_mage_jouster_buff::CalculateAmount, EFFECT_0, SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN);
     }
 };
 
@@ -2271,7 +2341,7 @@ class spell_mage_water_elemental_freeze : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_MAGE_FINGERS_OF_FROST });
+        return ValidateSpellInfo({ SPELL_MAGE_FINGERS_OF_FROST, SPELL_MAGE_FINGERS_OF_FROST_VISUAL_UI });
     }
 
     void HandleImprovedFreeze()
@@ -2279,6 +2349,9 @@ class spell_mage_water_elemental_freeze : public SpellScript
         Unit* owner = GetCaster()->GetOwner();
         if (!owner)
             return;
+
+        if (owner->HasAura(SPELL_MAGE_FINGERS_OF_FROST))
+            owner->CastSpell(owner, SPELL_MAGE_FINGERS_OF_FROST_VISUAL_UI, true);
 
         owner->CastSpell(owner, SPELL_MAGE_FINGERS_OF_FROST, true);
     }
@@ -2337,9 +2410,13 @@ void AddSC_mage_spell_scripts()
     RegisterAreaTriggerAI(at_mage_meteor_timer);
     RegisterAreaTriggerAI(at_mage_meteor_burn);
     RegisterSpellScript(spell_mage_ice_barrier);
+    RegisterSpellScriptWithArgs(spell_mage_nova_talent, "spell_mage_ice_nova");
+    RegisterSpellScriptWithArgs(spell_mage_nova_talent, "spell_mage_supernova");
     RegisterSpellScript(spell_mage_chilled_to_the_core);
     RegisterSpellScript(spell_mage_ice_lance);
     RegisterSpellScript(spell_mage_ice_lance_damage);
+    RegisterSpellScript(spell_mage_jouster);
+    RegisterSpellScript(spell_mage_jouster_buff);
     RegisterSpellScript(spell_mage_kindling);
     RegisterSpellScript(spell_mage_cinderstorm);
     RegisterSpellScript(spell_mage_ignite);
