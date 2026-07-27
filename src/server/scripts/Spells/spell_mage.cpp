@@ -100,6 +100,9 @@ enum MageSpells
     SPELL_MAGE_LIVING_BOMB_PERIODIC              = 217694,
     SPELL_MAGE_MANA_SURGE                        = 37445,
     SPELL_MAGE_MASTER_OF_TIME                    = 342249,
+    SPELL_MAGE_MIRROR_IMAGE_LEFT                 = 58834,
+    SPELL_MAGE_MIRROR_IMAGE_RIGHT                = 58833,
+    SPELL_MAGE_MIRROR_IMAGE_FRONT                = 58831,
     SPELL_MAGE_RADIANT_SPARK_PROC_BLOCKER        = 376105,
     SPELL_MAGE_RAY_OF_FROST_BONUS                = 208141,
     SPELL_MAGE_RAY_OF_FROST_FINGERS_OF_FROST     = 269748,
@@ -122,6 +125,11 @@ enum MageSpells
     SPELL_MAGE_CHAIN_REACTION                    = 195419,
     SPELL_MAGE_FROSTBOLT                         = 116,
     SPELL_MAGE_FROSTBOLT_TRIGGER                 = 228597,
+    SPELL_MAGE_FROZEN_ORB_DAMAGE                 = 84721,
+    SPELL_MAGE_METEOR_DAMAGE                     = 153564,
+    SPELL_MAGE_METEOR_TIMER                      = 177345,
+    SPELL_MAGE_METEOR_VISUAL                     = 174556,
+    SPELL_MAGE_METEOR_BURN                       = 155158,
     SPELL_MAGE_TOUCH_OF_THE_MAGI_EXPLODE         = 210833,
     SPELL_MAGE_WINTERS_CHILL                     = 228358
 };
@@ -1218,6 +1226,127 @@ class spell_mage_frostbolt : public SpellScript
     }
 };
 
+// 84721 - Frozen Orb (damage)
+// Fingers of Frost's own proc gate already independently detects Frozen Orb hits via
+// SPELLFAMILY flags (see spell_mage_fingers_of_frost::CheckFrozenOrbProc), so this only needs to
+// apply the Chilled slow - no explicit Fingers of Frost cast needed here.
+class spell_mage_frozen_orb : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_CHILLED });
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/) const
+    {
+        if (Unit* caster = GetCaster())
+            if (Unit* target = GetHitUnit())
+                caster->CastSpell(target, SPELL_MAGE_CHILLED, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_mage_frozen_orb::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 153561 - Meteor
+class spell_mage_meteor : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_METEOR_TIMER });
+    }
+
+    void HandleAfterCast() const
+    {
+        Unit* caster = GetCaster();
+        WorldLocation const* dest = GetExplTargetDest();
+        if (!caster || !dest)
+            return;
+
+        caster->CastSpell(*dest, SPELL_MAGE_METEOR_TIMER, true);
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_mage_meteor::HandleAfterCast);
+    }
+};
+
+// 153564 - Meteor (damage)
+class spell_mage_meteor_damage : public SpellScript
+{
+    void CountTargets(std::list<WorldObject*> const& targets)
+    {
+        _targets = int32(targets.size());
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/) const
+    {
+        if (_targets > 0)
+            SetHitDamage(GetHitDamage() / _targets);
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_mage_meteor_damage::CountTargets, EFFECT_0, TARGET_UNIT_DEST_AREA_ENEMY);
+        OnEffectHitTarget += SpellEffectFn(spell_mage_meteor_damage::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+
+private:
+    int32 _targets = 1;
+};
+
+// 177345 - Meteor (timer)
+// AreaTriggerId - 3467
+// Drives Meteor's delayed impact: shows the falling-meteor visual immediately on create, then
+// casts the actual damage once the timer's own duration expires.
+struct at_mage_meteor_timer : AreaTriggerAI
+{
+    using AreaTriggerAI::AreaTriggerAI;
+
+    void OnCreate() override
+    {
+        if (Unit* caster = at->GetCaster())
+            caster->CastSpell(at->GetPosition(), SPELL_MAGE_METEOR_VISUAL, true);
+    }
+
+    void OnRemove() override
+    {
+        if (Unit* caster = at->GetCaster())
+            caster->CastSpell(at->GetPosition(), SPELL_MAGE_METEOR_DAMAGE, true);
+    }
+};
+
+// 155158 - Meteor (burn)
+// AreaTriggerId - 1712
+// The lingering burning crater Meteor leaves behind on impact.
+struct at_mage_meteor_burn : AreaTriggerAI
+{
+    using AreaTriggerAI::AreaTriggerAI;
+
+    void OnUnitEnter(Unit* unit) override
+    {
+        Unit* caster = at->GetCaster();
+        if (!caster || !unit)
+            return;
+
+        if (caster->IsValidAttackTarget(unit))
+            caster->CastSpell(unit, SPELL_MAGE_METEOR_BURN, true);
+    }
+
+    void OnUnitExit(Unit* unit) override
+    {
+        Unit* caster = at->GetCaster();
+        if (!caster || !unit)
+            return;
+
+        if (Aura* burn = unit->GetAura(SPELL_MAGE_METEOR_BURN, caster->GetGUID()))
+            burn->SetDuration(0);
+    }
+};
+
 // 386737 - Hyper Impact
 class spell_mage_hyper_impact : public AuraScript
 {
@@ -1608,6 +1737,31 @@ class spell_mage_incanters_flow : public AuraScript
 
 private:
     int8 modifier = 1;
+};
+
+// 55342 - Mirror Image
+// Summons the three cosmetic clone images positioned around the caster.
+class spell_mage_mirror_image_summon : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_MIRROR_IMAGE_LEFT, SPELL_MAGE_MIRROR_IMAGE_FRONT, SPELL_MAGE_MIRROR_IMAGE_RIGHT });
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/) const
+    {
+        if (Unit* caster = GetCaster())
+        {
+            caster->CastSpell(caster, SPELL_MAGE_MIRROR_IMAGE_LEFT, true);
+            caster->CastSpell(caster, SPELL_MAGE_MIRROR_IMAGE_FRONT, true);
+            caster->CastSpell(caster, SPELL_MAGE_MIRROR_IMAGE_RIGHT, true);
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_mage_mirror_image_summon::HandleDummy, EFFECT_1, SPELL_EFFECT_DUMMY);
+    }
 };
 
 // 44457 - Living Bomb
@@ -2066,7 +2220,12 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_flurry);
     RegisterSpellScript(spell_mage_flurry_damage);
     RegisterSpellScript(spell_mage_frostbolt);
+    RegisterSpellScript(spell_mage_frozen_orb);
     RegisterSpellScript(spell_mage_hyper_impact);
+    RegisterSpellScript(spell_mage_meteor);
+    RegisterSpellScript(spell_mage_meteor_damage);
+    RegisterAreaTriggerAI(at_mage_meteor_timer);
+    RegisterAreaTriggerAI(at_mage_meteor_burn);
     RegisterSpellScript(spell_mage_ice_barrier);
     RegisterSpellScript(spell_mage_ice_block);
     RegisterSpellScript(spell_mage_ice_lance);
@@ -2077,6 +2236,7 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_living_bomb);
     RegisterSpellScript(spell_mage_living_bomb_explosion);
     RegisterSpellScript(spell_mage_living_bomb_periodic);
+    RegisterSpellScript(spell_mage_mirror_image_summon);
     RegisterSpellScript(spell_mage_polymorph_visual);
     RegisterSpellScript(spell_mage_prismatic_barrier);
     RegisterSpellScript(spell_mage_pyroblast);
