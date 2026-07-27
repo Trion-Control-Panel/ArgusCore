@@ -1271,7 +1271,7 @@ class spell_mage_meteor_damage : public SpellScript
         _targets = int32(targets.size());
     }
 
-    void HandleHit(SpellEffIndex /*effIndex*/) const
+    void HandleHit(SpellEffIndex /*effIndex*/)
     {
         if (_targets > 0)
             SetHitDamage(GetHitDamage() / _targets);
@@ -1597,7 +1597,7 @@ class spell_mage_cinderstorm : public SpellScript
         return ValidateSpellInfo({ SPELL_MAGE_IGNITE }) && ValidateSpellEffect({ { spellInfo->Id, EFFECT_0 } });
     }
 
-    void HandleDamage(SpellEffIndex /*effIndex*/) const
+    void HandleDamage(SpellEffIndex /*effIndex*/)
     {
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit();
