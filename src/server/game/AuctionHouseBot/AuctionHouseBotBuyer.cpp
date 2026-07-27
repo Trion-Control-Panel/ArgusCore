@@ -26,7 +26,7 @@
 AuctionBotBuyer::AuctionBotBuyer(std::unordered_map<ObjectGuid::LowType, uint64> const& marketData) : _checkInterval(20 * MINUTE), _marketData(marketData)
 {
     // Define faction for our main data class.
-    for (int i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
+    for (uint32 i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
         _houseConfig[i].Initialize(AuctionHouseType(i));
 }
 
@@ -39,7 +39,7 @@ bool AuctionBotBuyer::Initialize()
     LoadConfig();
 
     bool activeHouse = false;
-    for (int i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
+    for (uint32 i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
     {
         if (_houseConfig[i].BuyerEnabled)
         {
@@ -59,7 +59,7 @@ bool AuctionBotBuyer::Initialize()
 
 void AuctionBotBuyer::LoadConfig()
 {
-    for (int i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
+    for (uint32 i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
     {
         _houseConfig[i].BuyerEnabled = sAuctionBotConfig->GetConfigBuyerEnabled(AuctionHouseType(i));
         if (_houseConfig[i].BuyerEnabled)

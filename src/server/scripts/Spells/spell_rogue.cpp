@@ -445,12 +445,6 @@ class spell_rog_killing_spree : public SpellScript
 // downstream interactions, e.g. Prey on the Weak, existed in this file already).
 class spell_rog_kidney_shot : public SpellScript
 {
-    void HandleTakePower(SpellPowerCost& powerCost)
-    {
-        if (powerCost.Power == POWER_COMBO_POINTS)
-            _comboPoints = powerCost.Amount;
-    }
-
     void HandleAfterHit()
     {
         Unit* caster = GetCaster();
@@ -458,18 +452,15 @@ class spell_rog_kidney_shot : public SpellScript
         if (!caster || !target)
             return;
 
+        int32 comboPoints = GetSpell()->GetPowerTypeCostAmount(POWER_COMBO_POINTS).value_or(0);
         if (Aura* aura = target->GetAura(SPELL_ROGUE_KIDNEY_SHOT, caster->GetGUID()))
-            aura->SetDuration(_comboPoints * IN_MILLISECONDS);
+            aura->SetDuration(comboPoints * IN_MILLISECONDS);
     }
 
     void Register() override
     {
-        OnTakePower += SpellOnTakePowerFn(spell_rog_kidney_shot::HandleTakePower);
         AfterHit += SpellHitFn(spell_rog_kidney_shot::HandleAfterHit);
     }
-
-private:
-    int32 _comboPoints = 0;
 };
 
 // 385627 - Kingsbane

@@ -1295,7 +1295,7 @@ struct at_mage_meteor_timer : AreaTriggerAI
 {
     using AreaTriggerAI::AreaTriggerAI;
 
-    void OnCreate() override
+    void OnCreate(Spell const* /*creatingSpell*/) override
     {
         if (Unit* caster = at->GetCaster())
             caster->CastSpell(at->GetPosition(), SPELL_MAGE_METEOR_VISUAL, true);
