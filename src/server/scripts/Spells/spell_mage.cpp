@@ -76,6 +76,8 @@ enum MageSpells
     SPELL_MAGE_DRAGONHAWK_FORM                   = 32818,
     SPELL_MAGE_DRAGONS_BREATH                    = 31661,
     SPELL_MAGE_ALEXSTRASZAS_FURY                 = 235870,
+    SPELL_MAGE_EROSION_TIMER                     = 210154,
+    SPELL_MAGE_EROSION_AURASTATE                 = 210134,
     SPELL_MAGE_FINGERS_OF_FROST                  = 44544,
     SPELL_MAGE_FIRE_BLAST                        = 108853,
     SPELL_MAGE_FIREBALL                          = 133,
@@ -91,6 +93,7 @@ enum MageSpells
     SPELL_MAGE_HOT_STREAK                        = 48108,
     SPELL_MAGE_ICE_BARRIER                       = 11426,
     SPELL_MAGE_ICE_BLOCK                         = 45438,
+    SPELL_MAGE_ICE_FLOES                         = 108839,
     SPELL_MAGE_IGNITE                            = 12654,
     SPELL_MAGE_INCANTERS_FLOW                    = 116267,
     SPELL_MAGE_PHOENIX_FLAMES                    = 194466,
@@ -1714,6 +1717,97 @@ class spell_mage_imp_mana_gems : public AuraScript
     }
 };
 
+// 205039 - Erosion
+class spell_mage_erosion : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_EROSION_TIMER });
+    }
+
+    void OnProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo) const
+    {
+        Unit* caster = GetCaster();
+        Unit* target = eventInfo.GetActionTarget();
+        if (!caster || !target)
+            return;
+
+        if (Aura* erosionTimer = target->GetAura(SPELL_MAGE_EROSION_TIMER, caster->GetGUID()))
+            erosionTimer->RefreshDuration(false);
+        else
+            caster->AddAura(SPELL_MAGE_EROSION_TIMER, target);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_mage_erosion::OnProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
+
+// 210154 - Erosion (timer)
+// Each application drives one stack of the Erosion Aurastate debuff (210134); when a timer
+// instance expires, it removes one stack rather than the whole debuff.
+class spell_mage_erosion_timer : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_EROSION_AURASTATE });
+    }
+
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/) const
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetTarget();
+        if (!caster || !target)
+            return;
+
+        if (Aura* aurastate = target->GetAura(SPELL_MAGE_EROSION_AURASTATE, caster->GetGUID()))
+            aurastate->ModStackAmount(-1);
+    }
+
+    void Register() override
+    {
+        AfterEffectRemove += AuraEffectRemoveFn(spell_mage_erosion_timer::OnRemove, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 236058 - Frenetic Speed
+class spell_mage_frenetic_speed : public AuraScript
+{
+    static bool CheckProc(AuraScript const&, ProcEventInfo const& eventInfo)
+    {
+        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
+        return spellInfo && spellInfo->Id == SPELL_MAGE_SCORCH;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_mage_frenetic_speed::CheckProc);
+    }
+};
+
+// 108839 - Ice Floes
+// Casting a non-instant spell while Ice Floes is up consumes a stack, letting that one cast
+// happen while moving. Scorch is excluded since it's already instant-equivalent for this purpose.
+class spell_mage_ice_floes : public AuraScript
+{
+    void HandleAfterProc(ProcEventInfo& eventInfo) const
+    {
+        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
+        if (!spellInfo || !spellInfo->CalcCastTime() || spellInfo->Id == SPELL_MAGE_SCORCH)
+            return;
+
+        if (Unit* caster = GetCaster())
+            if (Aura* iceFloes = caster->GetAura(SPELL_MAGE_ICE_FLOES))
+                iceFloes->ModStackAmount(-1);
+    }
+
+    void Register() override
+    {
+        AfterProc += AuraProcFn(spell_mage_ice_floes::HandleAfterProc);
+    }
+};
+
 // 1463 - Incanter's Flow
 class spell_mage_incanters_flow : public AuraScript
 {
@@ -2249,6 +2343,10 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_kindling);
     RegisterSpellScript(spell_mage_cinderstorm);
     RegisterSpellScript(spell_mage_ignite);
+    RegisterSpellScript(spell_mage_erosion);
+    RegisterSpellScript(spell_mage_erosion_timer);
+    RegisterSpellScript(spell_mage_frenetic_speed);
+    RegisterSpellScript(spell_mage_ice_floes);
     RegisterSpellScript(spell_mage_imp_mana_gems);
     RegisterSpellScript(spell_mage_incanters_flow);
     RegisterSpellScript(spell_mage_living_bomb);
