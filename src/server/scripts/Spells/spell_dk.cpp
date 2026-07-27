@@ -63,6 +63,7 @@ enum DeathKnightSpells
     SPELL_DK_DARK_SIMULACRUM_SPELLPOWER_BUFF    = 94984,
     SPELL_DK_DEATH_AND_DECAY                    = 43265,
     SPELL_DK_DEATH_AND_DECAY_DAMAGE             = 52212,
+    SPELL_DK_DEATH_COIL                         = 47541,
     SPELL_DK_DEATH_COIL_DAMAGE                  = 47632,
     SPELL_DK_DEATH_SIPHON_HEAL                  = 116783,
     SPELL_DK_DEATH_GRIP_DUMMY                   = 243912,
@@ -1727,6 +1728,29 @@ class spell_dk_dark_succor : public AuraScript
     }
 };
 
+// 49530 - Sudden Doom
+// Gates the proc to Death Coil only; the free/cheap-cast buff itself is this aura's own DB2
+// proc-trigger-spell effect, same pattern as Dark Succor above. Confirmed via patch history
+// (continuously live under this id from WotLK through Legion and beyond, tuned again in 7.0.3)
+// rather than reference cross-check - neither available reference states its own outer id.
+class spell_dk_sudden_doom : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_DEATH_COIL });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_DK_DEATH_COIL;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_dk_sudden_doom::CheckProc);
+    }
+};
+
 // 55233 - Vampiric Blood
 class spell_dk_vampiric_blood : public AuraScript
 {
@@ -2527,6 +2551,7 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_death_siphon);
     RegisterSpellScript(spell_dk_bonestorm);
     RegisterSpellScript(spell_dk_dark_succor);
+    RegisterSpellScript(spell_dk_sudden_doom);
     RegisterSpellScript(spell_dk_army_transform);
     RegisterSpellScript(spell_dk_blinding_sleet);
     RegisterSpellScript(spell_dk_blooddrinker);
