@@ -108,7 +108,8 @@ enum RogueSpells
     SPELL_ROGUE_TRICKS_OF_THE_TRADE                 = 57934,
     SPELL_ROGUE_TRICKS_OF_THE_TRADE_PROC            = 59628,
     SPELL_ROGUE_HONOR_AMONG_THIEVES_ENERGIZE        = 51699,
-    SPELL_ROGUE_T5_2P_SET_BONUS                     = 37169,
+    SPELL_ROGUE_SABER_SLASH                         = 193315,
+    SPELL_ROGUE_OPPORTUNITY                         = 195627,
     SPELL_ROGUE_VENOMOUS_WOUNDS                     = 79134,
     SPELL_ROGUE_WOUND_POISON                        = 8679,
     SPELL_ROGUE_WOUND_POISON_DEBUFF                 = 8680,
@@ -420,12 +421,9 @@ class spell_rog_deepening_shadows : public AuraScript
 // 32645 - Envenom
 class spell_rog_envenom : public SpellScript
 {
-    void CalculateDamage(SpellEffectInfo const& /*spellEffectInfo*/, Unit* /*victim*/, int32& /*damage*/, int32& flatMod, float& pctMod) const
+    void CalculateDamage(SpellEffectInfo const& /*spellEffectInfo*/, Unit* /*victim*/, int32& /*damage*/, int32& /*flatMod*/, float& pctMod) const
     {
         pctMod *= GetSpell()->GetPowerTypeCostAmount(POWER_COMBO_POINTS).value_or(0);
-
-        if (AuraEffect const* t5 = GetCaster()->GetAuraEffect(SPELL_ROGUE_T5_2P_SET_BONUS, EFFECT_0))
-            flatMod += t5->GetAmount();
     }
 
     void Register() override
@@ -437,12 +435,9 @@ class spell_rog_envenom : public SpellScript
 // 196819 - Eviscerate
 class spell_rog_eviscerate : public SpellScript
 {
-    void CalculateDamage(SpellEffectInfo const& /*spellEffectInfo*/, Unit* /*victim*/, int32& /*damage*/, int32& flatMod, float& pctMod) const
+    void CalculateDamage(SpellEffectInfo const& /*spellEffectInfo*/, Unit* /*victim*/, int32& /*damage*/, int32& /*flatMod*/, float& pctMod) const
     {
         pctMod *= GetSpell()->GetPowerTypeCostAmount(POWER_COMBO_POINTS).value_or(0);
-
-        if (AuraEffect const* t5 = GetCaster()->GetAuraEffect(SPELL_ROGUE_T5_2P_SET_BONUS, EFFECT_0))
-            flatMod += t5->GetAmount();
     }
 
     void Register() override
@@ -1210,30 +1205,51 @@ class spell_rog_shuriken_tornado : public AuraScript
     }
 };
 
-// 193315 - Sinister Strike
-class spell_rog_sinister_strike : public SpellScript
+// 193315 - Saber Slash (Outlaw's basic builder)
+// Was previously mislabeled in this file as "Sinister Strike" and carried a Burning Crusade
+// Tier 5 2-piece set bonus check (37169) that has no place in Legion at all - same dead-content
+// pattern found and removed from Envenom/Eviscerate above. Confirmed via three independent
+// reference lineages that 193315 is actually Saber Slash: a chance to strike again for free,
+// granting the Opportunity buff (which lets the next Pistol Shot be cast free) and an extra
+// combo point, with the chance boosted by the Skull and Crossbones buff (one of Roll the Bones'
+// possible rolls, already implemented elsewhere in this file).
+class spell_rog_saber_slash : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_ROGUE_T5_2P_SET_BONUS });
+        return ValidateSpellInfo({ SPELL_ROGUE_SABER_SLASH, SPELL_ROGUE_OPPORTUNITY, SPELL_ROGUE_SKULL_AND_CROSSBONES })
+            && ValidateSpellEffect({ { SPELL_ROGUE_SABER_SLASH, EFFECT_4 } });
     }
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleHit(SpellEffIndex /*effIndex*/)
     {
-        int32 damagePerCombo = GetHitDamage();
-        if (AuraEffect const* t5 = GetCaster()->GetAuraEffect(SPELL_ROGUE_T5_2P_SET_BONUS, EFFECT_0))
-            damagePerCombo += t5->GetAmount();
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
 
-        int32 finalDamage = damagePerCombo;
-        if (Optional<int32> comboPointCost = GetSpell()->GetPowerTypeCostAmount(POWER_COMBO_POINTS))
-            finalDamage *= *comboPointCost;
+        SpellInfo const* saberSlash = sSpellMgr->AssertSpellInfo(SPELL_ROGUE_SABER_SLASH, GetCastDifficulty());
+        int32 chance = saberSlash->GetEffect(EFFECT_4).CalcValue(caster);
 
-        SetHitDamage(finalDamage);
+        if (AuraEffect const* skullAndCrossbones = caster->GetAuraEffect(SPELL_ROGUE_SKULL_AND_CROSSBONES, EFFECT_0))
+            chance += skullAndCrossbones->GetAmount();
+
+        if (!roll_chance_i(chance))
+            return;
+
+        caster->CastSpell(caster, SPELL_ROGUE_OPPORTUNITY, true);
+
+        SpellNonMeleeDamage log(caster, target, GetSpellInfo(), GetSpell()->m_SpellVisual, GetSpellInfo()->SchoolMask);
+        log.damage = GetHitDamage();
+        caster->DealSpellDamage(&log, false);
+        caster->SendSpellNonMeleeDamageLog(&log);
+
+        caster->ModifyPower(POWER_COMBO_POINTS, 1);
     }
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_rog_sinister_strike::HandleDummy, EFFECT_2, SPELL_EFFECT_DUMMY);
+        OnEffectHitTarget += SpellEffectFn(spell_rog_saber_slash::HandleHit, EFFECT_2, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
     }
 };
 
@@ -1542,7 +1558,7 @@ void AddSC_rogue_spell_scripts()
     RegisterSpellScript(spell_rog_shot_in_the_dark_buff);
     RegisterSpellScript(spell_rog_shuriken_storm);
     RegisterSpellScript(spell_rog_shuriken_tornado);
-    RegisterSpellScript(spell_rog_sinister_strike);
+    RegisterSpellScript(spell_rog_saber_slash);
     RegisterSpellScript(spell_rog_soothing_darkness);
     RegisterSpellScript(spell_rog_stealth);
     RegisterSpellScript(spell_rog_symbols_of_death);
