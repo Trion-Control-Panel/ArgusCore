@@ -45,6 +45,13 @@ enum MageSpells
     SPELL_MAGE_ARCANE_BLAST                      = 30451,
     SPELL_MAGE_ARCANE_CHARGE                     = 36032,
     SPELL_MAGE_ARCANE_MAGE                       = 137021,
+    SPELL_MAGE_ARCANE_MISSILES                   = 5143,
+    SPELL_MAGE_ARCANE_MISSILES_DAMAGE            = 7268,
+    SPELL_MAGE_ARCANE_MISSILES_POWER             = 208030,
+    SPELL_MAGE_ARCANE_MISSILES_CHARGES           = 79683,
+    SPELL_MAGE_ARCANE_MISSILES_VISUAL_ONE        = 170571,
+    SPELL_MAGE_ARCANE_MISSILES_VISUAL_TWO        = 79808,
+    SPELL_MAGE_ARCANE_MISSILES_VISUAL_THREE      = 170572,
     SPELL_MAGE_PRESENCE_OF_MIND                  = 205025,
     SPELL_MAGE_BLAZING_BARRIER_TRIGGER           = 235314,
     SPELL_MAGE_BLINK                             = 1953,
@@ -341,6 +348,146 @@ class spell_mage_arcane_explosion : public SpellScript
     {
         OnEffectHitTarget += SpellEffectFn(spell_mage_arcane_explosion::CheckRequiredAuraForBaselineEnergize, EFFECT_0, SPELL_EFFECT_ENERGIZE);
         OnEffectHitTarget += SpellEffectFn(spell_mage_arcane_explosion::HandleReverberate, EFFECT_2, SPELL_EFFECT_ENERGIZE);
+    }
+};
+
+// 5143 - Arcane Missiles
+// Each missile volley fired during the channel (the periodic trigger effect) grants the caster
+// Arcane Power's damage-per-missile buff and consumes one stack of the Arcane Missiles Charges
+// aura, swapping the stack-count visual down to match.
+class spell_mage_arcane_missiles : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({
+            SPELL_MAGE_ARCANE_MISSILES_POWER, SPELL_MAGE_ARCANE_MISSILES_CHARGES,
+            SPELL_MAGE_ARCANE_MISSILES_VISUAL_ONE, SPELL_MAGE_ARCANE_MISSILES_VISUAL_TWO,
+            SPELL_MAGE_ARCANE_MISSILES_VISUAL_THREE
+        });
+    }
+
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/) const
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        caster->CastSpell(caster, SPELL_MAGE_ARCANE_MISSILES_POWER, true);
+
+        if (Aura* charges = caster->GetAura(SPELL_MAGE_ARCANE_MISSILES_CHARGES))
+        {
+            switch (charges->GetStackAmount())
+            {
+                case 1:
+                    caster->RemoveAurasDueToSpell(SPELL_MAGE_ARCANE_MISSILES_VISUAL_ONE);
+                    break;
+                case 2:
+                    caster->RemoveAurasDueToSpell(SPELL_MAGE_ARCANE_MISSILES_VISUAL_TWO);
+                    caster->CastSpell(caster, SPELL_MAGE_ARCANE_MISSILES_VISUAL_ONE, true);
+                    break;
+                case 3:
+                    caster->RemoveAurasDueToSpell(SPELL_MAGE_ARCANE_MISSILES_VISUAL_THREE);
+                    caster->CastSpell(caster, SPELL_MAGE_ARCANE_MISSILES_VISUAL_TWO, true);
+                    break;
+            }
+            charges->ModStackAmount(-1);
+        }
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_mage_arcane_missiles::OnApply, EFFECT_1, SPELL_AURA_PERIODIC_TRIGGER_SPELL, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 7268 - Arcane Missiles (damage)
+class spell_mage_arcane_missiles_damage : public SpellScript
+{
+    void FilterSelf(WorldObject*& target) const
+    {
+        if (target == GetCaster())
+            target = nullptr;
+    }
+
+    void Register() override
+    {
+        OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_mage_arcane_missiles_damage::FilterSelf, EFFECT_0, TARGET_UNIT_CHANNEL_TARGET);
+    }
+};
+
+// 79684 - Clearcasting (Arcane Missiles proc)
+// Prevents Arcane Missiles' own cast/damage from re-triggering Clearcasting, avoiding an
+// infinite free-cast feedback loop.
+class spell_mage_arcane_missiles_proc : public AuraScript
+{
+    static bool CheckProc(AuraScript const&, ProcEventInfo const& eventInfo)
+    {
+        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
+        return !spellInfo || (spellInfo->Id != SPELL_MAGE_ARCANE_MISSILES && spellInfo->Id != SPELL_MAGE_ARCANE_MISSILES_DAMAGE);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_mage_arcane_missiles_proc::CheckProc);
+    }
+};
+
+// 79683 - Arcane Missiles Charges
+// The stacking resource pool (max 3) that Arcane Missiles' channel consumes one-by-one; each
+// stack gained here swaps the cosmetic charge-count visual up to match.
+class spell_mage_arcane_missiles_charges : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({
+            SPELL_MAGE_ARCANE_MISSILES_VISUAL_ONE, SPELL_MAGE_ARCANE_MISSILES_VISUAL_TWO,
+            SPELL_MAGE_ARCANE_MISSILES_VISUAL_THREE
+        });
+    }
+
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/) const
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (Aura* charges = caster->GetAura(SPELL_MAGE_ARCANE_MISSILES_CHARGES))
+        {
+            switch (charges->GetStackAmount())
+            {
+                case 1:
+                    caster->CastSpell(caster, SPELL_MAGE_ARCANE_MISSILES_VISUAL_ONE, true);
+                    break;
+                case 2:
+                    caster->RemoveAurasDueToSpell(SPELL_MAGE_ARCANE_MISSILES_VISUAL_ONE);
+                    caster->CastSpell(caster, SPELL_MAGE_ARCANE_MISSILES_VISUAL_TWO, true);
+                    break;
+                case 3:
+                    caster->RemoveAurasDueToSpell(SPELL_MAGE_ARCANE_MISSILES_VISUAL_TWO);
+                    caster->CastSpell(caster, SPELL_MAGE_ARCANE_MISSILES_VISUAL_THREE, true);
+                    break;
+            }
+        }
+    }
+
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/) const
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (!caster->HasAura(SPELL_MAGE_ARCANE_MISSILES_CHARGES))
+        {
+            caster->RemoveAurasDueToSpell(SPELL_MAGE_ARCANE_MISSILES_VISUAL_ONE);
+            caster->RemoveAurasDueToSpell(SPELL_MAGE_ARCANE_MISSILES_VISUAL_TWO);
+            caster->RemoveAurasDueToSpell(SPELL_MAGE_ARCANE_MISSILES_VISUAL_THREE);
+        }
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_mage_arcane_missiles_charges::OnApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_mage_arcane_missiles_charges::OnRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -1886,6 +2033,10 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_arcane_barrage);
     RegisterSpellScript(spell_mage_arcane_barrier);
     RegisterSpellScript(spell_mage_arcane_blast);
+    RegisterSpellScript(spell_mage_arcane_missiles);
+    RegisterSpellScript(spell_mage_arcane_missiles_damage);
+    RegisterSpellScript(spell_mage_arcane_missiles_proc);
+    RegisterSpellScript(spell_mage_arcane_missiles_charges);
     RegisterSpellScript(spell_mage_arcane_charge_clear);
     RegisterSpellScript(spell_mage_arcane_explosion);
     RegisterSpellScript(spell_mage_blazing_barrier);
