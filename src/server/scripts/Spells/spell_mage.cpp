@@ -40,8 +40,11 @@ enum MageSpells
     SPELL_MAGE_ALTER_TIME_AURA                   = 110909,
     SPELL_MAGE_ALTER_TIME_VISUAL                 = 347402,
     SPELL_MAGE_ARCANE_ALTER_TIME_AURA            = 342246,
+    SPELL_MAGE_ARCANE_BARRAGE                    = 44425,
     SPELL_MAGE_ARCANE_BARRAGE_ENERGIZE           = 321529,
     SPELL_MAGE_ARCANE_BARRAGE_R3                 = 321526,
+    SPELL_MAGE_ARCANE_BARRAGE_TRIGGERED          = 241241,
+    SPELL_MAGE_ENHANCED_PYROTECHNICS_AURA        = 157644,
     SPELL_MAGE_ARCANE_BLAST                      = 30451,
     SPELL_MAGE_ARCANE_CHARGE                     = 36032,
     SPELL_MAGE_ARCANE_MAGE                       = 137021,
@@ -291,6 +294,21 @@ class spell_mage_arcane_barrage : public SpellScript
     }
 
     ObjectGuid _primaryTarget;
+};
+
+// 235711 - Chrono Shift
+class spell_mage_chrono_shift : public AuraScript
+{
+    static bool CheckProc(AuraScript const&, ProcEventInfo const& eventInfo)
+    {
+        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
+        return spellInfo && (spellInfo->Id == SPELL_MAGE_ARCANE_BARRAGE || spellInfo->Id == SPELL_MAGE_ARCANE_BARRAGE_TRIGGERED);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_mage_chrono_shift::CheckProc);
+    }
 };
 
 // 195302 - Arcane Charge
@@ -1065,6 +1083,53 @@ class spell_mage_fire_blast : public SpellScript
     }
 };
 
+// 205023 - Conflagration
+class spell_mage_conflagration : public AuraScript
+{
+    static bool CheckProc(AuraScript const&, ProcEventInfo const& eventInfo)
+    {
+        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
+        return spellInfo && spellInfo->Id == SPELL_MAGE_FIREBALL;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_mage_conflagration::CheckProc);
+    }
+};
+
+// 157642 - Enhanced Pyrotechnics
+// Fireball crits remove the Enhanced Pyrotechnics buff instead of consuming a normal proc chance
+// roll, preventing the buff from being wasted on a hit that didn't need its crit-chance bonus.
+class spell_mage_enhanced_pyrotechnics : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_ENHANCED_PYROTECHNICS_AURA });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !eventInfo.GetSpellInfo() || eventInfo.GetSpellInfo()->Id != SPELL_MAGE_FIREBALL)
+            return false;
+
+        if (eventInfo.GetHitMask() & PROC_HIT_CRITICAL)
+        {
+            if (caster->HasAura(SPELL_MAGE_ENHANCED_PYROTECHNICS_AURA))
+                caster->RemoveAurasDueToSpell(SPELL_MAGE_ENHANCED_PYROTECHNICS_AURA);
+            return false;
+        }
+
+        return true;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_mage_enhanced_pyrotechnics::CheckProc);
+    }
+};
+
 // 205029 - Flame On
 class spell_mage_flame_on : public AuraScript
 {
@@ -1504,6 +1569,21 @@ class spell_mage_ice_lance : public SpellScript
     std::vector<ObjectGuid> _orderedTargets;
 };
 
+// 195448 - Chilled to the Core
+class spell_mage_chilled_to_the_core : public AuraScript
+{
+    static bool CheckProc(AuraScript const&, ProcEventInfo const& eventInfo)
+    {
+        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
+        return spellInfo && spellInfo->Id == SPELL_MAGE_ICY_VEINS;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_mage_chilled_to_the_core::CheckProc);
+    }
+};
+
 // 228598 - Ice Lance
 class spell_mage_ice_lance_damage : public SpellScript
 {
@@ -1544,6 +1624,30 @@ class spell_mage_kindling : public AuraScript
     {
         DoCheckProc += AuraCheckProcFn(spell_mage_kindling::CheckProc);
         OnEffectProc += AuraEffectProcFn(spell_mage_kindling::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 198928 - Cinderstorm
+class spell_mage_cinderstorm : public SpellScript
+{
+    bool Validate(SpellInfo const* spellInfo) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_IGNITE }) && ValidateSpellEffect({ { spellInfo->Id, EFFECT_0 } });
+    }
+
+    void HandleDamage(SpellEffIndex /*effIndex*/) const
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target || !target->HasAura(SPELL_MAGE_IGNITE))
+            return;
+
+        SetHitDamage(GetHitDamage() + CalculatePct(GetHitDamage(), GetEffectInfo(EFFECT_0).CalcValue(caster)));
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_mage_cinderstorm::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
     }
 };
 
@@ -2207,6 +2311,7 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_alter_time_aura);
     RegisterSpellScript(spell_mage_alter_time_active);
     RegisterSpellScript(spell_mage_arcane_barrage);
+    RegisterSpellScript(spell_mage_chrono_shift);
     RegisterSpellScript(spell_mage_arcane_barrier);
     RegisterSpellScript(spell_mage_arcane_blast);
     RegisterSpellScript(spell_mage_arcane_missiles);
@@ -2235,6 +2340,8 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_firestarter);
     RegisterSpellScript(spell_mage_firestarter_dots);
     RegisterSpellScript(spell_mage_fire_blast);
+    RegisterSpellScript(spell_mage_conflagration);
+    RegisterSpellScript(spell_mage_enhanced_pyrotechnics);
     RegisterSpellScript(spell_mage_flame_on);
     RegisterSpellScript(spell_mage_flame_patch);
     RegisterAreaTriggerAI(at_mage_flame_patch);
@@ -2250,9 +2357,11 @@ void AddSC_mage_spell_scripts()
     RegisterAreaTriggerAI(at_mage_meteor_burn);
     RegisterSpellScript(spell_mage_ice_barrier);
     RegisterSpellScript(spell_mage_ice_block);
+    RegisterSpellScript(spell_mage_chilled_to_the_core);
     RegisterSpellScript(spell_mage_ice_lance);
     RegisterSpellScript(spell_mage_ice_lance_damage);
     RegisterSpellScript(spell_mage_kindling);
+    RegisterSpellScript(spell_mage_cinderstorm);
     RegisterSpellScript(spell_mage_ignite);
     RegisterSpellScript(spell_mage_imp_mana_gems);
     RegisterSpellScript(spell_mage_incanters_flow);
