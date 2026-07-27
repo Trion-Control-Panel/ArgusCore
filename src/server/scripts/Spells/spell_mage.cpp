@@ -1525,6 +1525,28 @@ class spell_mage_ice_lance_damage : public SpellScript
     }
 };
 
+// 155148 - Kindling
+class spell_mage_kindling : public AuraScript
+{
+    static bool CheckProc(AuraScript const&, ProcEventInfo const& eventInfo)
+    {
+        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
+        return spellInfo && (spellInfo->Id == SPELL_MAGE_FIREBALL || spellInfo->Id == SPELL_MAGE_FIRE_BLAST || spellInfo->Id == SPELL_MAGE_PYROBLAST);
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& /*eventInfo*/) const
+    {
+        if (Unit* caster = GetCaster())
+            caster->GetSpellHistory()->ModifyCooldown(SPELL_MAGE_COMBUSTION, Milliseconds(-1000));
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_mage_kindling::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_mage_kindling::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
 // 12846 - Ignite
 class spell_mage_ignite : public AuraScript
 {
@@ -2230,6 +2252,7 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_ice_block);
     RegisterSpellScript(spell_mage_ice_lance);
     RegisterSpellScript(spell_mage_ice_lance_damage);
+    RegisterSpellScript(spell_mage_kindling);
     RegisterSpellScript(spell_mage_ignite);
     RegisterSpellScript(spell_mage_imp_mana_gems);
     RegisterSpellScript(spell_mage_incanters_flow);
