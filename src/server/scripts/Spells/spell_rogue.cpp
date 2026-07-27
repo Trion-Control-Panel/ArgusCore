@@ -70,6 +70,7 @@ enum RogueSpells
     SPELL_ROGUE_KILLING_SPREE_TELEPORT              = 57840,
     SPELL_ROGUE_KILLING_SPREE_WEAPON_DMG            = 57841,
     SPELL_ROGUE_KILLING_SPREE_DMG_BUFF              = 61851,
+    SPELL_ROGUE_KIDNEY_SHOT                         = 408,
     SPELL_ROGUE_MARKED_FOR_DEATH                    = 137619,
     SPELL_ROGUE_MAIN_GAUCHE                         = 86392,
     SPELL_ROGUE_NIGHT_TERRORS                       = 277953,
@@ -92,7 +93,7 @@ enum RogueSpells
     SPELL_ROGUE_SHOT_IN_THE_DARK_BUFF               = 257506,
     SPELL_ROGUE_SHURIKEN_STORM_DAMAGE               = 197835,
     SPELL_ROGUE_SHURIKEN_STORM_ENERGIZE             = 212743,
-    SPELL_ROGUE_SLICE_AND_DICE                      = 315496,
+    SPELL_ROGUE_SLICE_AND_DICE                      = 5171,
     SPELL_ROGUE_SPRINT                              = 2983,
     SPELL_ROGUE_SOOTHING_DARKNESS_TALENT            = 393970,
     SPELL_ROGUE_SOOTHING_DARKNESS_HEAL              = 393971,
@@ -698,6 +699,39 @@ class spell_rog_killing_spree : public SpellScript
         OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_rog_killing_spree::FilterTargets, EFFECT_1, TARGET_UNIT_DEST_AREA_ENEMY);
         OnEffectHitTarget += SpellEffectFn(spell_rog_killing_spree::HandleDummy, EFFECT_1, SPELL_EFFECT_DUMMY);
     }
+};
+
+// 408 - Kidney Shot
+// Stun duration scales 1 sec per combo point spent (1-5, or 6 with Deeper Stratagem), rather than
+// the fixed default duration - real, long-standing base mechanic missing entirely (only its
+// downstream interactions, e.g. Prey on the Weak, existed in this file already).
+class spell_rog_kidney_shot : public SpellScript
+{
+    void HandleTakePower(SpellPowerCost& powerCost)
+    {
+        if (powerCost.Power == POWER_COMBO_POINTS)
+            _comboPoints = powerCost.Amount;
+    }
+
+    void HandleAfterHit()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        if (Aura* aura = target->GetAura(SPELL_ROGUE_KIDNEY_SHOT, caster->GetGUID()))
+            aura->SetDuration(_comboPoints * IN_MILLISECONDS);
+    }
+
+    void Register() override
+    {
+        OnTakePower += SpellOnTakePowerFn(spell_rog_kidney_shot::HandleTakePower);
+        AfterHit += SpellHitFn(spell_rog_kidney_shot::HandleAfterHit);
+    }
+
+private:
+    int32 _comboPoints = 0;
 };
 
 // 385627 - Kingsbane
@@ -1540,6 +1574,7 @@ void AddSC_rogue_spell_scripts()
     RegisterSpellScript(spell_rog_improved_garrote_damage);
     RegisterSpellScript(spell_rog_improved_shiv);
     RegisterSpellAndAuraScriptPair(spell_rog_killing_spree, spell_rog_killing_spree_aura);
+    RegisterSpellScript(spell_rog_kidney_shot);
     RegisterSpellScript(spell_rog_kingsbane);
     RegisterSpellScript(spell_rog_mastery_main_gauche);
     RegisterSpellScript(spell_rog_night_terrors);
