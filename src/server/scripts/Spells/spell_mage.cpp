@@ -42,8 +42,10 @@ enum MageSpells
     SPELL_MAGE_ARCANE_ALTER_TIME_AURA            = 342246,
     SPELL_MAGE_ARCANE_BARRAGE_ENERGIZE           = 321529,
     SPELL_MAGE_ARCANE_BARRAGE_R3                 = 321526,
+    SPELL_MAGE_ARCANE_BLAST                      = 30451,
     SPELL_MAGE_ARCANE_CHARGE                     = 36032,
     SPELL_MAGE_ARCANE_MAGE                       = 137021,
+    SPELL_MAGE_PRESENCE_OF_MIND                  = 205025,
     SPELL_MAGE_BLAZING_BARRIER_TRIGGER           = 235314,
     SPELL_MAGE_BLINK                             = 1953,
     SPELL_MAGE_BLIZZARD_DAMAGE                   = 190357,
@@ -189,6 +191,50 @@ class spell_mage_alter_time_active : public SpellScript
     void Register() override
     {
         OnEffectHit += SpellEffectFn(spell_mage_alter_time_active::RemoveAlterTimeAura, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 30451 - Arcane Blast
+// Consumes a Presence of Mind charge on cast (2 charges granted, makes Arcane Blast instant and
+// free of its Arcane Charge mana-cost scaling until both are consumed). The base Arcane
+// Charge-stacking mechanic itself needs no script here - it's handled by the spell's own
+// generic self-buff-stacking effect data.
+class spell_mage_arcane_blast : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_PRESENCE_OF_MIND });
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/) const
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (Aura* presenceOfMind = caster->GetAura(SPELL_MAGE_PRESENCE_OF_MIND))
+            presenceOfMind->ModCharges(-1);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_mage_arcane_blast::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 235450 - Arcane Barrier
+class spell_mage_arcane_barrier : public AuraScript
+{
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& canBeRecalculated) const
+    {
+        canBeRecalculated = false;
+        if (Unit* caster = GetCaster())
+            amount += int32(7.0f * caster->SpellBaseHealingBonusDone(GetSpellInfo()->GetSchoolMask()));
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_mage_arcane_barrier::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
     }
 };
 
@@ -1838,6 +1884,8 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_alter_time_aura);
     RegisterSpellScript(spell_mage_alter_time_active);
     RegisterSpellScript(spell_mage_arcane_barrage);
+    RegisterSpellScript(spell_mage_arcane_barrier);
+    RegisterSpellScript(spell_mage_arcane_blast);
     RegisterSpellScript(spell_mage_arcane_charge_clear);
     RegisterSpellScript(spell_mage_arcane_explosion);
     RegisterSpellScript(spell_mage_blazing_barrier);
