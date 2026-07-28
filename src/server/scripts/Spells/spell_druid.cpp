@@ -51,6 +51,7 @@ enum DruidSpells
     SPELL_DRUID_BLESSING_OF_CENARIUS           = 40452,
     SPELL_DRUID_BLESSING_OF_ELUNE              = 40446,
     SPELL_DRUID_BLESSING_OF_REMULOS            = 40445,
+    SPELL_DRUID_BLESSING_OF_ANSHE              = 202739,
     SPELL_DRUID_BLESSING_OF_THE_CLAW           = 28750,
     SPELL_DRUID_BLOOD_FRENZY_AURA              = 203962,
     SPELL_DRUID_BLOOD_FRENZY_RAGE_GAIN         = 203961,
@@ -103,14 +104,19 @@ enum DruidSpells
     SPELL_DRUID_IDOL_OF_FERAL_SHADOWS          = 34241,
     SPELL_DRUID_IDOL_OF_WORSHIP                = 60774,
     SPELL_DRUID_INCARNATION                    = 117679,
+    SPELL_DRUID_INCARNATION_CHOSEN_OF_ELUNE    = 102560,
+    SPELL_DRUID_INCARNATION_GUARDIAN_OF_URSOC  = 102558,
     SPELL_DRUID_INCARNATION_KING_OF_THE_JUNGLE = 102543,
     SPELL_DRUID_INCARNATION_TREE_OF_LIFE       = 33891,
     SPELL_DRUID_INNER_PEACE                    = 197073,
     SPELL_DRUID_INNERVATE                      = 29166,
     SPELL_DRUID_INNERVATE_RANK_2               = 326228,
     SPELL_DRUID_INFUSION                       = 37238,
+    SPELL_DRUID_KILLER_INSTINCT                = 108299,
+    SPELL_DRUID_KILLER_INSTINCT_MOD_STAT       = 108300,
     SPELL_DRUID_LANGUISH                       = 71023,
     SPELL_DRUID_LIFEBLOOM_FINAL_HEAL           = 33778,
+    SPELL_DRUID_LIVING_SEED_PROC                = 48504,
     SPELL_DRUID_LUNAR_BEAM_HEAL                = 204069,
     SPELL_DRUID_LUNAR_INSPIRATION_OVERRIDE     = 155627,
     SPELL_DRUID_MANGLE                         = 33917,
@@ -119,6 +125,7 @@ enum DruidSpells
     SPELL_DRUID_MASS_ENTANGLEMENT              = 102359,
     SPELL_DRUID_MOONFIRE_CAT                   = 155625,
     SPELL_DRUID_MOONFIRE_DAMAGE                = 164812,
+    SPELL_DRUID_MOONKIN_FORM                   = 24858,
     SPELL_DRUID_NATURES_GRACE_TALENT           = 450347,
     SPELL_DRUID_NEW_MOON                       = 274281,
     SPELL_DRUID_NEW_MOON_OVERRIDE              = 274295,
@@ -360,6 +367,111 @@ class spell_dru_brambles : public AuraScript
     {
         OnEffectAbsorb += AuraEffectAbsorbFn(spell_dru_brambles::HandleAbsorb, EFFECT_0);
         AfterEffectAbsorb += AuraEffectAbsorbFn(spell_dru_brambles::HandleAfterAbsorb, EFFECT_0);
+    }
+};
+
+// 202360 - Blessing of the Ancients
+// Toggles between the Blessing of Elune and Blessing of Anshe artifact buffs.
+class spell_dru_blessing_of_the_ancients : public SpellScript
+{
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        bool hasElune = caster->HasAura(SPELL_DRUID_BLESSING_OF_ELUNE);
+        uint32 removeAura = hasElune ? SPELL_DRUID_BLESSING_OF_ELUNE : SPELL_DRUID_BLESSING_OF_ANSHE;
+        uint32 addAura = hasElune ? SPELL_DRUID_BLESSING_OF_ANSHE : SPELL_DRUID_BLESSING_OF_ELUNE;
+
+        caster->RemoveAurasDueToSpell(removeAura);
+        caster->CastSpell(nullptr, addAura, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dru_blessing_of_the_ancients::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 108299 - Killer Instinct
+class spell_dru_killer_instinct : public AuraScript
+{
+    void AfterApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Player* player = GetTarget()->ToPlayer();
+        if (!player || !player->HasAura(SPELL_DRUID_KILLER_INSTINCT))
+            return;
+
+        int32 bp = int32(player->GetStat(STAT_INTELLECT));
+        player->CastSpell(player, SPELL_DRUID_KILLER_INSTINCT_MOD_STAT, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT0, bp));
+    }
+
+    void AfterRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Player* player = GetTarget()->ToPlayer();
+        if (player && player->HasAura(SPELL_DRUID_KILLER_INSTINCT))
+            player->RemoveAura(SPELL_DRUID_KILLER_INSTINCT_MOD_STAT);
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_dru_killer_instinct::AfterApply, EFFECT_0, SPELL_AURA_MOD_SHAPESHIFT, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_dru_killer_instinct::AfterRemove, EFFECT_0, SPELL_AURA_MOD_SHAPESHIFT, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 48500 - Living Seed
+class spell_dru_living_seed : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DRUID_LIVING_SEED_PROC });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        // Don't proc from periodic heals ticking on the caster - only direct heals
+        return !((eventInfo.GetTypeMask() & PROC_FLAG_TAKE_HELPFUL_PERIODIC) && (eventInfo.GetSpellTypeMask() & PROC_SPELL_TYPE_HEAL));
+    }
+
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
+    {
+        PreventDefaultAction();
+
+        HealInfo* healInfo = eventInfo.GetHealInfo();
+        Unit* target = GetTarget();
+        if (!healInfo || !target)
+            return;
+
+        int32 amount = CalculatePct(healInfo->GetHeal(), aurEff->GetAmount());
+        target->CastSpell(eventInfo.GetProcTarget(), SPELL_DRUID_LIVING_SEED_PROC, CastSpellExtraArgs(aurEff).AddSpellMod(SPELLVALUE_BASE_POINT0, amount));
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_dru_living_seed::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_dru_living_seed::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 48484 - Infected Wound
+// Gates its own (DB2-driven) slow proc to only trigger off Rake.
+class spell_dru_infected_wound : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DRUID_RAKE });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_DRUID_RAKE;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_dru_infected_wound::CheckProc);
     }
 };
 
@@ -1213,6 +1325,72 @@ class spell_dru_incarnation_tree_of_life : public AuraScript
     void Register() override
     {
         AfterEffectApply += AuraEffectApplyFn(spell_dru_incarnation_tree_of_life::AfterApply, EFFECT_2, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 102560 - Incarnation: Chosen of Elune
+class spell_dru_incarnation_chosen_of_elune : public SpellScript
+{
+    void OnActivate()
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (player && !player->HasAura(SPELL_DRUID_MOONKIN_FORM))
+            player->CastSpell(player, SPELL_DRUID_MOONKIN_FORM, true);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_dru_incarnation_chosen_of_elune::OnActivate);
+    }
+};
+
+// 102543 - Incarnation: King of the Jungle
+class spell_dru_incarnation_king_of_the_jungle : public SpellScript
+{
+    void OnActivate()
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (player && !player->HasAura(SPELL_DRUID_CAT_FORM))
+            player->CastSpell(player, SPELL_DRUID_CAT_FORM, true);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_dru_incarnation_king_of_the_jungle::OnActivate);
+    }
+};
+
+// 102558 - Incarnation: Guardian of Ursoc
+class spell_dru_incarnation_guardian_of_ursoc : public SpellScript
+{
+    void OnActivate()
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (player && !player->HasAura(SPELL_DRUID_BEAR_FORM))
+            player->CastSpell(player, SPELL_DRUID_BEAR_FORM, true);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_dru_incarnation_guardian_of_ursoc::OnActivate);
+    }
+};
+
+// 102383 - Wild Charge (Moonkin)
+class spell_dru_wild_charge_moonkin : public SpellScript
+{
+    SpellCastResult CheckFight()
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !caster->IsInCombat())
+            return SPELL_FAILED_DONT_REPORT;
+
+        return SPELL_CAST_OK;
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_dru_wild_charge_moonkin::CheckFight);
     }
 };
 
@@ -2766,6 +2944,10 @@ void AddSC_druid_spell_scripts()
     RegisterSpellScript(spell_dru_barkskin);
     RegisterSpellScript(spell_dru_berserk);
     RegisterSpellScript(spell_dru_brambles);
+    RegisterSpellScript(spell_dru_blessing_of_the_ancients);
+    RegisterSpellScript(spell_dru_killer_instinct);
+    RegisterSpellScript(spell_dru_living_seed);
+    RegisterSpellScript(spell_dru_infected_wound);
     RegisterSpellScript(spell_dru_bristling_fur);
     RegisterSpellScript(spell_dru_bear_form);
     RegisterSpellScript(spell_dru_cat_form);
@@ -2791,6 +2973,10 @@ void AddSC_druid_spell_scripts()
     RegisterSpellScript(spell_dru_incapacitating_roar);
     RegisterSpellScript(spell_dru_incarnation);
     RegisterSpellScript(spell_dru_incarnation_tree_of_life);
+    RegisterSpellScript(spell_dru_incarnation_chosen_of_elune);
+    RegisterSpellScript(spell_dru_incarnation_king_of_the_jungle);
+    RegisterSpellScript(spell_dru_incarnation_guardian_of_ursoc);
+    RegisterSpellScript(spell_dru_wild_charge_moonkin);
     RegisterSpellScript(spell_dru_inner_peace);
     RegisterSpellScript(spell_dru_innervate);
     RegisterSpellScript(spell_dru_item_t6_trinket);
