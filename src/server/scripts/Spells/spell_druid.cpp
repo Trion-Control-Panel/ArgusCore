@@ -2206,7 +2206,7 @@ class spell_dru_shred : public SpellScript
         return true;
     }
 
-    void HandleCritChance(Unit* /*victim*/, float& chance)
+    void HandleCritChance(Unit const* /*victim*/, float& chance)
     {
         // Level-gated to match the effects' own DB2 activation thresholds (see HandleOnEffectHitTarget)
         if (_casterLevel >= 56 && (_stealthed || _incarnation))
