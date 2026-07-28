@@ -58,6 +58,7 @@ enum ShamanSpells
     SPELL_SHAMAN_DELUGE_TALENT                  = 200076,
     SPELL_SHAMAN_DOOM_WINDS_DAMAGE              = 469270,
     SPELL_SHAMAN_DOOM_WINDS_LEGENDARY_COOLDOWN  = 335904,
+    SPELL_SHAMAN_EARTH_ELEMENTAL_SUMMON         = 188616,
     SPELL_SHAMAN_EARTHBIND_FOR_EARTHGRAB_TOTEM  = 116947,
     SPELL_SHAMAN_EARTHGRAB_IMMUNITY             = 116946,
     SPELL_SHAMAN_EARTHQUAKE                     = 61882,
@@ -81,6 +82,7 @@ enum ShamanSpells
     SPELL_SHAMAN_ENHANCED_ELEMENTS              = 77223,
     SPELL_SHAMAN_EXHAUSTION                     = 57723,
     SPELL_SHAMAN_FERAL_LUNGE_DAMAGE             = 215802,
+    SPELL_SHAMAN_FIRE_ELEMENTAL_SUMMON          = 188592,
     SPELL_SHAMAN_FIRE_NOVA_DAMAGE               = 333977,
     SPELL_SHAMAN_FIRE_NOVA_ENABLER              = 466622,
     SPELL_SHAMAN_FLAME_SHOCK                    = 188389,
@@ -1065,6 +1067,44 @@ class spell_sha_downpour : public SpellScript
     }
 
     int32 _healedTargets = 0;
+};
+
+// 198103 - Earth Elemental
+class spell_sha_earth_elemental : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_SHAMAN_EARTH_ELEMENTAL_SUMMON });
+    }
+
+    void HandleSummon(SpellEffIndex /*effIndex*/) const
+    {
+        GetCaster()->CastSpell(GetHitUnit(), SPELL_SHAMAN_EARTH_ELEMENTAL_SUMMON, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_sha_earth_elemental::HandleSummon, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 198067 - Fire Elemental
+class spell_sha_fire_elemental : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_SHAMAN_FIRE_ELEMENTAL_SUMMON });
+    }
+
+    void HandleSummon(SpellEffIndex /*effIndex*/) const
+    {
+        GetCaster()->CastSpell(GetHitUnit(), SPELL_SHAMAN_FIRE_ELEMENTAL_SUMMON, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_sha_fire_elemental::HandleSummon, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
 };
 
 // 204288 - Earth Shield
@@ -3773,6 +3813,8 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_doom_winds);
     RegisterSpellScript(spell_sha_doom_winds_legendary);
     RegisterSpellScript(spell_sha_downpour);
+    RegisterSpellScript(spell_sha_earth_elemental);
+    RegisterSpellScript(spell_sha_fire_elemental);
     RegisterSpellScript(spell_sha_earth_shield);
     RegisterSpellScript(spell_sha_earth_shock);
     RegisterSpellScript(spell_sha_earthen_rage_passive);
