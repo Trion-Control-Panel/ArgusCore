@@ -44,8 +44,12 @@ enum PaladinSpells
     SPELL_PALADIN_ART_OF_WAR_TRIGGERED           = 231843,
     SPELL_PALADIN_AVENGERS_SHIELD                = 31935,
     SPELL_PALADIN_AVENGING_WRATH                 = 31884,
+    SPELL_PALADIN_BEACON_OF_FAITH                = 156910,
+    SPELL_PALADIN_BEACON_OF_FAITH_PROC_AURA      = 177173,
     SPELL_PALADIN_BEACON_OF_LIGHT                = 53563,
     SPELL_PALADIN_BEACON_OF_LIGHT_HEAL           = 53652,
+    SPELL_PALADIN_BEACON_OF_LIGHT_PROC_AURA      = 53651,
+    SPELL_PALADIN_BEACON_OF_VIRTUE               = 200025,
     SPELL_PALADIN_BLADE_OF_JUSTICE               = 184575,
     SPELL_PALADIN_BLADE_OF_VENGEANCE             = 403826,
     SPELL_PALADIN_BLESSING_OF_FREEDOM            = 1044,
@@ -96,6 +100,7 @@ enum PaladinSpells
     SPELL_PALADIN_HOLY_SHOCK_DAMAGE              = 25912,
     SPELL_PALADIN_HOLY_SHOCK_HEALING             = 25914,
     SPELL_PALADIN_HOLY_LIGHT                     = 82326,
+    SPELL_PALADIN_INFUSION_OF_LIGHT_AURA         = 54149,
     SPELL_PALADIN_INFUSION_OF_LIGHT_ENERGIZE     = 356717,
     SPELL_PALADIN_IMMUNE_SHIELD_MARKER           = 61988, // Serverside
     SPELL_PALADIN_ITEM_HEALING_TRANCE            = 37706,
@@ -103,6 +108,7 @@ enum PaladinSpells
     SPELL_PALADIN_JUDGMENT_HOLY_R3               = 231644,
     SPELL_PALADIN_JUDGMENT_HOLY_R3_DEBUFF        = 214222,
     SPELL_PALADIN_JUDGMENT_PROT_RET_R3           = 315867,
+    SPELL_PALADIN_LIGHT_OF_DAWN                  = 85222,
     SPELL_PALADIN_LIGHT_HAMMER_COSMETIC          = 122257,
     SPELL_PALADIN_LIGHT_HAMMER_DAMAGE            = 114919,
     SPELL_PALADIN_LIGHT_HAMMER_HEALING           = 119952,
@@ -1367,6 +1373,123 @@ class spell_pal_light_s_beacon : public AuraScript
     }
 };
 
+// 177173 - Beacon of Faith (heal-echo half)
+// Same heal-echo mechanic as Light's Beacon above, but for the Beacon of Faith talent, and at half
+// the healing - the trade-off for being usable alongside Beacon of Light on a second target.
+class spell_pal_beacon_of_faith_proc : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PALADIN_BEACON_OF_FAITH, SPELL_PALADIN_BEACON_OF_LIGHT_HEAL });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        if (!eventInfo.GetActionTarget())
+            return false;
+        if (eventInfo.GetActionTarget()->HasAura(SPELL_PALADIN_BEACON_OF_FAITH, eventInfo.GetActor()->GetGUID()))
+            return false;
+        return true;
+    }
+
+    void HandleProc(AuraEffect* aurEff, ProcEventInfo& eventInfo)
+    {
+        PreventDefaultAction();
+
+        HealInfo* healInfo = eventInfo.GetHealInfo();
+        if (!healInfo || !healInfo->GetHeal())
+            return;
+
+        uint32 heal = CalculatePct(healInfo->GetHeal(), aurEff->GetAmount()) / 2;
+
+        Unit::AuraList const& auras = GetCaster()->GetSingleCastAuras();
+        for (Aura* aura : auras)
+        {
+            if (aura->GetId() == SPELL_PALADIN_BEACON_OF_FAITH)
+            {
+                std::vector<AuraApplication*> applications;
+                aura->GetApplicationVector(applications);
+                if (!applications.empty())
+                {
+                    CastSpellExtraArgs args(aurEff);
+                    args.AddSpellMod(SPELLVALUE_BASE_POINT0, heal);
+                    eventInfo.GetActor()->CastSpell(applications.front()->GetTarget(), SPELL_PALADIN_BEACON_OF_LIGHT_HEAL, args);
+                }
+                return;
+            }
+        }
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_pal_beacon_of_faith_proc::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_pal_beacon_of_faith_proc::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 53563 - Beacon of Light, 156910 - Beacon of Faith
+// Prevents applying Beacon of Light and Beacon of Faith to the same target at once.
+class spell_pal_beacon_of_light : public SpellScript
+{
+    SpellCastResult CheckCast()
+    {
+        Unit* target = GetExplTargetUnit();
+        if (!target)
+            return SPELL_FAILED_DONT_REPORT;
+
+        if (target->HasAura(SPELL_PALADIN_BEACON_OF_FAITH) || target->HasAura(SPELL_PALADIN_BEACON_OF_LIGHT))
+            return SPELL_FAILED_BAD_TARGETS;
+
+        return SPELL_CAST_OK;
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_pal_beacon_of_light::CheckCast);
+    }
+};
+
+// 53563 - Beacon of Light, 156910 - Beacon of Faith, 200025 - Beacon of Virtue
+// Applies/removes the correct heal-echo proc aura depending on which Beacon spell was cast.
+class spell_pal_beacon_of_light_aura : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PALADIN_BEACON_OF_LIGHT_PROC_AURA, SPELL_PALADIN_BEACON_OF_FAITH_PROC_AURA });
+    }
+
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetTarget();
+        if (!caster)
+            return;
+
+        if (GetSpellInfo()->Id == SPELL_PALADIN_BEACON_OF_LIGHT || GetSpellInfo()->Id == SPELL_PALADIN_BEACON_OF_VIRTUE)
+            caster->CastSpell(target, SPELL_PALADIN_BEACON_OF_LIGHT_PROC_AURA, true);
+        else
+            caster->CastSpell(target, SPELL_PALADIN_BEACON_OF_FAITH_PROC_AURA, true);
+    }
+
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (GetSpellInfo()->Id == SPELL_PALADIN_BEACON_OF_LIGHT || GetSpellInfo()->Id == SPELL_PALADIN_BEACON_OF_VIRTUE)
+            caster->RemoveAura(SPELL_PALADIN_BEACON_OF_LIGHT_PROC_AURA);
+        else
+            caster->RemoveAura(SPELL_PALADIN_BEACON_OF_FAITH_PROC_AURA);
+    }
+
+    void Register() override
+    {
+        OnEffectApply += AuraEffectApplyFn(spell_pal_beacon_of_light_aura::OnApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        OnEffectRemove += AuraEffectRemoveFn(spell_pal_beacon_of_light_aura::OnRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
 // 122773 - Light's Hammer
 class spell_pal_light_hammer_init_summon : public SpellScript
 {
@@ -1745,6 +1868,12 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_item_t6_trinket);
     RegisterSpellScript(spell_pal_lay_on_hands);
     RegisterSpellScript(spell_pal_light_s_beacon);
+    RegisterSpellScript(spell_pal_beacon_of_faith_proc);
+    RegisterSpellScript(spell_pal_beacon_of_light);
+    RegisterSpellScriptWithArgs(spell_pal_beacon_of_light, "spell_pal_beacon_of_faith_check_cast");
+    RegisterSpellScript(spell_pal_beacon_of_light_aura);
+    RegisterSpellScriptWithArgs(spell_pal_beacon_of_light_aura, "spell_pal_beacon_of_faith_aura");
+    RegisterSpellScriptWithArgs(spell_pal_beacon_of_light_aura, "spell_pal_beacon_of_virtue_aura");
     RegisterSpellScript(spell_pal_light_hammer_init_summon);
     RegisterSpellScript(spell_pal_light_hammer_periodic);
     RegisterSpellScript(spell_pal_righteous_protector);
