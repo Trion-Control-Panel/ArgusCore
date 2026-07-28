@@ -111,6 +111,7 @@ enum DruidSpells
     SPELL_DRUID_LUNAR_INSPIRATION_OVERRIDE     = 155627,
     SPELL_DRUID_MANGLE                         = 33917,
     SPELL_DRUID_MANGLE_TALENT                  = 231064,
+    SPELL_DRUID_MAIM_STUN                      = 203123,
     SPELL_DRUID_MASS_ENTANGLEMENT              = 102359,
     SPELL_DRUID_MOONFIRE_DAMAGE                = 164812,
     SPELL_DRUID_NATURES_GRACE_TALENT           = 450347,
@@ -118,12 +119,14 @@ enum DruidSpells
     SPELL_DRUID_NEW_MOON_OVERRIDE              = 274295,
     SPELL_DRUID_POWER_OF_THE_ARCHDRUID         = 392302,
     SPELL_DRUID_PROWL                          = 5215,
+    SPELL_DRUID_RAKE_STUN                      = 163505,
     SPELL_DRUID_REGROWTH                       = 8936,
     SPELL_DRUID_REJUVENATION                   = 774,
     SPELL_DRUID_REJUVENATION_GERMINATION       = 155777,
     SPELL_DRUID_REJUVENATION_T10_PROC          = 70691,
     SPELL_DRUID_RESTORATION_T10_2P_BONUS       = 70658,
     SPELL_DRUID_SAVAGE_ROAR                    = 62071,
+    SPELL_DRUID_SHRED                          = 5221,
     SPELL_DRUID_SHOOTING_STARS                 = 202342,
     SPELL_DRUID_SHOOTING_STARS_DAMAGE          = 202497,
     SPELL_DRUID_SKULL_BASH_CHARGE              = 221514,
@@ -1575,11 +1578,70 @@ class spell_dru_power_of_the_archdruid : public AuraScript
     }
 };
 
+// 22570 - Maim
+class spell_dru_maim : public SpellScript
+{
+    void HandleAfterHit()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetExplTargetUnit();
+        if (!caster || !target)
+            return;
+
+        int32 comboPoints = GetSpell()->GetPowerTypeCostAmount(POWER_COMBO_POINTS).value_or(0);
+
+        caster->CastSpell(target, SPELL_DRUID_MAIM_STUN, true);
+
+        if (Aura* maimStun = target->GetAura(SPELL_DRUID_MAIM_STUN, caster->GetGUID()))
+            maimStun->SetDuration(comboPoints * IN_MILLISECONDS);
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_dru_maim::HandleAfterHit);
+    }
+};
+
 // 5215 - Prowl
 class spell_dru_prowl : public spell_dru_base_transformer
 {
 protected:
     bool ToCatForm() const override { return true; }
+};
+
+// 1822 - Rake
+class spell_dru_rake : public SpellScript
+{
+    bool Load() override
+    {
+        Unit* caster = GetCaster();
+        _stealthed = caster && caster->HasAuraType(SPELL_AURA_MOD_STEALTH);
+        return true;
+    }
+
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetExplTargetUnit();
+        if (!caster || !target)
+            return;
+
+        // While stealthed or under Incarnation: King of the Jungle, deal 100% increased damage
+        if (_stealthed || caster->HasAura(SPELL_DRUID_INCARNATION_KING_OF_THE_JUNGLE))
+            SetHitDamage(GetHitDamage() * 2);
+
+        // Only stun if the caster was in stealth
+        if (_stealthed)
+            caster->CastSpell(target, SPELL_DRUID_RAKE_STUN, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dru_rake::HandleOnHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+
+private:
+    bool _stealthed = false;
 };
 
 // 1079 - Rip
@@ -1716,6 +1778,57 @@ class spell_dru_shooting_stars : public AuraScript
     {
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_dru_shooting_stars::OnTick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
+};
+
+// 5221 - Shred
+class spell_dru_shred : public SpellScript
+{
+    bool Load() override
+    {
+        Unit* caster = GetCaster();
+        _stealthed = caster && caster->HasAuraType(SPELL_AURA_MOD_STEALTH);
+        _incarnation = caster && caster->HasAura(SPELL_DRUID_INCARNATION_KING_OF_THE_JUNGLE);
+        _casterLevel = caster ? caster->GetLevelForTarget(caster) : 0;
+        return true;
+    }
+
+    void HandleCritChance(Unit* /*victim*/, float& chance)
+    {
+        // Level-gated to match the effects' own DB2 activation thresholds (see HandleOnEffectHitTarget)
+        if (_casterLevel >= 56 && (_stealthed || _incarnation))
+            chance *= 2.0f;
+    }
+
+    void HandleOnEffectHitTarget(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        int32 damage = GetHitDamage();
+
+        // While stealthed or under Incarnation: King of the Jungle, deals bonus damage (value from spell data)
+        if (_casterLevel >= 56 && (_stealthed || _incarnation))
+            AddPct(damage, sSpellMgr->AssertSpellInfo(SPELL_DRUID_SHRED, DIFFICULTY_NONE)->GetEffect(EFFECT_3).BasePoints);
+
+        // Against a bleeding target, deals bonus damage (value from spell data)
+        if (_casterLevel >= 44 && target->HasAuraState(AURA_STATE_BLEED))
+            AddPct(damage, sSpellMgr->AssertSpellInfo(SPELL_DRUID_SHRED, DIFFICULTY_NONE)->GetEffect(EFFECT_4).BasePoints);
+
+        SetHitDamage(damage);
+    }
+
+    void Register() override
+    {
+        OnCalcCritChance += SpellOnCalcCritChanceFn(spell_dru_shred::HandleCritChance);
+        OnEffectHitTarget += SpellEffectFn(spell_dru_shred::HandleOnEffectHitTarget, EFFECT_4, SPELL_EFFECT_DUMMY);
+    }
+
+private:
+    bool _stealthed = false;
+    bool _incarnation = false;
+    uint8 _casterLevel = 0;
 };
 
 // 106839 - Skull Bash
@@ -2458,10 +2571,13 @@ void AddSC_druid_spell_scripts()
     RegisterSpellScript(spell_dru_omen_of_clarity);
     RegisterSpellScript(spell_dru_omen_of_clarity_restoration);
     RegisterSpellScript(spell_dru_power_of_the_archdruid);
+    RegisterSpellScript(spell_dru_maim);
     RegisterSpellScript(spell_dru_prowl);
+    RegisterSpellScript(spell_dru_rake);
     RegisterSpellScript(spell_dru_rip);
     RegisterSpellAndAuraScriptPair(spell_dru_savage_roar, spell_dru_savage_roar_aura);
     RegisterSpellScript(spell_dru_shooting_stars);
+    RegisterSpellScript(spell_dru_shred);
     RegisterSpellScript(spell_dru_skull_bash);
     RegisterSpellScript(spell_dru_spring_blossoms);
     RegisterSpellScript(spell_dru_stampeding_roar);
