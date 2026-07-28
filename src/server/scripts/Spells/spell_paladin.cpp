@@ -104,6 +104,7 @@ enum PaladinSpells
     SPELL_PALADIN_INFUSION_OF_LIGHT_ENERGIZE     = 356717,
     SPELL_PALADIN_IMMUNE_SHIELD_MARKER           = 61988, // Serverside
     SPELL_PALADIN_ITEM_HEALING_TRANCE            = 37706,
+    SPELL_PALADIN_JUDGMENT                       = 20271,
     SPELL_PALADIN_JUDGMENT_GAIN_HOLY_POWER       = 220637,
     SPELL_PALADIN_JUDGMENT_HOLY_R3               = 231644,
     SPELL_PALADIN_JUDGMENT_HOLY_R3_DEBUFF        = 214222,
@@ -580,6 +581,42 @@ class spell_pal_divine_purpose : public AuraScript
     {
         DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_divine_purpose::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
         OnEffectProc += AuraEffectProcFn(spell_pal_divine_purpose::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 216860 - Judgement of the Pure
+// Gates its own (DB2-driven) effect to only trigger off Judgment.
+class spell_pal_judgement_of_the_pure : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_PALADIN_JUDGMENT;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_pal_judgement_of_the_pure::CheckProc);
+    }
+};
+
+// 152261 - Holy Shield
+class spell_pal_holy_shield : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return (eventInfo.GetHitMask() & PROC_HIT_BLOCK) != 0;
+    }
+
+    // The spell's own DB2 data carries an unwanted absorb component on this effect - disable it.
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = 0;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_pal_holy_shield::CheckProc);
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pal_holy_shield::CalculateAmount, EFFECT_2, SPELL_AURA_SCHOOL_ABSORB);
     }
 };
 
@@ -1844,6 +1881,8 @@ void AddSC_paladin_spell_scripts()
     RegisterAreaTriggerAI(areatrigger_pal_consecration);
     RegisterSpellScript(spell_pal_divine_auxiliary);
     RegisterSpellScript(spell_pal_divine_purpose);
+    RegisterSpellScript(spell_pal_judgement_of_the_pure);
+    RegisterSpellScript(spell_pal_holy_shield);
     RegisterSpellScript(spell_pal_divine_shield);
     RegisterSpellScript(spell_pal_divine_steed);
     RegisterSpellScript(spell_pal_divine_storm);
