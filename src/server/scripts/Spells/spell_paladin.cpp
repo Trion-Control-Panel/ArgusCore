@@ -63,7 +63,9 @@ enum PaladinSpells
     SPELL_PALADIN_CRUSADING_STRIKES_ENERGIZE     = 406834,
     SPELL_PALADIN_DIVINE_AUXILIARY_ENERGIZE      = 408386,
     SPELL_PALADIN_DIVINE_AUXILIARY_TALENT        = 406158,
+    SPELL_PALADIN_DIVINE_INTERVENTION_HEAL       = 184250,
     SPELL_PALADIN_DIVINE_PURPOSE_TRIGGERED       = 223819,
+    SPELL_PALADIN_DIVINE_SHIELD                  = 642,
     SPELL_PALADIN_DIVINE_STEED_HUMAN             = 221883,
     SPELL_PALADIN_DIVINE_STEED_DWARF             = 276111,
     SPELL_PALADIN_DIVINE_STEED_DRAENEI           = 221887,
@@ -117,6 +119,8 @@ enum PaladinSpells
     SPELL_PALADIN_RIGHTEOUS_DEFENSE_TAUNT        = 31790,
     SPELL_PALADIN_RIGHTEOUS_VERDICT_AURA         = 267611,
     SPELL_PALADIN_SEAL_OF_RIGHTEOUSNESS          = 25742,
+    SPELL_PALADIN_SERAPHIM                       = 152262,
+    SPELL_PALADIN_SHIELD_OF_THE_RIGHTEOUS        = 53600,
     SPELL_PALADIN_SHIELD_OF_THE_RIGHTEOUS_ARMOR  = 132403,
     SPELL_PALADIN_SHIELD_OF_VENGEANCE_DAMAGE     = 184689,
     SPELL_PALADIN_TEMPLAR_VERDICT_DAMAGE         = 224266,
@@ -617,6 +621,117 @@ class spell_pal_holy_shield : public AuraScript
     {
         DoCheckProc += AuraCheckProcFn(spell_pal_holy_shield::CheckProc);
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pal_holy_shield::CalculateAmount, EFFECT_2, SPELL_AURA_SCHOOL_ABSORB);
+    }
+};
+
+// 204035 - Bastion of Light
+class spell_pal_bastion_of_light : public SpellScript
+{
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        if (Unit* caster = GetCaster())
+            caster->GetSpellHistory()->ResetCharges(sSpellMgr->AssertSpellInfo(SPELL_PALADIN_SHIELD_OF_THE_RIGHTEOUS, DIFFICULTY_NONE)->ChargeCategoryId);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_pal_bastion_of_light::HandleOnHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 213313 - Divine Intervention
+// Auto-triggers Divine Shield plus a heal when about to take fatal damage, gated by Forbearance
+// and Divine Shield's own cooldown so it can't be exploited to bypass either.
+class spell_pal_divine_intervention : public AuraScript
+{
+    bool Validate(SpellInfo const* spellInfo) override
+    {
+        return ValidateSpellInfo({ SPELL_PALADIN_DIVINE_INTERVENTION_HEAL, SPELL_PALADIN_FORBEARANCE, SPELL_PALADIN_DIVINE_SHIELD })
+            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 } });
+    }
+
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = -1;
+    }
+
+    void Absorb(AuraEffect* aurEff, DamageInfo& dmgInfo, uint32& /*absorbAmount*/)
+    {
+        Unit* target = GetTarget();
+        if (dmgInfo.GetDamage() < target->GetHealth())
+            return;
+
+        if (target->HasAura(SPELL_PALADIN_FORBEARANCE) || target->GetSpellHistory()->HasCooldown(SPELL_PALADIN_DIVINE_SHIELD))
+            return;
+
+        int32 healAmount = int32(target->CountPctFromMaxHealth(GetEffectInfo(EFFECT_1).CalcValue()));
+
+        target->CastSpell(target, SPELL_PALADIN_DIVINE_SHIELD, true);
+        target->CastSpell(target, SPELL_PALADIN_DIVINE_INTERVENTION_HEAL, CastSpellExtraArgs(aurEff).AddSpellMod(SPELLVALUE_BASE_POINT0, healAmount));
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pal_divine_intervention::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_pal_divine_intervention::Absorb, EFFECT_0);
+    }
+};
+
+// 231832 - Blade of Wrath (proc)
+class spell_pal_blade_of_wrath_proc : public AuraScript
+{
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+    {
+        if (Unit* caster = GetCaster())
+            caster->GetSpellHistory()->ResetCooldown(SPELL_PALADIN_BLADE_OF_JUSTICE, true);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_pal_blade_of_wrath_proc::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
+
+// 152262 - Seraphim
+// Consumes all available Shield of the Righteous charges to extend Seraphim's own buff duration
+// by one full duration per charge spent.
+class spell_pal_seraphim : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PALADIN_SERAPHIM, SPELL_PALADIN_SHIELD_OF_THE_RIGHTEOUS });
+    }
+
+    SpellCastResult CheckCast()
+    {
+        uint32 chargeCategoryId = sSpellMgr->AssertSpellInfo(SPELL_PALADIN_SHIELD_OF_THE_RIGHTEOUS, DIFFICULTY_NONE)->ChargeCategoryId;
+        if (!GetCaster()->GetSpellHistory()->HasCharge(chargeCategoryId))
+            return SPELL_FAILED_NO_POWER;
+
+        return SPELL_CAST_OK;
+    }
+
+    void HandleDummy(SpellEffIndex effIndex)
+    {
+        uint32 chargeCategoryId = sSpellMgr->AssertSpellInfo(SPELL_PALADIN_SHIELD_OF_THE_RIGHTEOUS, DIFFICULTY_NONE)->ChargeCategoryId;
+        SpellHistory* spellHistory = GetCaster()->GetSpellHistory();
+
+        int32 maxCharges = int32(GetEffectInfo(effIndex).CalcValue());
+        int32 usedCharges = 0;
+        while (usedCharges < maxCharges && spellHistory->HasCharge(chargeCategoryId))
+        {
+            spellHistory->ConsumeCharge(chargeCategoryId);
+            ++usedCharges;
+        }
+
+        if (Aura* seraphimAura = GetCaster()->GetAura(SPELL_PALADIN_SERAPHIM))
+            seraphimAura->SetDuration(GetSpellInfo()->GetMaxDuration() * usedCharges);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_pal_seraphim::CheckCast);
+        OnEffectHitTarget += SpellEffectFn(spell_pal_seraphim::HandleDummy, EFFECT_1, SPELL_EFFECT_DUMMY);
     }
 };
 
@@ -1883,6 +1998,10 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_divine_purpose);
     RegisterSpellScript(spell_pal_judgement_of_the_pure);
     RegisterSpellScript(spell_pal_holy_shield);
+    RegisterSpellScript(spell_pal_bastion_of_light);
+    RegisterSpellScript(spell_pal_divine_intervention);
+    RegisterSpellScript(spell_pal_blade_of_wrath_proc);
+    RegisterSpellScript(spell_pal_seraphim);
     RegisterSpellScript(spell_pal_divine_shield);
     RegisterSpellScript(spell_pal_divine_steed);
     RegisterSpellScript(spell_pal_divine_storm);
