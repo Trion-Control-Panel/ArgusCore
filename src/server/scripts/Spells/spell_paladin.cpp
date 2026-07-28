@@ -86,12 +86,14 @@ enum PaladinSpells
     SPELL_PALADIN_FINAL_STAND                    = 204077,
     SPELL_PALADIN_FINAL_STAND_EFFECT             = 204079,
     SPELL_PALADIN_FINAL_VERDICT                  = 383329,
+    SPELL_PALADIN_FIRST_AVENGER                  = 203776,
     SPELL_PALADIN_FORBEARANCE                    = 25771,
     SPELL_PALADIN_GREATER_BLESSING_OF_KINGS      = 203538,
     SPELL_PALADIN_GUARDIAN_OF_ANCIENT_KINGS      = 86659,
     SPELL_PALADIN_HAMMER_OF_JUSTICE              = 853,
     SPELL_PALADIN_HAMMER_OF_THE_RIGHTEOUS_AOE    = 88263,
     SPELL_PALADIN_HAND_OF_SACRIFICE              = 6940,
+    SPELL_PALADIN_HAND_OF_THE_PROTECTOR          = 213652,
     SPELL_PALADIN_HOLY_MENDING                   = 64891,
     SPELL_PALADIN_HOLY_POWER_ARMOR               = 28790,
     SPELL_PALADIN_HOLY_POWER_ATTACK_POWER        = 28791,
@@ -113,10 +115,12 @@ enum PaladinSpells
     SPELL_PALADIN_JUDGMENT_GAIN_HOLY_POWER       = 220637,
     SPELL_PALADIN_JUDGMENT_HOLY_R3               = 231644,
     SPELL_PALADIN_JUDGMENT_HOLY_R3_DEBUFF        = 214222,
+    SPELL_PALADIN_JUDGMENT_OF_LIGHT_HEAL         = 183811,
     SPELL_PALADIN_JUDGMENT_PROT_RET_R3           = 315867,
     SPELL_PALADIN_LIGHT_OF_DAWN                  = 85222,
     SPELL_PALADIN_LIGHT_HAMMER_COSMETIC          = 122257,
     SPELL_PALADIN_LIGHT_OF_THE_MARTYR_DAMAGE     = 196917,
+    SPELL_PALADIN_LIGHT_OF_THE_PROTECTOR         = 184092,
     SPELL_PALADIN_LIGHT_HAMMER_DAMAGE            = 114919,
     SPELL_PALADIN_LIGHT_HAMMER_HEALING           = 119952,
     SPELL_PALADIN_LIGHT_HAMMER_PERIODIC          = 114918,
@@ -303,6 +307,36 @@ private:
     Milliseconds _period;
 };
 
+// 31935 - Avenger's Shield
+// First Avenger (203776) boosts the damage dealt to the primary (selected) target.
+class spell_pal_avengers_shield : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PALADIN_FIRST_AVENGER });
+    }
+
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Player* caster = GetCaster()->ToPlayer();
+        if (!caster)
+            return;
+
+        AuraEffect const* firstAvenger = caster->GetAuraEffect(SPELL_PALADIN_FIRST_AVENGER, EFFECT_0);
+        if (!firstAvenger || caster->GetSelectedUnit() != GetHitUnit())
+            return;
+
+        int32 damage = GetHitDamage();
+        AddPct(damage, firstAvenger->GetAmount());
+        SetHitDamage(damage);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_pal_avengers_shield::HandleOnHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
 // 248033 - Awakening
 class spell_pal_awakening : public AuraScript
 {
@@ -484,6 +518,35 @@ struct areatrigger_pal_consecration : AreaTriggerAI
             unit->RemoveAurasDueToSpell(SPELL_PALADIN_CONSECRATION_PROTECTION_AURA, at->GetCasterGuid());
 
         unit->RemoveAurasDueToSpell(SPELL_PALADIN_CONSECRATED_GROUND_SLOW, at->GetCasterGuid());
+    }
+};
+
+// 231895 - Crusade
+// Retribution's Avenging Wrath replacement: starts at a small damage/haste bonus and grows by
+// 1 stack per Holy Power spent while active. DB2 stores the per-effect amount at 10x scale so it
+// can be stacked in fine increments; both modified effects are rescaled down to their real value.
+class spell_pal_crusade : public AuraScript
+{
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount /= 10;
+    }
+
+    void HandleEffectProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+    {
+        Spell const* procSpell = eventInfo.GetProcSpell();
+        if (!procSpell)
+            return;
+
+        if (Optional<int32> holyPowerCost = procSpell->GetPowerTypeCostAmount(POWER_HOLY_POWER))
+            GetAura()->ModStackAmount(*holyPowerCost, AURA_REMOVE_BY_DEFAULT, false);
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pal_crusade::CalculateAmount, EFFECT_0, SPELL_AURA_MOD_DAMAGE_PERCENT_DONE);
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pal_crusade::CalculateAmount, EFFECT_2, SPELL_AURA_MELEE_SLOW);
+        OnEffectProc += AuraEffectProcFn(spell_pal_crusade::HandleEffectProc, EFFECT_0, SPELL_AURA_MOD_DAMAGE_PERCENT_DONE);
     }
 };
 
@@ -812,6 +875,25 @@ class spell_pal_light_of_the_martyr : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_pal_light_of_the_martyr::HandleOnHit, EFFECT_0, SPELL_EFFECT_HEAL);
+    }
+};
+
+// 184092 - Light of the Protector, 213652 - Hand of the Protector
+// Self-heal scaling with the caster's own missing health, read from each spell's own EFFECT_0.
+class spell_pal_light_of_the_protector : public SpellScript
+{
+    void HandleLaunchTarget(SpellEffIndex effIndex)
+    {
+        Unit* caster = GetCaster();
+
+        int32 healthMissing = int32(caster->GetMaxHealth() - caster->GetHealth());
+        if (healthMissing > 0)
+            SetEffectValue(CalculatePct(healthMissing, GetEffectInfo(effIndex).CalcValue(caster)));
+    }
+
+    void Register() override
+    {
+        OnEffectLaunchTarget += SpellEffectFn(spell_pal_light_of_the_protector::HandleLaunchTarget, EFFECT_0, SPELL_EFFECT_HEAL);
     }
 };
 
@@ -1283,6 +1365,49 @@ class spell_pal_judgment : public SpellScript
     }
 };
 
+// 183778 - Judgment of Light
+// Gates its own (DB2-driven) triggered effect to only apply the 196941 debuff off Judgment casts.
+class spell_pal_judgment_of_light : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_PALADIN_JUDGMENT;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_pal_judgment_of_light::CheckProc);
+    }
+};
+
+// 196941 - Judgment of Light (debuff applied to the judged target)
+// Heals the paladin whenever they personally land damage on a target carrying this debuff.
+class spell_pal_judgment_of_light_proc : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PALADIN_JUDGMENT_OF_LIGHT_HEAL });
+    }
+
+    void HandleEffectProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
+    {
+        Unit* caster = GetCaster();
+        Unit* attacker = eventInfo.GetActor();
+        if (!caster || !attacker || attacker->GetGUID() != caster->GetGUID())
+            return;
+
+        caster->CastSpell(attacker, SPELL_PALADIN_JUDGMENT_OF_LIGHT_HEAL, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringAura = aurEff
+        });
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_pal_judgment_of_light_proc::HandleEffectProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
+
 // 215661 - Justicar's Vengeance
 class spell_pal_justicars_vengeance : public SpellScript
 {
@@ -1479,6 +1604,37 @@ class spell_pal_holy_shock_heal_visual : public SpellScript
     void Register() override
     {
         AfterHit += SpellHitFn(spell_pal_holy_shock_heal_visual::PlayVisual);
+    }
+};
+
+// 210220 - Holy Wrath
+// Damage scales with the caster's own missing health; the spell's own DB2 data carries a
+// separate (lower) multiplier for player targets at EFFECT_3 vs. non-players at EFFECT_2.
+class spell_pal_holy_wrath : public SpellScript
+{
+    bool Validate(SpellInfo const* spellInfo) override
+    {
+        return ValidateSpellEffect({ { spellInfo->Id, EFFECT_2 }, { spellInfo->Id, EFFECT_3 } });
+    }
+
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!target)
+            return;
+
+        int32 healthMissing = int32(caster->GetMaxHealth() - caster->GetHealth());
+        if (healthMissing <= 0)
+            return;
+
+        SpellEffIndex pctEffect = target->GetTypeId() == TYPEID_PLAYER ? EFFECT_3 : EFFECT_2;
+        SetHitDamage(CalculatePct(healthMissing, GetEffectInfo(pctEffect).CalcValue(caster)));
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_pal_holy_wrath::HandleOnHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
     }
 };
 
@@ -2085,11 +2241,13 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_ardent_defender);
     RegisterSpellScript(spell_pal_art_of_war);
     RegisterAreaTriggerAI(areatrigger_pal_ashen_hallow);
+    RegisterSpellScript(spell_pal_avengers_shield);
     RegisterSpellScript(spell_pal_awakening);
     RegisterSpellScript(spell_pal_blade_of_vengeance);
     RegisterSpellScript(spell_pal_blade_of_vengeance_aoe_target_selector);
     RegisterSpellScript(spell_pal_blessing_of_protection);
     RegisterSpellScript(spell_pal_blinding_light);
+    RegisterSpellScript(spell_pal_crusade);
     RegisterSpellScript(spell_pal_crusader_might);
     RegisterSpellScript(spell_pal_crusading_strikes);
     RegisterSpellScript(spell_pal_consecration);
@@ -2104,6 +2262,8 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_seraphim);
     RegisterSpellScript(spell_pal_greater_blessing_of_kings);
     RegisterSpellScript(spell_pal_light_of_the_martyr);
+    RegisterSpellScript(spell_pal_light_of_the_protector);
+    RegisterSpellScriptWithArgs(spell_pal_light_of_the_protector, "spell_pal_hand_of_the_protector");
     RegisterSpellScript(spell_pal_divine_hammer);
     RegisterSpellScript(spell_pal_divine_shield);
     RegisterSpellScript(spell_pal_divine_steed);
@@ -2119,12 +2279,15 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_infusion_of_light);
     RegisterSpellScript(spell_pal_moment_of_glory);
     RegisterSpellScript(spell_pal_judgment);
+    RegisterSpellScript(spell_pal_judgment_of_light);
+    RegisterSpellScript(spell_pal_judgment_of_light_proc);
     RegisterSpellScript(spell_pal_justicars_vengeance);
     RegisterSpellScript(spell_pal_holy_prism);
     RegisterSpellScript(spell_pal_holy_prism_selector);
     RegisterSpellScript(spell_pal_holy_shock);
     RegisterSpellScript(spell_pal_holy_shock_damage_visual);
     RegisterSpellScript(spell_pal_holy_shock_heal_visual);
+    RegisterSpellScript(spell_pal_holy_wrath);
     RegisterSpellScript(spell_pal_item_healing_discount);
     RegisterSpellScript(spell_pal_item_t6_trinket);
     RegisterSpellScript(spell_pal_lay_on_hands);
