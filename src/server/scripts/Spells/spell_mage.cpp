@@ -56,7 +56,9 @@ enum MageSpells
     SPELL_MAGE_ARCANE_MISSILES_VISUAL_TWO        = 79808,
     SPELL_MAGE_ARCANE_MISSILES_VISUAL_THREE      = 170572,
     SPELL_MAGE_PRESENCE_OF_MIND                  = 205025,
+    SPELL_MAGE_BLAZING_BARRIER                   = 235313,
     SPELL_MAGE_BLAZING_BARRIER_TRIGGER           = 235314,
+    SPELL_MAGE_BLAZING_SOUL                      = 235365,
     SPELL_MAGE_BLINK                             = 1953,
     SPELL_MAGE_BLIZZARD_DAMAGE                   = 190357,
     SPELL_MAGE_BLIZZARD_SLOW                     = 12486,
@@ -112,8 +114,9 @@ enum MageSpells
     SPELL_MAGE_MIRROR_IMAGE_RIGHT                = 58833,
     SPELL_MAGE_MIRROR_IMAGE_FRONT                = 58831,
     SPELL_MAGE_RADIANT_SPARK_PROC_BLOCKER        = 376105,
+    SPELL_MAGE_RAY_OF_FROST                      = 205021,
     SPELL_MAGE_RAY_OF_FROST_BONUS                = 208141,
-    SPELL_MAGE_RAY_OF_FROST_FINGERS_OF_FROST     = 269748,
+    SPELL_MAGE_RAY_OF_FROST_BUFF                 = 208166,
     SPELL_MAGE_REVERBERATE                       = 281482,
     SPELL_MAGE_RING_OF_FROST_DUMMY               = 91264,
     SPELL_MAGE_RING_OF_FROST_FREEZE              = 82691,
@@ -125,6 +128,10 @@ enum MageSpells
     SPELL_MAGE_SQUIRREL_FORM                     = 32813,
     SPELL_MAGE_SUPERNOVA                         = 157980,
     SPELL_MAGE_TEMPEST_BARRIER_ABSORB            = 382290,
+    SPELL_MAGE_UNSTABLE_MAGIC                    = 157976,
+    SPELL_MAGE_UNSTABLE_MAGIC_DAMAGE_FIRE        = 157977,
+    SPELL_MAGE_UNSTABLE_MAGIC_DAMAGE_FROST       = 157978,
+    SPELL_MAGE_UNSTABLE_MAGIC_DAMAGE_ARCANE      = 157979,
     SPELL_MAGE_WORGEN_FORM                       = 32819,
     SPELL_PET_NETHERWINDS_FATIGUED               = 160455,
     SPELL_MAGE_ICE_LANCE_TRIGGER                 = 228598,
@@ -551,6 +558,41 @@ class spell_mage_blazing_barrier : public AuraScript
     {
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_mage_blazing_barrier::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
         OnEffectProc += AuraEffectProcFn(spell_mage_blazing_barrier::HandleProc, EFFECT_1, SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
+
+// 235365 - Blazing Soul (Fire artifact trait)
+// Melee/spell hits landed within range refund a portion of the damage dealt as bonus absorb onto
+// Blazing Barrier's shield, capped at the same maximum the shield itself uses.
+class spell_mage_blazing_soul : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_BLAZING_BARRIER, SPELL_MAGE_BLAZING_SOUL });
+    }
+
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
+    {
+        Unit* caster = GetCaster();
+        Unit* victim = eventInfo.GetActionTarget();
+        if (!caster || !victim || !eventInfo.GetDamageInfo())
+            return;
+
+        int32 dist = aurEff->GetBase()->GetEffect(EFFECT_1) ? aurEff->GetBase()->GetEffect(EFFECT_1)->GetAmount() : 0;
+        if (caster->GetDistance(victim) > dist)
+            return;
+
+        if (AuraEffect* barrier = caster->GetAuraEffect(SPELL_MAGE_BLAZING_BARRIER, EFFECT_0))
+        {
+            int32 bonus = int32(eventInfo.GetDamageInfo()->GetDamage()) * aurEff->GetAmount() / 100;
+            int32 maxAmount = int32(barrier->GetBaseAmount() + caster->SpellBaseHealingBonusDone(barrier->GetSpellInfo()->GetSchoolMask()) * 7.0f);
+            barrier->ChangeAmount(std::min(barrier->GetAmount() + bonus, maxAmount));
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_mage_blazing_soul::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -2099,30 +2141,18 @@ class spell_mage_radiant_spark : public AuraScript
 };
 
 // 205021 - Ray of Frost
-class spell_mage_ray_of_frost : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo ({ SPELL_MAGE_RAY_OF_FROST_FINGERS_OF_FROST });
-    }
-
-    void HandleOnHit()
-    {
-        if (Unit* caster = GetCaster())
-            caster->CastSpell(caster, SPELL_MAGE_RAY_OF_FROST_FINGERS_OF_FROST, TRIGGERED_IGNORE_CAST_IN_PROGRESS);
-    }
-
-    void Register() override
-    {
-        OnHit += SpellHitFn(spell_mage_ray_of_frost::HandleOnHit);
-    }
-};
-
 class spell_mage_ray_of_frost_aura : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo ({ SPELL_MAGE_RAY_OF_FROST_BONUS, SPELL_MAGE_RAY_OF_FROST_FINGERS_OF_FROST });
+        return ValidateSpellInfo ({ SPELL_MAGE_RAY_OF_FROST_BONUS, SPELL_MAGE_RAY_OF_FROST_BUFF });
+    }
+
+    void HandleApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (Unit* caster = GetCaster())
+            if (!caster->HasAura(SPELL_MAGE_RAY_OF_FROST_BUFF))
+                caster->CastSpell(caster, SPELL_MAGE_RAY_OF_FROST_BUFF, true);
     }
 
     void HandleEffectPeriodic(AuraEffect const* aurEff)
@@ -2134,16 +2164,107 @@ class spell_mage_ray_of_frost_aura : public AuraScript
         }
     }
 
-    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    void Register() override
     {
-        if (Unit* caster = GetCaster())
-            caster->RemoveAurasDueToSpell(SPELL_MAGE_RAY_OF_FROST_FINGERS_OF_FROST);
+        OnEffectApply += AuraEffectApplyFn(spell_mage_ray_of_frost_aura::HandleApply, EFFECT_0, SPELL_AURA_MOD_DECREASE_SPEED, AURA_EFFECT_HANDLE_REAL);
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_mage_ray_of_frost_aura::HandleEffectPeriodic, EFFECT_1, SPELL_AURA_PERIODIC_DAMAGE);
+    }
+};
+
+// 208166 - Ray of Frost (Buff)
+// Suppresses Ray of Frost's own cooldown for the duration of the channel (so the channel itself
+// isn't blocked by its post-cast cooldown), then restores the normal cooldown and force-ends the
+// channel once the buff falls off - covers both a natural channel finish and an early interrupt.
+class spell_mage_ray_of_frost_buff : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_RAY_OF_FROST });
+    }
+
+    void HandleApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        GetTarget()->GetSpellHistory()->ResetCooldown(SPELL_MAGE_RAY_OF_FROST, true);
+    }
+
+    void HandleRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (SpellInfo const* rayOfFrostInfo = sSpellMgr->GetSpellInfo(SPELL_MAGE_RAY_OF_FROST, DIFFICULTY_NONE))
+            GetTarget()->GetSpellHistory()->StartCooldown(rayOfFrostInfo, 0);
+
+        if (GetTarget()->GetChannelSpellId() == SPELL_MAGE_RAY_OF_FROST)
+            GetTarget()->FinishSpell(CURRENT_CHANNELED_SPELL);
     }
 
     void Register() override
     {
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_mage_ray_of_frost_aura::HandleEffectPeriodic, EFFECT_1, SPELL_AURA_PERIODIC_DAMAGE);
-        AfterEffectRemove += AuraEffectRemoveFn(spell_mage_ray_of_frost_aura::OnRemove, EFFECT_1, SPELL_AURA_PERIODIC_DAMAGE, AURA_EFFECT_HANDLE_REAL);
+        OnEffectApply += AuraEffectApplyFn(spell_mage_ray_of_frost_buff::HandleApply, EFFECT_0, SPELL_AURA_ADD_PCT_MODIFIER, AURA_EFFECT_HANDLE_REAL);
+        OnEffectRemove += AuraEffectRemoveFn(spell_mage_ray_of_frost_buff::HandleRemove, EFFECT_0, SPELL_AURA_ADD_PCT_MODIFIER, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 157976 - Unstable Magic (legendary ring proc)
+// Shared script bound under three separate ScriptNames to Arcane Blast (30451), Fireball (133),
+// and the Frostbolt damage trigger (228597) - reads the equipped ring's passive Unstable Magic
+// aura for the caster's spec-specific proc chance/damage percent, then splashes bonus damage of
+// the matching school onto the same target.
+class spell_mage_unstable_magic : public SpellScript
+{
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!player)
+            return;
+
+        Aura* unstableMagic = player->GetAura(SPELL_MAGE_UNSTABLE_MAGIC);
+        if (!unstableMagic)
+            return;
+
+        int32 chance = 0;
+        switch (player->GetPrimarySpecialization())
+        {
+            case ChrSpecialization::MageArcane:
+                chance = unstableMagic->GetEffect(EFFECT_0) ? unstableMagic->GetEffect(EFFECT_0)->GetAmount() : 0;
+                break;
+            case ChrSpecialization::MageFrost:
+                chance = unstableMagic->GetEffect(EFFECT_1) ? unstableMagic->GetEffect(EFFECT_1)->GetAmount() : 0;
+                break;
+            case ChrSpecialization::MageFire:
+                chance = unstableMagic->GetEffect(EFFECT_2) ? unstableMagic->GetEffect(EFFECT_2)->GetAmount() : 0;
+                break;
+            default:
+                break;
+        }
+
+        if (!chance || !roll_chance_i(chance))
+            return;
+
+        Unit* target = GetHitUnit();
+        if (!target)
+            return;
+
+        int32 pct = unstableMagic->GetEffect(EFFECT_3) ? unstableMagic->GetEffect(EFFECT_3)->GetAmount() : 0;
+        int32 basePoints = CalculatePct(GetHitDamage(), pct);
+
+        switch (GetSpellInfo()->Id)
+        {
+            case SPELL_MAGE_ARCANE_BLAST:
+                player->CastSpell(target, SPELL_MAGE_UNSTABLE_MAGIC_DAMAGE_ARCANE, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT0, basePoints));
+                break;
+            case SPELL_MAGE_FROSTBOLT_TRIGGER:
+                player->CastSpell(target, SPELL_MAGE_UNSTABLE_MAGIC_DAMAGE_FROST, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT0, basePoints));
+                break;
+            case SPELL_MAGE_FIREBALL:
+                player->CastSpell(target, SPELL_MAGE_UNSTABLE_MAGIC_DAMAGE_FIRE, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT0, basePoints));
+                break;
+            default:
+                break;
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_mage_unstable_magic::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
     }
 };
 
@@ -2377,6 +2498,7 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_arcane_charge_clear);
     RegisterSpellScript(spell_mage_arcane_explosion);
     RegisterSpellScript(spell_mage_blazing_barrier);
+    RegisterSpellScript(spell_mage_blazing_soul);
     RegisterAreaTriggerAI(areatrigger_mage_blizzard);
     RegisterSpellScript(spell_mage_blizzard_damage);
     RegisterSpellScript(spell_mage_brain_freeze);
@@ -2435,7 +2557,11 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_pyroblast);
     RegisterSpellScript(spell_mage_pyroblast_clearcasting_driver);
     RegisterSpellScript(spell_mage_radiant_spark);
-    RegisterSpellAndAuraScriptPair(spell_mage_ray_of_frost, spell_mage_ray_of_frost_aura);
+    RegisterSpellScript(spell_mage_ray_of_frost_aura);
+    RegisterSpellScript(spell_mage_ray_of_frost_buff);
+    RegisterSpellScriptWithArgs(spell_mage_unstable_magic, "spell_mage_unstable_magic_arcane_blast");
+    RegisterSpellScriptWithArgs(spell_mage_unstable_magic, "spell_mage_unstable_magic_fireball");
+    RegisterSpellScriptWithArgs(spell_mage_unstable_magic, "spell_mage_unstable_magic_frostbolt");
     RegisterSpellScript(spell_mage_ring_of_frost);
     RegisterSpellAndAuraScriptPair(spell_mage_ring_of_frost_freeze, spell_mage_ring_of_frost_freeze_AuraScript);
     RegisterSpellScript(spell_mage_supernova);

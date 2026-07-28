@@ -105,3 +105,4 @@ sql/TDB_hotfixes_735.26972_2025_05_11.sql
 
 # Internal maintenance backlog/journal - not part of the shipped codebase
 ARGUSCORE_FIXES.md
+CLAUDE.md
