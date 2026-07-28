@@ -58,6 +58,8 @@ enum ShamanSpells
     SPELL_SHAMAN_DELUGE_TALENT                  = 200076,
     SPELL_SHAMAN_DOOM_WINDS_DAMAGE              = 469270,
     SPELL_SHAMAN_DOOM_WINDS_LEGENDARY_COOLDOWN  = 335904,
+    SPELL_SHAMAN_EARTHBIND_FOR_EARTHGRAB_TOTEM  = 116947,
+    SPELL_SHAMAN_EARTHGRAB_IMMUNITY             = 116946,
     SPELL_SHAMAN_EARTHQUAKE                     = 61882,
     SPELL_SHAMAN_EARTHQUAKE_KNOCKING_DOWN       = 77505,
     SPELL_SHAMAN_EARTHQUAKE_TICK                = 77478,
@@ -157,6 +159,7 @@ enum ShamanSpells
     SPELL_SHAMAN_STORMWEAVER_PVP_TALENT         = 410673,
     SPELL_SHAMAN_STORMWEAVER_PVP_TALENT_BUFF    = 410681,
     SPELL_SHAMAN_T29_2P_ELEMENTAL_DAMAGE_BUFF   = 394651,
+    SPELL_TOTEM_CLOUDBURST                      = 157503,
     SPELL_SHAMAN_THORIMS_INVOCATION             = 384444,
     SPELL_SHAMAN_TIDAL_WAVES                    = 53390,
     SPELL_SHAMAN_TOTEMIC_POWER_ARMOR            = 28827,
@@ -694,6 +697,119 @@ class spell_sha_converging_storms : public SpellScript
     void Register() override
     {
         OnEffectHit += SpellEffectFn(spell_sha_converging_storms::TriggerBuff, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 157503 - Cloudburst Totem
+// Splits its heal evenly across all targets hit.
+class spell_sha_cloudburst : public SpellScript
+{
+    void CountTargets(std::list<WorldObject*>& targets)
+    {
+        _targetCount = uint32(targets.size());
+    }
+
+    void HandleHeal(SpellEffIndex /*effIndex*/) const
+    {
+        if (_targetCount)
+            SetHitHeal(GetHitHeal() / _targetCount);
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_sha_cloudburst::CountTargets, EFFECT_0, TARGET_UNIT_DEST_AREA_ALLY);
+        OnEffectHitTarget += SpellEffectFn(spell_sha_cloudburst::HandleHeal, EFFECT_0, SPELL_EFFECT_HEAL);
+    }
+
+private:
+    uint32 _targetCount = 0;
+};
+
+// 157504 - Cloudburst Totem (storage effect)
+// While active, stores a percentage (read from 157503's own EFFECT_0, which carries no other use
+// of its own) of the shaman's healing into this aura's own accumulator, then releases the total
+// as a single burst heal via 157503 (which itself splits it across nearby allies) when it ends.
+class spell_sha_cloudburst_effect : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_TOTEM_CLOUDBURST }) && ValidateSpellEffect({ { SPELL_TOTEM_CLOUDBURST, EFFECT_0 } });
+    }
+
+    void OnProc(AuraEffect* aurEff, ProcEventInfo& eventInfo) const
+    {
+        PreventDefaultAction();
+
+        HealInfo* healInfo = eventInfo.GetHealInfo();
+        if (!healInfo || !healInfo->GetHeal())
+            return;
+
+        int32 storagePct = sSpellMgr->AssertSpellInfo(SPELL_TOTEM_CLOUDBURST, DIFFICULTY_NONE)->GetEffect(EFFECT_0).CalcValue();
+        aurEff->ChangeAmount(aurEff->GetAmount() + CalculatePct(int32(healInfo->GetHeal()), storagePct));
+    }
+
+    void HandleRemove(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/) const
+    {
+        Unit* owner = GetUnitOwner();
+        int32 amount = aurEff->GetAmount();
+        if (!owner || amount <= 0)
+            return;
+
+        owner->CastSpell(owner, SPELL_TOTEM_CLOUDBURST, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_FULL_MASK,
+            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, amount } }
+        });
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_sha_cloudburst_effect::OnProc, EFFECT_0, SPELL_AURA_DUMMY);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_sha_cloudburst_effect::HandleRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 202192 - Resonance Totem
+class spell_sha_resonance_effect : public AuraScript
+{
+    void HandlePeriodic(AuraEffect const* /*aurEff*/) const
+    {
+        Unit* totem = GetCaster();
+        if (Unit* owner = totem ? totem->GetOwner() : nullptr)
+            owner->ModifyPower(POWER_MAELSTROM, 1);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_sha_resonance_effect::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_ENERGIZE);
+    }
+};
+
+// 51485 - Earthgrab Totem
+// The first root a target takes grants a DR-style immunity; while immune, further hits apply
+// Earthbind (a snare) instead of re-rooting them.
+class spell_sha_earthgrab : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_SHAMAN_EARTHGRAB_IMMUNITY, SPELL_SHAMAN_EARTHBIND_FOR_EARTHGRAB_TOTEM });
+    }
+
+    void HandleOnHit() const
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        if (target->HasAura(SPELL_SHAMAN_EARTHGRAB_IMMUNITY, caster->GetGUID()))
+            caster->CastSpell(target, SPELL_SHAMAN_EARTHBIND_FOR_EARTHGRAB_TOTEM, true);
+        else
+            caster->CastSpell(target, SPELL_SHAMAN_EARTHGRAB_IMMUNITY, true);
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_sha_earthgrab::HandleOnHit);
     }
 };
 
@@ -3644,6 +3760,10 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_chain_lightning_crash_lightning);
     RegisterSpellScript(spell_sha_chain_lightning_energize);
     RegisterSpellScript(spell_sha_chain_lightning_overload);
+    RegisterSpellScript(spell_sha_cloudburst);
+    RegisterSpellScript(spell_sha_cloudburst_effect);
+    RegisterSpellScript(spell_sha_resonance_effect);
+    RegisterSpellScript(spell_sha_earthgrab);
     RegisterSpellScript(spell_sha_converging_storms);
     RegisterSpellScriptWithArgs(spell_sha_delayed_stormstrike_mod_charge_drop_proc, "spell_sha_converging_storms_buff");
     RegisterSpellScript(spell_sha_crash_lightning);
