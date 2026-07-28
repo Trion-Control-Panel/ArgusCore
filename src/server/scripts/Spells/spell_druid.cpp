@@ -47,6 +47,7 @@ enum DruidSpells
     SPELL_DRUID_BALANCE_T10_BONUS              = 70718,
     SPELL_DRUID_BALANCE_T10_BONUS_PROC         = 70721,
     SPELL_DRUID_BEAR_FORM                      = 5487,
+    SPELL_DRUID_BEARFORM_OVERRIDE              = 106829,
     SPELL_DRUID_BLESSING_OF_CENARIUS           = 40452,
     SPELL_DRUID_BLESSING_OF_ELUNE              = 40446,
     SPELL_DRUID_BLESSING_OF_REMULOS            = 40445,
@@ -116,6 +117,7 @@ enum DruidSpells
     SPELL_DRUID_MANGLE_TALENT                  = 231064,
     SPELL_DRUID_MAIM_STUN                      = 203123,
     SPELL_DRUID_MASS_ENTANGLEMENT              = 102359,
+    SPELL_DRUID_MOONFIRE_CAT                   = 155625,
     SPELL_DRUID_MOONFIRE_DAMAGE                = 164812,
     SPELL_DRUID_NATURES_GRACE_TALENT           = 450347,
     SPELL_DRUID_NEW_MOON                       = 274281,
@@ -124,6 +126,7 @@ enum DruidSpells
     SPELL_DRUID_PREDATORY_SWIFTNESS            = 16974,
     SPELL_DRUID_PREDATORY_SWIFTNESS_AURA       = 69369,
     SPELL_DRUID_PROWL                          = 5215,
+    SPELL_DRUID_RAKE                           = 1822,
     SPELL_DRUID_RAKE_STUN                      = 163505,
     SPELL_DRUID_REGROWTH                       = 8936,
     SPELL_DRUID_REJUVENATION                   = 774,
@@ -139,6 +142,8 @@ enum DruidSpells
     SPELL_DRUID_SKULL_BASH_INTERRUPT           = 93985,
     SPELL_DRUID_SPRING_BLOSSOMS                = 207385,
     SPELL_DRUID_SPRING_BLOSSOMS_HEAL           = 207386,
+    SPELL_DRUID_STAMPEDING_ROAR                = 106898,
+    SPELL_DRUID_STAMPEDING_ROAR_BEAR_OVERRIDE  = 106899,
     SPELL_DRUID_STAR_BURST                     = 356474,
     SPELL_DRUID_SUNFIRE_DAMAGE                 = 164815,
     SPELL_DRUID_SURVIVAL_INSTINCTS             = 50322,
@@ -381,6 +386,42 @@ class spell_dru_bristling_fur : public AuraScript
     void Register() override
     {
         OnEffectProc += AuraEffectProcFn(spell_dru_bristling_fur::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 5487 - Bear Form
+class spell_dru_bear_form : public AuraScript
+{
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        caster->CastSpell(caster, SPELL_DRUID_BEARFORM_OVERRIDE, true);
+
+        Player* player = caster->ToPlayer();
+        if (player && player->HasSpell(SPELL_DRUID_STAMPEDING_ROAR))
+            caster->CastSpell(caster, SPELL_DRUID_STAMPEDING_ROAR_BEAR_OVERRIDE, true);
+    }
+
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        caster->RemoveAurasDueToSpell(SPELL_DRUID_BEARFORM_OVERRIDE);
+
+        Player* player = caster->ToPlayer();
+        if (player && player->HasSpell(SPELL_DRUID_STAMPEDING_ROAR))
+            caster->RemoveAurasDueToSpell(SPELL_DRUID_STAMPEDING_ROAR_BEAR_OVERRIDE);
+    }
+
+    void Register() override
+    {
+        OnEffectApply += AuraEffectApplyFn(spell_dru_bear_form::OnApply, EFFECT_0, SPELL_AURA_MOD_SHAPESHIFT, AURA_EFFECT_HANDLE_REAL);
+        OnEffectRemove += AuraEffectRemoveFn(spell_dru_bear_form::OnRemove, EFFECT_0, SPELL_AURA_MOD_SHAPESHIFT, AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -1533,6 +1574,24 @@ class spell_dru_omen_of_clarity_restoration : public AuraScript
     void Register() override
     {
         DoCheckEffectProc += AuraCheckEffectProcFn(spell_dru_omen_of_clarity_restoration::CheckProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
+
+// 159286 - Primal Fury
+class spell_dru_primal_fury : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        bool spellCanProc = eventInfo.GetSpellInfo() &&
+            (eventInfo.GetSpellInfo()->Id == SPELL_DRUID_SHRED || eventInfo.GetSpellInfo()->Id == SPELL_DRUID_RAKE ||
+             eventInfo.GetSpellInfo()->Id == SPELL_DRUID_SWIPE_CAT || eventInfo.GetSpellInfo()->Id == SPELL_DRUID_MOONFIRE_CAT);
+
+        return spellCanProc && (eventInfo.GetHitMask() & PROC_HIT_CRITICAL);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_dru_primal_fury::CheckProc);
     }
 };
 
@@ -2708,6 +2767,7 @@ void AddSC_druid_spell_scripts()
     RegisterSpellScript(spell_dru_berserk);
     RegisterSpellScript(spell_dru_brambles);
     RegisterSpellScript(spell_dru_bristling_fur);
+    RegisterSpellScript(spell_dru_bear_form);
     RegisterSpellScript(spell_dru_cat_form);
     RegisterSpellScript(spell_dru_celestial_alignment);
     RegisterSpellScript(spell_dru_cultivation);
@@ -2747,6 +2807,7 @@ void AddSC_druid_spell_scripts()
     RegisterSpellScriptWithArgs(spell_dru_new_moon, "spell_dru_new_moon", Optional<DruidSpells>(SPELL_DRUID_NEW_MOON_OVERRIDE), Optional<DruidSpells>());
     RegisterSpellScript(spell_dru_omen_of_clarity);
     RegisterSpellScript(spell_dru_omen_of_clarity_restoration);
+    RegisterSpellScript(spell_dru_primal_fury);
     RegisterSpellScript(spell_dru_power_of_the_archdruid);
     RegisterSpellScript(spell_dru_maim);
     RegisterSpellScriptWithArgs(spell_dru_predatory_swiftness, "spell_dru_predatory_swiftness_maim");
