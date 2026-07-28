@@ -53,7 +53,10 @@ enum DruidSpells
     SPELL_DRUID_BLESSING_OF_THE_CLAW           = 28750,
     SPELL_DRUID_BLOOD_FRENZY_AURA              = 203962,
     SPELL_DRUID_BLOOD_FRENZY_RAGE_GAIN         = 203961,
+    SPELL_DRUID_BLOODTALONS                    = 155672,
+    SPELL_DRUID_BLOODTALONS_AURA               = 145152,
     SPELL_DRUID_BRAMBLES_DAMAGE_AURA           = 213709,
+    SPELL_DRUID_BRUTAL_SLASH                   = 202028,
     SPELL_DRUID_BRAMBLES_PASSIVE               = 203953,
     SPELL_DRUID_BRAMBLES_REFLECT               = 203958,
     SPELL_DRUID_BRISTLING_FUR_GAIN_RAGE        = 204031,
@@ -118,6 +121,8 @@ enum DruidSpells
     SPELL_DRUID_NEW_MOON                       = 274281,
     SPELL_DRUID_NEW_MOON_OVERRIDE              = 274295,
     SPELL_DRUID_POWER_OF_THE_ARCHDRUID         = 392302,
+    SPELL_DRUID_PREDATORY_SWIFTNESS            = 16974,
+    SPELL_DRUID_PREDATORY_SWIFTNESS_AURA       = 69369,
     SPELL_DRUID_PROWL                          = 5215,
     SPELL_DRUID_RAKE_STUN                      = 163505,
     SPELL_DRUID_REGROWTH                       = 8936,
@@ -127,6 +132,7 @@ enum DruidSpells
     SPELL_DRUID_RESTORATION_T10_2P_BONUS       = 70658,
     SPELL_DRUID_SAVAGE_ROAR                    = 62071,
     SPELL_DRUID_SHRED                          = 5221,
+    SPELL_DRUID_SWIPE_CAT                      = 106785,
     SPELL_DRUID_SHOOTING_STARS                 = 202342,
     SPELL_DRUID_SHOOTING_STARS_DAMAGE          = 202497,
     SPELL_DRUID_SKULL_BASH_CHARGE              = 221514,
@@ -1602,6 +1608,91 @@ class spell_dru_maim : public SpellScript
     }
 };
 
+// 16974 - Predatory Swiftness
+// Bound to the finishers that can trigger it: Maim (22570), Ferocious Bite (22568), Rip (1079),
+// Savage Roar (52610). Chance to proc scales with combo points spent (20% per point).
+class spell_dru_predatory_swiftness : public SpellScript
+{
+    SpellCastResult CheckCast()
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!player)
+            return SPELL_FAILED_DONT_REPORT;
+
+        if (!player->GetPower(POWER_COMBO_POINTS))
+            return SPELL_FAILED_NO_COMBO_POINTS;
+
+        return SPELL_CAST_OK;
+    }
+
+    bool Load() override
+    {
+        _comboPoints = GetCaster() ? uint8(GetCaster()->GetPower(POWER_COMBO_POINTS)) : 0;
+        return true;
+    }
+
+    void HandleAfterHit()
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!player)
+            return;
+
+        if (player->HasAura(SPELL_DRUID_PREDATORY_SWIFTNESS) && roll_chance_i(20 * _comboPoints))
+            player->CastSpell(player, SPELL_DRUID_PREDATORY_SWIFTNESS_AURA, true);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_dru_predatory_swiftness::CheckCast);
+        AfterHit += SpellHitFn(spell_dru_predatory_swiftness::HandleAfterHit);
+    }
+
+private:
+    uint8 _comboPoints = 0;
+};
+
+// 69369 - Predatory Swiftness (proc buff)
+// Bound to the spells it grants a free instant/any-form cast to: Entangling Roots (339),
+// Rebirth (20484), Regrowth (8936). Consumes the buff once one of them is actually cast.
+class spell_dru_predatory_swiftness_aura : public SpellScript
+{
+    void HandleAfterHit()
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!player)
+            return;
+
+        if (player->HasAura(SPELL_DRUID_PREDATORY_SWIFTNESS_AURA))
+            player->RemoveAurasDueToSpell(SPELL_DRUID_PREDATORY_SWIFTNESS_AURA);
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_dru_predatory_swiftness_aura::HandleAfterHit);
+    }
+};
+
+// 155672 - Bloodtalons
+// Bound to Regrowth (8936). Grants a stacking damage/healing buff each time Regrowth is cast
+// while Bloodtalons' own proc condition is active.
+class spell_dru_bloodtalons : public SpellScript
+{
+    void HandleOnHit()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (caster->HasAura(SPELL_DRUID_BLOODTALONS))
+            caster->CastSpell(caster, SPELL_DRUID_BLOODTALONS_AURA, true);
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_dru_bloodtalons::HandleOnHit);
+    }
+};
+
 // 5215 - Prowl
 class spell_dru_prowl : public spell_dru_base_transformer
 {
@@ -1778,6 +1869,92 @@ class spell_dru_shooting_stars : public AuraScript
     {
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_dru_shooting_stars::OnTick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
+};
+
+// 106785 - Swipe (Cat Form)
+class spell_dru_swipe : public SpellScript
+{
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        int32 damage = GetHitDamage();
+        uint8 casterLevel = caster->GetLevelForTarget(caster);
+
+        // Prevents awarding multiple combo points when multiple targets are hit by Swipe's AoE
+        if (_awardComboPoint)
+            caster->ModifyPower(POWER_COMBO_POINTS, int32(sSpellMgr->AssertSpellInfo(SPELL_DRUID_SWIPE_CAT, DIFFICULTY_NONE)->GetEffect(EFFECT_0).BasePoints));
+
+        // Against a bleeding target, deals bonus damage (value from spell data)
+        if (casterLevel >= 44 && target->HasAuraState(AURA_STATE_BLEED))
+            AddPct(damage, sSpellMgr->AssertSpellInfo(SPELL_DRUID_SWIPE_CAT, DIFFICULTY_NONE)->GetEffect(EFFECT_1).BasePoints);
+
+        SetHitDamage(damage);
+        _awardComboPoint = false;
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dru_swipe::HandleOnHit, EFFECT_1, SPELL_EFFECT_DUMMY);
+    }
+
+private:
+    bool _awardComboPoint = true;
+};
+
+// 202028 - Brutal Slash
+class spell_dru_brutal_slash : public SpellScript
+{
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        // Prevents awarding multiple combo points when multiple targets are hit by Brutal Slash's AoE
+        if (_awardComboPoint)
+            caster->ModifyPower(POWER_COMBO_POINTS, int32(sSpellMgr->AssertSpellInfo(SPELL_DRUID_SWIPE_CAT, DIFFICULTY_NONE)->GetEffect(EFFECT_0).BasePoints));
+
+        _awardComboPoint = false;
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dru_brutal_slash::HandleOnHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+
+private:
+    bool _awardComboPoint = true;
+};
+
+// 106830 - Thrash (Cat Form)
+class spell_dru_thrash_cat : public SpellScript
+{
+    void HandleOnEffectHitTarget(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        // Prevents awarding multiple combo points when multiple targets are hit by Thrash's AoE
+        if (_awardComboPoint)
+            caster->ModifyPower(POWER_COMBO_POINTS, 1);
+
+        _awardComboPoint = false;
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dru_thrash_cat::HandleOnEffectHitTarget, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+
+private:
+    bool _awardComboPoint = true;
 };
 
 // 5221 - Shred
@@ -2572,11 +2749,22 @@ void AddSC_druid_spell_scripts()
     RegisterSpellScript(spell_dru_omen_of_clarity_restoration);
     RegisterSpellScript(spell_dru_power_of_the_archdruid);
     RegisterSpellScript(spell_dru_maim);
+    RegisterSpellScriptWithArgs(spell_dru_predatory_swiftness, "spell_dru_predatory_swiftness_maim");
+    RegisterSpellScriptWithArgs(spell_dru_predatory_swiftness, "spell_dru_predatory_swiftness_ferocious_bite");
+    RegisterSpellScriptWithArgs(spell_dru_predatory_swiftness, "spell_dru_predatory_swiftness_rip");
+    RegisterSpellScriptWithArgs(spell_dru_predatory_swiftness, "spell_dru_predatory_swiftness_savage_roar");
+    RegisterSpellScriptWithArgs(spell_dru_predatory_swiftness_aura, "spell_dru_predatory_swiftness_aura_entangling_roots");
+    RegisterSpellScriptWithArgs(spell_dru_predatory_swiftness_aura, "spell_dru_predatory_swiftness_aura_rebirth");
+    RegisterSpellScriptWithArgs(spell_dru_predatory_swiftness_aura, "spell_dru_predatory_swiftness_aura_regrowth");
+    RegisterSpellScript(spell_dru_bloodtalons);
     RegisterSpellScript(spell_dru_prowl);
     RegisterSpellScript(spell_dru_rake);
     RegisterSpellScript(spell_dru_rip);
     RegisterSpellAndAuraScriptPair(spell_dru_savage_roar, spell_dru_savage_roar_aura);
     RegisterSpellScript(spell_dru_shooting_stars);
+    RegisterSpellScript(spell_dru_swipe);
+    RegisterSpellScript(spell_dru_brutal_slash);
+    RegisterSpellScript(spell_dru_thrash_cat);
     RegisterSpellScript(spell_dru_shred);
     RegisterSpellScript(spell_dru_skull_bash);
     RegisterSpellScript(spell_dru_spring_blossoms);
