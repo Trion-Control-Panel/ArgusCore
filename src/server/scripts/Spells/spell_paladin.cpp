@@ -81,10 +81,12 @@ enum PaladinSpells
     SPELL_PALADIN_EXECUTION_SENTENCE_8_SECONDS   = 386579,
     SPELL_PALADIN_EXECUTIONERS_WILL              = 406940,
     SPELL_PALADIN_EYE_FOR_AN_EYE_TRIGGERED       = 205202,
+    SPELL_PALADIN_FERVENT_MARTYR_BUFF            = 223316,
     SPELL_PALADIN_FINAL_STAND                    = 204077,
     SPELL_PALADIN_FINAL_STAND_EFFECT             = 204079,
     SPELL_PALADIN_FINAL_VERDICT                  = 383329,
     SPELL_PALADIN_FORBEARANCE                    = 25771,
+    SPELL_PALADIN_GREATER_BLESSING_OF_KINGS      = 203538,
     SPELL_PALADIN_GUARDIAN_OF_ANCIENT_KINGS      = 86659,
     SPELL_PALADIN_HAMMER_OF_JUSTICE              = 853,
     SPELL_PALADIN_HAMMER_OF_THE_RIGHTEOUS_AOE    = 88263,
@@ -113,6 +115,7 @@ enum PaladinSpells
     SPELL_PALADIN_JUDGMENT_PROT_RET_R3           = 315867,
     SPELL_PALADIN_LIGHT_OF_DAWN                  = 85222,
     SPELL_PALADIN_LIGHT_HAMMER_COSMETIC          = 122257,
+    SPELL_PALADIN_LIGHT_OF_THE_MARTYR_DAMAGE     = 196917,
     SPELL_PALADIN_LIGHT_HAMMER_DAMAGE            = 114919,
     SPELL_PALADIN_LIGHT_HAMMER_HEALING           = 119952,
     SPELL_PALADIN_LIGHT_HAMMER_PERIODIC          = 114918,
@@ -732,6 +735,82 @@ class spell_pal_seraphim : public SpellScript
     {
         OnCheckCast += SpellCheckCastFn(spell_pal_seraphim::CheckCast);
         OnEffectHitTarget += SpellEffectFn(spell_pal_seraphim::HandleDummy, EFFECT_1, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 203538 - Greater Blessing of Kings
+// A periodically-refilling absorb shield, capped at 2.7x the caster's spell power.
+class spell_pal_greater_blessing_of_kings : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PALADIN_GREATER_BLESSING_OF_KINGS });
+    }
+
+    bool Load() override
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !caster->IsPlayer())
+            return false;
+
+        maxAbsorbAmount = uint32(2.7f * caster->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_ALL));
+        leftAbsorbAmount = maxAbsorbAmount;
+        return true;
+    }
+
+    void OnTick(AuraEffect const* /*aurEff*/)
+    {
+        leftAbsorbAmount = maxAbsorbAmount;
+    }
+
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = -1;
+    }
+
+    void Absorb(AuraEffect* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        absorbAmount = std::min(dmgInfo.GetDamage(), leftAbsorbAmount);
+        leftAbsorbAmount -= absorbAmount;
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_pal_greater_blessing_of_kings::OnTick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pal_greater_blessing_of_kings::CalculateAmount, EFFECT_1, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_pal_greater_blessing_of_kings::Absorb, EFFECT_1);
+    }
+
+private:
+    uint32 leftAbsorbAmount = 0;
+    uint32 maxAbsorbAmount = 0;
+};
+
+// 183998 - Light of the Martyr
+// Heals the target, then deals self-damage equal to 50% of the healing done.
+class spell_pal_light_of_the_martyr : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PALADIN_LIGHT_OF_THE_MARTYR_DAMAGE });
+    }
+
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        int32 dmg = int32(GetHitHeal() / 2);
+        caster->CastSpell(caster, SPELL_PALADIN_LIGHT_OF_THE_MARTYR_DAMAGE, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT0, dmg));
+
+        if (caster->HasAura(SPELL_PALADIN_FERVENT_MARTYR_BUFF))
+            caster->RemoveAurasDueToSpell(SPELL_PALADIN_FERVENT_MARTYR_BUFF);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_pal_light_of_the_martyr::HandleOnHit, EFFECT_0, SPELL_EFFECT_HEAL);
     }
 };
 
@@ -2002,6 +2081,8 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_divine_intervention);
     RegisterSpellScript(spell_pal_blade_of_wrath_proc);
     RegisterSpellScript(spell_pal_seraphim);
+    RegisterSpellScript(spell_pal_greater_blessing_of_kings);
+    RegisterSpellScript(spell_pal_light_of_the_martyr);
     RegisterSpellScript(spell_pal_divine_shield);
     RegisterSpellScript(spell_pal_divine_steed);
     RegisterSpellScript(spell_pal_divine_storm);
