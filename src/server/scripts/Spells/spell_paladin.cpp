@@ -63,6 +63,7 @@ enum PaladinSpells
     SPELL_PALADIN_CRUSADING_STRIKES_ENERGIZE     = 406834,
     SPELL_PALADIN_DIVINE_AUXILIARY_ENERGIZE      = 408386,
     SPELL_PALADIN_DIVINE_AUXILIARY_TALENT        = 406158,
+    SPELL_PALADIN_DIVINE_HAMMER                  = 198034,
     SPELL_PALADIN_DIVINE_INTERVENTION_HEAL       = 184250,
     SPELL_PALADIN_DIVINE_PURPOSE_TRIGGERED       = 223819,
     SPELL_PALADIN_DIVINE_SHIELD                  = 642,
@@ -811,6 +812,26 @@ class spell_pal_light_of_the_martyr : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_pal_light_of_the_martyr::HandleOnHit, EFFECT_0, SPELL_EFFECT_HEAL);
+    }
+};
+
+// 198034 - Divine Hammer
+class spell_pal_divine_hammer : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PALADIN_DIVINE_HAMMER });
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        if (Unit* caster = GetCaster())
+            caster->ModifyPower(POWER_HOLY_POWER, 2);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_pal_divine_hammer::HandleDummy, EFFECT_1, SPELL_EFFECT_DUMMY);
     }
 };
 
@@ -2083,6 +2104,7 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_seraphim);
     RegisterSpellScript(spell_pal_greater_blessing_of_kings);
     RegisterSpellScript(spell_pal_light_of_the_martyr);
+    RegisterSpellScript(spell_pal_divine_hammer);
     RegisterSpellScript(spell_pal_divine_shield);
     RegisterSpellScript(spell_pal_divine_steed);
     RegisterSpellScript(spell_pal_divine_storm);
