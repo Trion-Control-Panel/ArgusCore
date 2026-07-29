@@ -51,7 +51,6 @@ enum PaladinSpells
     SPELL_PALADIN_BEACON_OF_LIGHT_PROC_AURA      = 53651,
     SPELL_PALADIN_BEACON_OF_VIRTUE               = 200025,
     SPELL_PALADIN_BLADE_OF_JUSTICE               = 184575,
-    SPELL_PALADIN_BLADE_OF_VENGEANCE             = 403826,
     SPELL_PALADIN_BLESSING_OF_FREEDOM            = 1044,
     SPELL_PALADIN_BLINDING_LIGHT_EFFECT          = 105421,
     SPELL_PALADIN_CONCENTRACTION_AURA            = 19746,
@@ -60,7 +59,6 @@ enum PaladinSpells
     SPELL_PALADIN_CONSECRATION                   = 26573,
     SPELL_PALADIN_CONSECRATION_DAMAGE            = 81297,
     SPELL_PALADIN_CONSECRATION_PROTECTION_AURA   = 188370,
-    SPELL_PALADIN_CRUSADING_STRIKES_ENERGIZE     = 406834,
     SPELL_PALADIN_DIVINE_AUXILIARY_ENERGIZE      = 408386,
     SPELL_PALADIN_DIVINE_AUXILIARY_TALENT        = 406158,
     SPELL_PALADIN_DIVINE_HAMMER                  = 198034,
@@ -135,14 +133,6 @@ enum PaladinSpells
     SPELL_PALADIN_T30_2P_HEARTFIRE_DAMAGE        = 408399,
     SPELL_PALADIN_T30_2P_HEARTFIRE_HEAL          = 408400,
     SPELL_PALADIN_ZEAL_AURA                      = 269571
-};
-
-enum PaladinCovenantSpells
-{
-    SPELL_PALADIN_ASHEN_HALLOW                   = 316958,
-    SPELL_PALADIN_ASHEN_HALLOW_DAMAGE            = 317221,
-    SPELL_PALADIN_ASHEN_HALLOW_HEAL              = 317223,
-    SPELL_PALADIN_ASHEN_HALLOW_ALLOW_HAMMER      = 330382
 };
 
 enum PaladinSpellVisualKit
@@ -252,61 +242,6 @@ class spell_pal_art_of_war : public AuraScript
     }
 };
 
-// 19042 - Ashen Hallow
-struct areatrigger_pal_ashen_hallow : AreaTriggerAI
-{
-    areatrigger_pal_ashen_hallow(AreaTrigger* areatrigger) : AreaTriggerAI(areatrigger) {}
-
-    void RefreshPeriod()
-    {
-        if (Unit* caster = at->GetCaster())
-        {
-            if (AuraEffect const* ashen = caster->GetAuraEffect(SPELL_PALADIN_ASHEN_HALLOW, EFFECT_1))
-                _period = Milliseconds(ashen->GetPeriod());
-        }
-    }
-
-    void OnCreate(Spell const* /*creatingSpell*/) override
-    {
-        RefreshPeriod();
-        _refreshTimer = _period;
-    }
-
-    void OnUpdate(uint32 diff) override
-    {
-        _refreshTimer -= Milliseconds(diff);
-
-        while (_refreshTimer <= 0s)
-        {
-            if (Unit* caster = at->GetCaster())
-            {
-                caster->CastSpell(at->GetPosition(), SPELL_PALADIN_ASHEN_HALLOW_HEAL);
-                caster->CastSpell(at->GetPosition(), SPELL_PALADIN_ASHEN_HALLOW_DAMAGE);
-            }
-
-            RefreshPeriod();
-
-            _refreshTimer += _period;
-        }
-    }
-
-    void OnUnitEnter(Unit* unit) override
-    {
-        if (unit->GetGUID() == at->GetCasterGuid())
-            unit->CastSpell(unit, SPELL_PALADIN_ASHEN_HALLOW_ALLOW_HAMMER, true);
-    }
-
-    void OnUnitExit(Unit* unit) override
-    {
-        if (unit->GetGUID() == at->GetCasterGuid())
-            unit->RemoveAura(SPELL_PALADIN_ASHEN_HALLOW_ALLOW_HAMMER);
-    }
-
-private:
-    Milliseconds _refreshTimer;
-    Milliseconds _period;
-};
-
 // 31935 - Avenger's Shield
 // First Avenger (203776) boosts the damage dealt to the primary (selected) target.
 class spell_pal_avengers_shield : public SpellScript
@@ -373,46 +308,6 @@ class spell_pal_awakening : public AuraScript
     {
         DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_awakening::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
         OnEffectProc += AuraEffectProcFn(spell_pal_awakening::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
-
-// Called by 184575 - Blade of Justice
-class spell_pal_blade_of_vengeance : public SpellScript
-{
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellInfo({ SPELL_PALADIN_BLADE_OF_VENGEANCE })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_2 } })
-            && spellInfo->GetEffect(EFFECT_2).IsEffect(SPELL_EFFECT_TRIGGER_SPELL);
-    }
-
-    bool Load() override
-    {
-        return !GetCaster()->HasAura(SPELL_PALADIN_BLADE_OF_VENGEANCE);
-    }
-
-    static void PreventProc(SpellScript const&, WorldObject*& target)
-    {
-        target = nullptr;
-    }
-
-    void Register() override
-    {
-        OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_pal_blade_of_vengeance::PreventProc, EFFECT_2, TARGET_UNIT_TARGET_ENEMY);
-    }
-};
-
-// 404358 - Blade of Justice
-class spell_pal_blade_of_vengeance_aoe_target_selector : public SpellScript
-{
-    void RemoveExplicitTarget(std::list<WorldObject*>& targets) const
-    {
-        targets.remove(GetExplTargetWorldObject());
-    }
-
-    void Register() override
-    {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pal_blade_of_vengeance_aoe_target_selector::RemoveExplicitTarget, EFFECT_0, TARGET_UNIT_DEST_AREA_ENEMY);
     }
 };
 
@@ -566,31 +461,6 @@ class spell_pal_crusader_might : public AuraScript
     void Register() override
     {
         OnEffectProc += AuraEffectProcFn(spell_pal_crusader_might::HandleEffectProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
-
-// 406833 - Crusading Strikes
-class spell_pal_crusading_strikes : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_PALADIN_CRUSADING_STRIKES_ENERGIZE });
-    }
-
-    void HandleEffectProc(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/)
-    {
-        if (GetStackAmount() == 2)
-        {
-            GetTarget()->CastSpell(GetTarget(), SPELL_PALADIN_CRUSADING_STRIKES_ENERGIZE, aurEff);
-
-            // this spell has weird proc order dependency set up in db2 data so we do removal manually
-            Remove();
-        }
-    }
-
-    void Register() override
-    {
-        AfterEffectApply += AuraEffectApplyFn(spell_pal_crusading_strikes::HandleEffectProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
     }
 };
 
@@ -2240,16 +2110,12 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_a_just_reward);
     RegisterSpellScript(spell_pal_ardent_defender);
     RegisterSpellScript(spell_pal_art_of_war);
-    RegisterAreaTriggerAI(areatrigger_pal_ashen_hallow);
     RegisterSpellScript(spell_pal_avengers_shield);
     RegisterSpellScript(spell_pal_awakening);
-    RegisterSpellScript(spell_pal_blade_of_vengeance);
-    RegisterSpellScript(spell_pal_blade_of_vengeance_aoe_target_selector);
     RegisterSpellScript(spell_pal_blessing_of_protection);
     RegisterSpellScript(spell_pal_blinding_light);
     RegisterSpellScript(spell_pal_crusade);
     RegisterSpellScript(spell_pal_crusader_might);
-    RegisterSpellScript(spell_pal_crusading_strikes);
     RegisterSpellScript(spell_pal_consecration);
     RegisterAreaTriggerAI(areatrigger_pal_consecration);
     RegisterSpellScript(spell_pal_divine_auxiliary);
