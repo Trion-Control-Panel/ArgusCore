@@ -59,8 +59,6 @@ enum PaladinSpells
     SPELL_PALADIN_CONSECRATION                   = 26573,
     SPELL_PALADIN_CONSECRATION_DAMAGE            = 81297,
     SPELL_PALADIN_CONSECRATION_PROTECTION_AURA   = 188370,
-    SPELL_PALADIN_DIVINE_AUXILIARY_ENERGIZE      = 408386,
-    SPELL_PALADIN_DIVINE_AUXILIARY_TALENT        = 406158,
     SPELL_PALADIN_DIVINE_HAMMER                  = 198034,
     SPELL_PALADIN_DIVINE_INTERVENTION_HEAL       = 184250,
     SPELL_PALADIN_DIVINE_PURPOSE_TRIGGERED       = 223819,
@@ -461,34 +459,6 @@ class spell_pal_crusader_might : public AuraScript
     void Register() override
     {
         OnEffectProc += AuraEffectProcFn(spell_pal_crusader_might::HandleEffectProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
-
-// 406158 - Divine Auxiliary (attached to 343721 - Final Reckoning and 343527 - Execution Sentence)
-class spell_pal_divine_auxiliary : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_PALADIN_DIVINE_AUXILIARY_ENERGIZE, SPELL_PALADIN_DIVINE_AUXILIARY_TALENT });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->HasAura(SPELL_PALADIN_DIVINE_AUXILIARY_TALENT);
-    }
-
-    void HandleEnergize() const
-    {
-        Unit* caster = GetCaster();
-        caster->CastSpell(caster, SPELL_PALADIN_DIVINE_AUXILIARY_ENERGIZE, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
-    }
-
-    void Register() override
-    {
-        AfterCast += SpellCastFn(spell_pal_divine_auxiliary::HandleEnergize);
     }
 };
 
@@ -2118,7 +2088,6 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_crusader_might);
     RegisterSpellScript(spell_pal_consecration);
     RegisterAreaTriggerAI(areatrigger_pal_consecration);
-    RegisterSpellScript(spell_pal_divine_auxiliary);
     RegisterSpellScript(spell_pal_divine_purpose);
     RegisterSpellScript(spell_pal_judgement_of_the_pure);
     RegisterSpellScript(spell_pal_holy_shield);
