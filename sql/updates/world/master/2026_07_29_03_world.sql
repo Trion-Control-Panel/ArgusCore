@@ -1,0 +1,24 @@
+-- Shaman: removed the Item - Tier 29 2-piece Elemental damage buff (394651) and Echoes of Great
+-- Sundering (336217/384088) drift from three classes' damage-modifier logic - part of the ongoing
+-- Legion 7.3.5 forward-drift removal pass (see ARGUSCORE_FIXES.md). Echoes of Great Sundering is a
+-- Dragonflight 10.0.0 talent/Shadowlands legendary (web-confirmed); the "T29" tier number itself is
+-- far past Legion's T19-21 raid-tier range and is a Dragonflight Season 1 (Vault of the Incarnates)
+-- set bonus.
+--
+-- Earth Shock's entire existing script (spell_sha_earth_shock) turned out to be nothing but this
+-- T29 buff application - removed the whole class, not just the drift piece, since nothing else was
+-- in it. Earthquake's cast-time damage-multiplier snapshot script (spell_sha_earthquake) was
+-- likewise 100% built from these three drift sources (2 Echoes of Great Sundering variants + T29) -
+-- removed entirely; its own AreaTrigger already defaults the multiplier to 1.0x when no custom arg
+-- is set, so removing the snapshot script doesn't break anything, it just correctly stops applying
+-- bonuses that don't exist in Legion. Elemental Blast kept its real Legion mechanic (the
+-- weighted-random crit/haste/mastery buff trigger) and only had the T29-specific damage-modifier
+-- method trimmed out.
+--
+-- Database cleanup: Earth Shock (8042) had a real spell_script_names row now dangling since the
+-- whole class was removed. Earthquake's own removed class (spell_sha_earthquake, would have bound
+-- to 61882) was never actually bound in the base dump at all - already dead/inert code before this
+-- removal, nothing to clean up there. Elemental Blast's binding (117014/120588 -> the class we kept,
+-- not removed) is untouched.
+
+DELETE FROM `spell_script_names` WHERE `ScriptName` = 'spell_sha_earth_shock';

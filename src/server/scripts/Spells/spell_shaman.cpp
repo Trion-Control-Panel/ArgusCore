@@ -66,8 +66,6 @@ enum ShamanSpells
     SPELL_SHAMAN_EARTHEN_RAGE_PASSIVE           = 170374,
     SPELL_SHAMAN_EARTHEN_RAGE_PERIODIC          = 170377,
     SPELL_SHAMAN_EARTHEN_RAGE_DAMAGE            = 170379,
-    SPELL_SHAMAN_ECHOES_OF_GREAT_SUNDERING_LEGENDARY = 336217,
-    SPELL_SHAMAN_ECHOES_OF_GREAT_SUNDERING_TALENT = 384088,
     SPELL_SHAMAN_ELECTRIFIED                    = 64930,
     SPELL_SHAMAN_ELEMENTAL_BLAST                = 117014,
     SPELL_SHAMAN_ELEMENTAL_BLAST_CRIT           = 118522,
@@ -156,7 +154,6 @@ enum ShamanSpells
     SPELL_SHAMAN_STORMSURGE_PROC                = 201846,
     SPELL_SHAMAN_STORMWEAVER_PVP_TALENT         = 410673,
     SPELL_SHAMAN_STORMWEAVER_PVP_TALENT_BUFF    = 410681,
-    SPELL_SHAMAN_T29_2P_ELEMENTAL_DAMAGE_BUFF   = 394651,
     SPELL_TOTEM_CLOUDBURST                      = 157503,
     SPELL_SHAMAN_THORIMS_INVOCATION             = 384444,
     SPELL_SHAMAN_TIDAL_WAVES                    = 53390,
@@ -1114,29 +1111,6 @@ class spell_sha_earth_shield : public AuraScript
     }
 };
 
-// 8042 - Earth Shock
-class spell_sha_earth_shock : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellEffect({ { SPELL_SHAMAN_T29_2P_ELEMENTAL_DAMAGE_BUFF, EFFECT_0 } });
-    }
-
-    void AddScriptedDamageMods()
-    {
-        if (AuraEffect* t29 = GetCaster()->GetAuraEffect(SPELL_SHAMAN_T29_2P_ELEMENTAL_DAMAGE_BUFF, EFFECT_0))
-        {
-            SetHitDamage(CalculatePct(GetHitDamage(), 100 + t29->GetAmount()));
-            t29->GetBase()->Remove();
-        }
-    }
-
-    void Register() override
-    {
-        OnHit += SpellHitFn(spell_sha_earth_shock::AddScriptedDamageMods);
-    }
-};
-
 // 170374 - Earthen Rage (Passive)
 class spell_sha_earthen_rage_passive : public AuraScript
 {
@@ -1245,43 +1219,6 @@ private:
     float _damageMultiplier = 1.0f;
 };
 
-// 61882 - Earthquake
-class spell_sha_earthquake : public SpellScript
-{
-    static constexpr std::array<std::pair<uint32, SpellEffIndex>, 3> DamageBuffs =
-    { {
-        { SPELL_SHAMAN_ECHOES_OF_GREAT_SUNDERING_LEGENDARY, EFFECT_1 },
-        { SPELL_SHAMAN_ECHOES_OF_GREAT_SUNDERING_TALENT, EFFECT_0 },
-        { SPELL_SHAMAN_T29_2P_ELEMENTAL_DAMAGE_BUFF, EFFECT_0 }
-    } };
-
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellEffect(DamageBuffs);
-    }
-
-    void SnapshotDamageMultiplier(SpellEffIndex /*effIndex*/) const
-    {
-        float damageMultiplier = 1.0f;
-        for (auto const& [spellId, effect] : DamageBuffs)
-        {
-            if (AuraEffect* buff = GetCaster()->GetAuraEffect(spellId, effect))
-            {
-                AddPct(damageMultiplier, buff->GetAmount());
-                buff->GetBase()->Remove();
-            }
-        }
-
-        if (damageMultiplier != 1.0f)
-            GetSpell()->m_customArg = damageMultiplier;
-    }
-
-    void Register() override
-    {
-        OnEffectLaunch += SpellEffectFn(spell_sha_earthquake::SnapshotDamageMultiplier, EFFECT_2, SPELL_EFFECT_CREATE_AREATRIGGER);
-    }
-};
-
 // 77478 - Earthquake tick
 class spell_sha_earthquake_tick : public SpellScript
 {
@@ -1326,8 +1263,6 @@ class spell_sha_elemental_blast : public SpellScript
             SPELL_SHAMAN_ELEMENTAL_BLAST_CRIT,
             SPELL_SHAMAN_ELEMENTAL_BLAST_HASTE,
             SPELL_SHAMAN_ELEMENTAL_BLAST_MASTERY
-        }) && ValidateSpellEffect({
-            { SPELL_SHAMAN_T29_2P_ELEMENTAL_DAMAGE_BUFF, EFFECT_0 }
         });
     }
 
@@ -1351,19 +1286,9 @@ class spell_sha_elemental_blast : public SpellScript
         GetCaster()->CastSpell(GetCaster(), spellId, CastSpellExtraArgsInit{ .TriggerFlags = TRIGGERED_FULL_MASK });
     }
 
-    void AddScriptedDamageMods()
-    {
-        if (AuraEffect* t29 = GetCaster()->GetAuraEffect(SPELL_SHAMAN_T29_2P_ELEMENTAL_DAMAGE_BUFF, EFFECT_0))
-        {
-            SetHitDamage(CalculatePct(GetHitDamage(), 100 + t29->GetAmount()));
-            t29->GetBase()->Remove();
-        }
-    }
-
     void Register() override
     {
         AfterCast += SpellCastFn(spell_sha_elemental_blast::TriggerBuff);
-        OnHit += SpellHitFn(spell_sha_elemental_blast::AddScriptedDamageMods);
     }
 };
 
@@ -3630,11 +3555,9 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_earth_elemental);
     RegisterSpellScript(spell_sha_fire_elemental);
     RegisterSpellScript(spell_sha_earth_shield);
-    RegisterSpellScript(spell_sha_earth_shock);
     RegisterSpellScript(spell_sha_earthen_rage_passive);
     RegisterSpellScript(spell_sha_earthen_rage_proc_aura);
     RegisterAreaTriggerAI(areatrigger_sha_earthquake);
-    RegisterSpellScript(spell_sha_earthquake);
     RegisterSpellScript(spell_sha_earthquake_tick);
     RegisterSpellScript(spell_sha_elemental_blast);
     RegisterSpellScript(spell_sha_elemental_weapons);
