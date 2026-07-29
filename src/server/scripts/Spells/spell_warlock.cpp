@@ -498,6 +498,27 @@ class spell_warl_create_healthstone : public SpellScript
     }
 };
 
+// 34130 - Create Healthstone (Soulwell)
+// Grants a healthstone to whoever clicks the Soulwell object, same as the player's own personal
+// Create Healthstone (6201, spell_warl_create_healthstone above).
+class spell_warl_create_healthstone_soulwell : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARLOCK_CREATE_HEALTHSTONE });
+    }
+
+    void HandleScriptEffect(SpellEffIndex /*effIndex*/) const
+    {
+        GetCaster()->CastSpell(GetCaster(), SPELL_WARLOCK_CREATE_HEALTHSTONE, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_warl_create_healthstone_soulwell::HandleScriptEffect, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+};
+
 // 108416 - Dark Pact
 class spell_warl_dark_pact : public AuraScript
 {
@@ -1422,6 +1443,7 @@ enum WarlockPetSpells
     SPELL_SUCCUBUS_WHIPLASH        = 6360,
     SPELL_VOIDWALKER_SUFFERING     = 17735,
     SPELL_FELHUNTER_SPELL_LOCK     = 19647,
+    SPELL_IMP_CAUTERIZE_MASTER     = 119899,
     SPELL_FELGUARD_FELSTORM        = 89751,
     SPELL_INFERNAL_METEOR_STRIKE   = 171017,
     SPELL_DOOMGUARD_SHADOW_LOCK    = 171138
@@ -1850,6 +1872,45 @@ class spell_warl_meteor_strike : public SpellScript
     }
 };
 
+// 119905 - Cauterize Master
+// Commands an Imp guardian pet to heal the caster.
+class spell_warl_cauterize_master : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_IMP_CAUTERIZE_MASTER });
+    }
+
+    SpellCastResult CheckCast() const
+    {
+        Guardian* pet = GetCaster()->GetGuardianPet();
+        if (!pet)
+            return SPELL_FAILED_DONT_REPORT;
+
+        if (pet->GetSpellHistory()->HasCooldown(SPELL_IMP_CAUTERIZE_MASTER))
+            return SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW;
+
+        return SPELL_CAST_OK;
+    }
+
+    void HandleCast() const
+    {
+        Unit* caster = GetCaster();
+        Guardian* pet = caster->GetGuardianPet();
+        if (!pet)
+            return;
+
+        pet->CastSpell(caster, SPELL_IMP_CAUTERIZE_MASTER, true);
+        caster->GetSpellHistory()->ModifyCooldown(GetSpellInfo()->Id, 30s);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_warl_cauterize_master::CheckCast);
+        AfterCast += SpellCastFn(spell_warl_cauterize_master::HandleCast);
+    }
+};
+
 // 119909 - Whiplash
 // Commands a Succubus/Sayaad guardian pet to fear enemies at the target destination.
 class spell_warl_whiplash : public SpellScript
@@ -2104,6 +2165,7 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_chaotic_energies);
     RegisterSpellScript(spell_warl_conflagrate);
     RegisterSpellScript(spell_warl_create_healthstone);
+    RegisterSpellScript(spell_warl_create_healthstone_soulwell);
     RegisterSpellScript(spell_warl_dark_pact);
     RegisterSpellScript(spell_warl_deaths_embrace);
     RegisterSpellScript(spell_warl_deaths_embrace_dots);
@@ -2147,6 +2209,7 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_suffering);
     RegisterSpellScript(spell_warl_felstorm);
     RegisterSpellScript(spell_warl_meteor_strike);
+    RegisterSpellScript(spell_warl_cauterize_master);
     RegisterSpellScript(spell_warl_whiplash);
     RegisterSpellScript(spell_warl_summon_sayaad);
     RegisterSpellScriptWithArgs(spell_warl_t4_2p_bonus<SPELL_WARLOCK_FLAMESHADOW>, "spell_warl_t4_2p_bonus_shadow");
