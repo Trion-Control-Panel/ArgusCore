@@ -128,8 +128,6 @@ enum ShamanSpells
     SPELL_SHAMAN_MAELSTROM_WEAPON_OVERLAY_HEALS = 412692,
     SPELL_SHAMAN_MASTERY_ELEMENTAL_OVERLOAD     = 168534,
     SPELL_SHAMAN_MOLTEN_ASSAULT                 = 334033,
-    SPELL_SHAMAN_MOLTEN_THUNDER_PROC            = 469346,
-    SPELL_SHAMAN_MOLTEN_THUNDER_TALENT          = 469344,
     SPELL_SHAMAN_NATURES_GUARDIAN_COOLDOWN      = 445698,
     SPELL_SHAMAN_OVERFLOWING_MAELSTROM_AURA     = 384669,
     SPELL_SHAMAN_OVERFLOWING_MAELSTROM_TALENT   = 384149,
@@ -2497,72 +2495,6 @@ class spell_sha_molten_assault : public SpellScript
     }
 };
 
-// 469344 Molten Thunder
-class spell_sha_molten_thunder : public AuraScript
-{
-    void Register() override { }
-
-public:
-    int32 ProcCount = 0;
-};
-
-class spell_sha_molten_thunder_sundering : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_SHAMAN_MOLTEN_THUNDER_TALENT, SPELL_SHAMAN_MOLTEN_THUNDER_PROC });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->HasAura(SPELL_SHAMAN_MOLTEN_THUNDER_TALENT);
-    }
-
-    static void RemoveIncapacitateEffect(SpellScript const&, std::list<WorldObject*>& targets)
-    {
-        targets.clear();
-    }
-
-    void RollReset() const
-    {
-        Unit* shaman = GetCaster();
-        Aura const* talent = shaman->GetAura(SPELL_SHAMAN_MOLTEN_THUNDER_TALENT);
-        if (!talent)
-            return;
-
-        AuraEffect const* chanceBaseEffect = talent->GetEffect(EFFECT_1);
-        AuraEffect const* chancePerTargetEffect = talent->GetEffect(EFFECT_2);
-        AuraEffect const* targetLimitEffect = talent->GetEffect(EFFECT_3);
-        if (!chanceBaseEffect || !chancePerTargetEffect || !targetLimitEffect)
-            return;
-
-        spell_sha_molten_thunder* counterScript = talent->GetScript<spell_sha_molten_thunder>();
-        if (!counterScript)
-            return;
-
-        int32 procChance = chanceBaseEffect->GetAmount();
-        procChance += std::min<int32>(targetLimitEffect->GetAmount(), GetUnitTargetCountForEffect(EFFECT_0)) * chancePerTargetEffect->GetAmount();
-        procChance >>= counterScript->ProcCount; // Each consecutive reset reduces these chances by half
-        if (roll_chance_i(procChance))
-        {
-            shaman->CastSpell(shaman, SPELL_SHAMAN_MOLTEN_THUNDER_PROC, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringSpell = GetSpell()
-            });
-            shaman->GetSpellHistory()->ResetCooldown(GetSpellInfo()->Id, true);
-            ++counterScript->ProcCount;
-        }
-        else
-            counterScript->ProcCount = 0;
-    }
-
-    void Register() override
-    {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_sha_molten_thunder_sundering::RemoveIncapacitateEffect, EFFECT_3, TARGET_UNIT_RECT_CASTER_ENEMY);
-        AfterCast += SpellCastFn(spell_sha_molten_thunder_sundering::RollReset);
-    }
-};
-
 // 30884 - Nature's Guardian
 class spell_sha_natures_guardian : public AuraScript
 {
@@ -3740,8 +3672,6 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_mastery_elemental_overload);
     RegisterSpellScript(spell_sha_mastery_elemental_overload_proc);
     RegisterSpellScript(spell_sha_molten_assault);
-    RegisterSpellScript(spell_sha_molten_thunder);
-    RegisterSpellScript(spell_sha_molten_thunder_sundering);
     RegisterSpellScript(spell_sha_natures_guardian);
     RegisterSpellScript(spell_sha_path_of_flames_spread);
     RegisterSpellScript(spell_sha_primordial_wave);
