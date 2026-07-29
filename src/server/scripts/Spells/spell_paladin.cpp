@@ -65,10 +65,8 @@ enum PaladinSpells
     SPELL_PALADIN_DIVINE_STEED_HUMAN             = 221883,
     SPELL_PALADIN_DIVINE_STEED_DWARF             = 276111,
     SPELL_PALADIN_DIVINE_STEED_DRAENEI           = 221887,
-    SPELL_PALADIN_DIVINE_STEED_DARK_IRON_DWARF   = 276112,
     SPELL_PALADIN_DIVINE_STEED_BLOODELF          = 221886,
     SPELL_PALADIN_DIVINE_STEED_TAUREN            = 221885,
-    SPELL_PALADIN_DIVINE_STEED_ZANDALARI_TROLL   = 294133,
     SPELL_PALADIN_DIVINE_STORM_DAMAGE            = 224239,
     SPELL_PALADIN_ENDURING_LIGHT                 = 40471,
     SPELL_PALADIN_ENDURING_JUDGEMENT             = 40472,
@@ -125,8 +123,6 @@ enum PaladinSpells
     SPELL_PALADIN_SHIELD_OF_THE_RIGHTEOUS_ARMOR  = 132403,
     SPELL_PALADIN_SHIELD_OF_VENGEANCE_DAMAGE     = 184689,
     SPELL_PALADIN_TEMPLAR_VERDICT_DAMAGE         = 224266,
-    SPELL_PALADIN_T30_2P_HEARTFIRE_DAMAGE        = 408399,
-    SPELL_PALADIN_T30_2P_HEARTFIRE_HEAL          = 408400,
     SPELL_PALADIN_ZEAL_AURA                      = 269571
 };
 
@@ -141,11 +137,6 @@ enum PaladinSpellVisual
     PALADIN_VISUAL_SPELL_HOLY_SHOCK_DAMAGE_CRIT  = 83881,
     PALADIN_VISUAL_SPELL_HOLY_SHOCK_HEAL         = 83732,
     PALADIN_VISUAL_SPELL_HOLY_SHOCK_HEAL_CRIT    = 83880
-};
-
-enum PaladinSpellLabel
-{
-    SPELL_LABEL_PALADIN_T30_2P_HEARTFIRE         = 2598
 };
 
 // 31850 - Ardent Defender
@@ -777,10 +768,8 @@ class spell_pal_divine_steed : public SpellScript
             SPELL_PALADIN_DIVINE_STEED_HUMAN,
             SPELL_PALADIN_DIVINE_STEED_DWARF,
             SPELL_PALADIN_DIVINE_STEED_DRAENEI,
-            SPELL_PALADIN_DIVINE_STEED_DARK_IRON_DWARF,
             SPELL_PALADIN_DIVINE_STEED_BLOODELF,
-            SPELL_PALADIN_DIVINE_STEED_TAUREN,
-            SPELL_PALADIN_DIVINE_STEED_ZANDALARI_TROLL
+            SPELL_PALADIN_DIVINE_STEED_TAUREN
         });
     }
 
@@ -801,18 +790,12 @@ class spell_pal_divine_steed : public SpellScript
             case RACE_LIGHTFORGED_DRAENEI:
                 spellId = SPELL_PALADIN_DIVINE_STEED_DRAENEI;
                 break;
-            // case RACE_DARK_IRON_DWARF:
-            //     spellId = SPELL_PALADIN_DIVINE_STEED_DARK_IRON_DWARF;
-            //     break;
             case RACE_BLOODELF:
                 spellId = SPELL_PALADIN_DIVINE_STEED_BLOODELF;
                 break;
             case RACE_TAUREN:
                 spellId = SPELL_PALADIN_DIVINE_STEED_TAUREN;
                 break;
-            // case RACE_ZANDALARI_TROLL:
-            //     spellId = SPELL_PALADIN_DIVINE_STEED_ZANDALARI_TROLL;
-            //     break;
             default:
                 break;
         }
