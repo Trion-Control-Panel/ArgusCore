@@ -171,8 +171,6 @@ enum ShamanSpells
     SPELL_SHAMAN_UNRELENTING_STORMS_REDUCTION   = 470491,
     SPELL_SHAMAN_UNRELENTING_STORMS_TALENT      = 470490,
     SPELL_SHAMAN_UNRULY_WINDS                   = 390288,
-    SPELL_SHAMAN_VOLTAIC_BLAZE_DAMAGE           = 470057,
-    SPELL_SHAMAN_VOLTAIC_BLAZE_OVERRIDE         = 470058,
     SPELL_SHAMAN_WINDFURY_ATTACK                = 25504,
     SPELL_SHAMAN_WINDFURY_AURA                  = 319773,
     SPELL_SHAMAN_WINDFURY_ENCHANTMENT           = 334302,
@@ -3449,75 +3447,6 @@ class spell_sha_unrelenting_storms : public SpellScript
     }
 };
 
-// 470057 - Voltaic Blaze
-class spell_sha_voltaic_blaze : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return spell_sha_maelstrom_weapon_base::Validate();
-    }
-
-    void ApplyFlameShock(SpellEffIndex /*effIndex*/) const
-    {
-        Unit* caster = GetCaster();
-        caster->m_Events.AddEventAtOffset([caster, targets = CastSpellTargetArg(GetHitUnit())]() mutable
-        {
-            if (!targets.Targets)
-                return;
-
-            targets.Targets->Update(caster);
-
-            caster->CastSpell(targets, SPELL_SHAMAN_FLAME_SHOCK, CastSpellExtraArgsInit{ .TriggerFlags = TRIGGERED_FULL_MASK });
-        }, 500ms);
-    }
-
-    void EnergizeMaelstrom(SpellEffIndex /*effIndex*/) const
-    {
-        spell_sha_maelstrom_weapon_base::GenerateMaelstromWeapon(GetCaster(), GetEffectValue());
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_sha_voltaic_blaze::ApplyFlameShock, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
-        OnEffectHitTarget += SpellEffectFn(spell_sha_voltaic_blaze::EnergizeMaelstrom, EFFECT_1, SPELL_EFFECT_DUMMY);
-    }
-};
-
-// 470058 - Voltaic Blaze
-class spell_sha_voltaic_blaze_aura : public AuraScript
-{
-    static bool CheckProc(AuraScript const&, ProcEventInfo const& eventInfo)
-    {
-        // 470057 - Voltaic Blaze does not have any unique SpellFamilyFlags, check by id
-        return eventInfo.GetSpellInfo()->Id == SPELL_SHAMAN_VOLTAIC_BLAZE_DAMAGE;
-    }
-
-    void Register() override
-    {
-        DoCheckProc += AuraCheckProcFn(spell_sha_voltaic_blaze_aura::CheckProc);
-    }
-};
-
-// 470053 - Voltaic Blaze
-class spell_sha_voltaic_blaze_talent : public AuraScript
-{
-    static bool CheckProc(AuraScript const&, AuraEffect const* aurEff, ProcEventInfo const& /*eventInfo*/)
-    {
-        return roll_chance_i(aurEff->GetAmount());
-    }
-
-    static void HandleProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo)
-    {
-        eventInfo.GetActor()->CastSpell(eventInfo.GetActor(), SPELL_SHAMAN_VOLTAIC_BLAZE_OVERRIDE);
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_sha_voltaic_blaze_talent::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_sha_voltaic_blaze_talent::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
-
 // 33757 - Windfury Weapon
 class spell_sha_windfury_weapon : public SpellScript
 {
@@ -3847,9 +3776,6 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_unlimited_power);
     RegisterSpellScript(spell_sha_undulation_passive);
     RegisterSpellScript(spell_sha_unrelenting_storms);
-    RegisterSpellScript(spell_sha_voltaic_blaze);
-    RegisterSpellScript(spell_sha_voltaic_blaze_aura);
-    RegisterSpellScript(spell_sha_voltaic_blaze_talent);
     RegisterSpellScript(spell_sha_windfury_weapon);
     RegisterSpellScript(spell_sha_windfury_weapon_proc);
     RegisterAreaTriggerAI(areatrigger_sha_wind_rush_totem);
