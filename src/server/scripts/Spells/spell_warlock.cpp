@@ -1417,6 +1417,54 @@ class spell_warl_shadow_invocation : public AuraScript
     }
 };
 
+enum WarlockPetSpells
+{
+    SPELL_VOIDWALKER_SUFFERING     = 17735,
+    SPELL_FELHUNTER_SPELL_LOCK     = 19647,
+    SPELL_DOOMGUARD_SHADOW_LOCK    = 171138
+};
+
+// 171140 - Shadow Lock
+// Commands a Doomguard guardian pet to interrupt/silence the target, mirroring the pet ability's
+// cooldown onto the player's own command spell.
+class spell_warl_shadow_lock : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DOOMGUARD_SHADOW_LOCK });
+    }
+
+    SpellCastResult CheckCast() const
+    {
+        Guardian* pet = GetCaster()->GetGuardianPet();
+        if (!pet)
+            return SPELL_FAILED_DONT_REPORT;
+
+        if (pet->GetSpellHistory()->HasCooldown(SPELL_DOOMGUARD_SHADOW_LOCK))
+            return SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW;
+
+        return SPELL_CAST_OK;
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/) const
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        Guardian* pet = caster->GetGuardianPet();
+        if (!pet || !target)
+            return;
+
+        pet->CastSpell(target, SPELL_DOOMGUARD_SHADOW_LOCK, true);
+        caster->GetSpellHistory()->ModifyCooldown(GetSpellInfo()->Id, 24s);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_warl_shadow_lock::CheckCast);
+        OnEffectHitTarget += SpellEffectFn(spell_warl_shadow_lock::HandleHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
 // 452999 - Siphon Life
 class spell_warl_siphon_life : public AuraScript
 {
@@ -1641,6 +1689,88 @@ class spell_warl_soulshatter : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_warl_soulshatter::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 119910 - Spell Lock
+// Commands a Felhunter guardian pet to interrupt/silence the target, mirroring the pet ability's
+// cooldown onto the player's own command spell.
+class spell_warl_spell_lock : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_FELHUNTER_SPELL_LOCK });
+    }
+
+    SpellCastResult CheckCast() const
+    {
+        Guardian* pet = GetCaster()->GetGuardianPet();
+        if (!pet)
+            return SPELL_FAILED_DONT_REPORT;
+
+        if (pet->GetSpellHistory()->HasCooldown(SPELL_FELHUNTER_SPELL_LOCK))
+            return SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW;
+
+        return SPELL_CAST_OK;
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/) const
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        Guardian* pet = caster->GetGuardianPet();
+        if (!pet || !target)
+            return;
+
+        pet->CastSpell(target, SPELL_FELHUNTER_SPELL_LOCK, true);
+        caster->GetSpellHistory()->ModifyCooldown(GetSpellInfo()->Id, 24s);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_warl_spell_lock::CheckCast);
+        OnEffectHitTarget += SpellEffectFn(spell_warl_spell_lock::HandleHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 119907 - Suffering
+// Commands a Voidwalker guardian pet to taunt/damage nearby enemies, mirroring the pet ability's
+// cooldown onto the player's own command spell.
+class spell_warl_suffering : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_VOIDWALKER_SUFFERING });
+    }
+
+    SpellCastResult CheckCast() const
+    {
+        Guardian* pet = GetCaster()->GetGuardianPet();
+        if (!pet)
+            return SPELL_FAILED_DONT_REPORT;
+
+        if (pet->GetSpellHistory()->HasCooldown(SPELL_VOIDWALKER_SUFFERING))
+            return SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW;
+
+        return SPELL_CAST_OK;
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/) const
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        Guardian* pet = caster->GetGuardianPet();
+        if (!pet || !target)
+            return;
+
+        pet->CastSpell(target, SPELL_VOIDWALKER_SUFFERING, true);
+        caster->GetSpellHistory()->ModifyCooldown(GetSpellInfo()->Id, 10s);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_warl_suffering::CheckCast);
+        OnEffectHitTarget += SpellEffectFn(spell_warl_suffering::HandleHit, EFFECT_0, SPELL_EFFECT_DUMMY);
     }
 };
 
@@ -1887,6 +2017,7 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellAndAuraScriptPair(spell_warl_shadowburn, spell_warl_shadowburn_aura);
     RegisterSpellScript(spell_warl_shadow_bolt);
     RegisterSpellScript(spell_warl_shadow_invocation);
+    RegisterSpellScript(spell_warl_shadow_lock);
     RegisterSpellScript(spell_warl_siphon_life);
     RegisterSpellScript(spell_warl_soul_fire);
     RegisterSpellScript(spell_warl_soul_swap);
@@ -1894,8 +2025,10 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_soul_swap_exhale);
     RegisterSpellScript(spell_warl_soul_swap_override);
     RegisterSpellScript(spell_warl_soulshatter);
+    RegisterSpellScript(spell_warl_spell_lock);
     RegisterSpellScript(spell_warl_strengthen_pact_incubus);
     RegisterSpellScript(spell_warl_strengthen_pact_succubus);
+    RegisterSpellScript(spell_warl_suffering);
     RegisterSpellScript(spell_warl_summon_sayaad);
     RegisterSpellScriptWithArgs(spell_warl_t4_2p_bonus<SPELL_WARLOCK_FLAMESHADOW>, "spell_warl_t4_2p_bonus_shadow");
     RegisterSpellScriptWithArgs(spell_warl_t4_2p_bonus<SPELL_WARLOCK_SHADOWFLAME>, "spell_warl_t4_2p_bonus_fire");
