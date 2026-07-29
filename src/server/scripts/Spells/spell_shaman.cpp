@@ -2804,31 +2804,6 @@ class spell_sha_stormsurge : public AuraScript
     }
 };
 
-// 187881 - Maelstrom Weapon
-class spell_sha_stormweaver : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_SHAMAN_STORMWEAVER_PVP_TALENT });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->HasAura(SPELL_SHAMAN_STORMWEAVER_PVP_TALENT);
-    }
-
-    static void PreventAffectingHealingSpells(SpellScript const&, WorldObject*& target)
-    {
-        target = nullptr;
-    }
-
-    void Register() override
-    {
-        OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_sha_stormweaver::PreventAffectingHealingSpells, EFFECT_2, TARGET_UNIT_CASTER);
-        OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_sha_stormweaver::PreventAffectingHealingSpells, EFFECT_4, TARGET_UNIT_CASTER);
-    }
-};
-
 // 384359 - Swirling Maelstrom
 class spell_sha_swirling_maelstrom : public AuraScript
 {
@@ -3614,7 +3589,6 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_stormflurry_damage);
     RegisterSpellScript(spell_sha_stormsurge);
     RegisterSpellScriptWithArgs(spell_sha_delayed_stormstrike_mod_charge_drop_proc, "spell_sha_stormsurge_proc");
-    RegisterSpellScript(spell_sha_stormweaver);
     RegisterSpellScript(spell_sha_swirling_maelstrom);
     RegisterSpellScript(spell_sha_tidal_waves);
     RegisterSpellScript(spell_sha_t3_6p_bonus);
