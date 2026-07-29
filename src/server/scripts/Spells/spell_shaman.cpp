@@ -40,8 +40,6 @@ enum ShamanSpells
     SPELL_SHAMAN_AFTERSHOCK_ENERGIZE            = 210712,
     SPELL_SHAMAN_ANCESTRAL_GUIDANCE             = 108281,
     SPELL_SHAMAN_ANCESTRAL_GUIDANCE_HEAL        = 114911,
-    SPELL_SHAMAN_ARCTIC_SNOWSTORM_AREATRIGGER   = 462767,
-    SPELL_SHAMAN_ARCTIC_SNOWSTORM_SLOW          = 462765,
     SPELL_SHAMAN_ASCENDANCE_ELEMENTAL           = 114050,
     SPELL_SHAMAN_ASCENDANCE_ENHANCEMENT         = 114051,
     SPELL_SHAMAN_ASCENDANCE_RESTORATION         = 114052,
@@ -331,26 +329,6 @@ class spell_sha_ancestral_guidance_heal : public SpellScript
     void Register() override
     {
         OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_sha_ancestral_guidance_heal::ResizeTargets, EFFECT_0, TARGET_UNIT_CASTER_AREA_RAID);
-    }
-};
-
-// 462764 - Arctic Snowstorm
-class spell_sha_arctic_snowstorm : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellEntry*/) override
-    {
-        return ValidateSpellInfo({ SPELL_SHAMAN_ARCTIC_SNOWSTORM_AREATRIGGER });
-    }
-
-    static void HandleEffectProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo)
-    {
-        eventInfo.GetActor()->CastSpell(eventInfo.GetActionTarget(), SPELL_SHAMAN_ARCTIC_SNOWSTORM_AREATRIGGER,
-            CastSpellExtraArgsInit{ .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR });
-    }
-
-    void Register() override
-    {
-        OnEffectProc += AuraEffectProcFn(spell_sha_arctic_snowstorm::HandleEffectProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -3647,30 +3625,6 @@ class spell_sha_windfury_weapon_proc : public AuraScript
     }
 };
 
-// 462767 - Arctic Snowstorm
-// 36797 - AreatriggerId
-struct areatrigger_sha_arctic_snowstorm : AreaTriggerAI
-{
-    using AreaTriggerAI::AreaTriggerAI;
-
-    void OnUnitEnter(Unit* unit) override
-    {
-        if (Unit* caster = at->GetCaster())
-        {
-            if (unit->GetAura(SPELL_SHAMAN_FROST_SHOCK, caster->GetGUID()))
-                return;
-
-            if (caster->IsValidAttackTarget(unit))
-                caster->CastSpell(unit, SPELL_SHAMAN_ARCTIC_SNOWSTORM_SLOW, CastSpellExtraArgsInit{ .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR });
-        }
-    }
-
-    void OnUnitExit(Unit* unit) override
-    {
-        unit->RemoveAurasDueToSpell(SPELL_SHAMAN_ARCTIC_SNOWSTORM_SLOW, at->GetCasterGuid());
-    }
-};
-
 // 192078 - Wind Rush Totem (Spell)
 // 12676 - AreaTriggerId
 struct areatrigger_sha_wind_rush_totem : AreaTriggerAI
@@ -3789,7 +3743,6 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_aftershock);
     RegisterSpellScript(spell_sha_ancestral_guidance);
     RegisterSpellScript(spell_sha_ancestral_guidance_heal);
-    RegisterSpellScript(spell_sha_arctic_snowstorm);
     RegisterSpellScript(spell_sha_artifact_gathering_storms);
     RegisterSpellScript(spell_sha_ascendance_restoration);
     RegisterSpellScript(spell_sha_ashen_catalyst);
@@ -3899,6 +3852,5 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_voltaic_blaze_talent);
     RegisterSpellScript(spell_sha_windfury_weapon);
     RegisterSpellScript(spell_sha_windfury_weapon_proc);
-    RegisterAreaTriggerAI(areatrigger_sha_arctic_snowstorm);
     RegisterAreaTriggerAI(areatrigger_sha_wind_rush_totem);
 }
