@@ -48,6 +48,8 @@ enum WarlockSpells
     SPELL_WARLOCK_BILESCOURGE_BOMBERS               = 267211,
     SPELL_WARLOCK_BILESCOURGE_BOMBERS_MISSILE       = 267212,
     SPELL_WARLOCK_BILESCOURGE_BOMBERS_AREATRIGGER   = 282248,
+    SPELL_WARLOCK_CALL_DREADSTALKERS_SUMMON         = 193331,
+    SPELL_WARLOCK_CHANNEL_DEMONFIRE_DAMAGE          = 196448,
     SPELL_WARLOCK_CONFLAGRATE_DEBUFF                = 265931,
     SPELL_WARLOCK_CONFLAGRATE_ENERGIZE              = 245330,
     SPELL_WARLOCK_CORRUPTION_DAMAGE                 = 146739,
@@ -59,13 +61,18 @@ enum WarlockSpells
     SPELL_WARLOCK_DEMONIC_CIRCLE_SUMMON             = 48018,
     SPELL_WARLOCK_DEMONIC_CIRCLE_TELEPORT           = 48020,
     SPELL_WARLOCK_DEVOUR_MAGIC_HEAL                 = 19658,
+    SPELL_WARLOCK_DOOM                              = 603,
     SPELL_WARLOCK_DOOM_ENERGIZE                     = 193318,
     SPELL_WARLOCK_DRAIN_SOUL_ENERGIZE               = 205292,
     SPELL_WARLOCK_FLAMESHADOW                       = 37379,
     SPELL_WARLOCK_GLYPH_OF_DEMON_TRAINING           = 56249,
     SPELL_WARLOCK_GLYPH_OF_SOUL_SWAP                = 56226,
     SPELL_WARLOCK_GLYPH_OF_SUCCUBUS                 = 56250,
+    SPELL_WARLOCK_HAND_OF_DOOM                      = 196283,
+    SPELL_WARLOCK_HAND_OF_GULDAN_DAMAGE             = 86040,
+    SPELL_WARLOCK_HAND_OF_GULDAN_SUMMON             = 196282,
     SPELL_WARLOCK_IMMOLATE_PERIODIC                 = 157736,
+    SPELL_WARLOCK_IMPROVED_DREADSTALKERS            = 196272,
     SPELL_WARLOCK_IMPROVED_HEALTH_FUNNEL_BUFF_R1    = 60955,
     SPELL_WARLOCK_IMPROVED_HEALTH_FUNNEL_BUFF_R2    = 60956,
     SPELL_WARLOCK_IMPROVED_HEALTH_FUNNEL_R1         = 18703,
@@ -311,6 +318,34 @@ class spell_warl_burning_rush_aura : public AuraScript
     }
 };
 
+// 104316 - Call Dreadstalkers
+class spell_warl_call_dreadstalkers : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARLOCK_CALL_DREADSTALKERS_SUMMON, SPELL_WARLOCK_HAND_OF_GULDAN_SUMMON });
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/) const
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        caster->CastSpell(caster, SPELL_WARLOCK_CALL_DREADSTALKERS_SUMMON, true);
+        caster->CastSpell(caster, SPELL_WARLOCK_CALL_DREADSTALKERS_SUMMON + 1, true);
+
+        if (AuraEffect const* improvedDreadstalkers = caster->GetAuraEffect(SPELL_WARLOCK_IMPROVED_DREADSTALKERS, EFFECT_0))
+            for (int32 i = 0; i < improvedDreadstalkers->GetAmount(); ++i)
+                caster->CastSpell(caster, SPELL_WARLOCK_HAND_OF_GULDAN_SUMMON, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_warl_call_dreadstalkers::HandleHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
 // 152108 - Cataclysm
 class spell_warl_cataclysm : public SpellScript
 {
@@ -330,6 +365,39 @@ class spell_warl_cataclysm : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_warl_cataclysm::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 196447 - Channel Demonfire
+// Periodically deals damage to a random nearby enemy carrying the caster's own Immolate.
+class spell_warl_channel_demonfire : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARLOCK_IMMOLATE_PERIODIC, SPELL_WARLOCK_CHANNEL_DEMONFIRE_DAMAGE });
+    }
+
+    void HandlePeriodic(AuraEffect const* /*aurEff*/) const
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        std::list<Unit*> enemies;
+        Trinity::AnyUnfriendlyUnitInObjectRangeCheck checker(caster, caster, 100.0f);
+        Trinity::UnitListSearcher<Trinity::AnyUnfriendlyUnitInObjectRangeCheck> searcher(caster, enemies, checker);
+        Cell::VisitAllObjects(caster, searcher, 100.0f);
+
+        enemies.remove_if(Trinity::UnitAuraCheck(false, SPELL_WARLOCK_IMMOLATE_PERIODIC, caster->GetGUID()));
+        if (enemies.empty())
+            return;
+
+        caster->CastSpell(Trinity::Containers::SelectRandomContainerElement(enemies), SPELL_WARLOCK_CHANNEL_DEMONFIRE_DAMAGE, true);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_warl_channel_demonfire::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
 
@@ -699,6 +767,55 @@ class spell_warl_drain_soul : public AuraScript
     }
 };
 
+// 105174 - Hand of Gul'dan
+// Summons Wild Imps (one extra per shard spent, capped) and deals damage scaled the same way,
+// via 86040; Hand of Doom additionally applies Doom to the target. Deliberately merged into a
+// single script rather than the reference's separate "damage" script: the damage spell (86040)
+// has no Soul Shard cost of its own, so a script bound to it can't independently re-derive how
+// many shards the original cast spent - doing the scaling here, where that information is still
+// available, avoids that dependency entirely.
+class spell_warl_hand_of_guldan : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellEffect({ { SPELL_WARLOCK_HAND_OF_GULDAN_DAMAGE, EFFECT_0 } })
+            && ValidateSpellInfo({ SPELL_WARLOCK_HAND_OF_GULDAN_SUMMON, SPELL_WARLOCK_HAND_OF_DOOM, SPELL_WARLOCK_DOOM });
+    }
+
+    void HandleOnHit(SpellEffIndex /*effIndex*/) const
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        int32 shardsSpent = GetSpell()->GetPowerTypeCostAmount(POWER_SOUL_SHARDS).value_or(0);
+
+        static float const offsetX[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+        static float const offsetY[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
+
+        for (int32 i = 1; i < std::min(shardsSpent + 1, 4); ++i)
+        {
+            Position dest(target->GetPositionX() + offsetX[i], target->GetPositionY() + offsetY[i], target->GetPositionZ());
+            caster->CastSpell(dest, SPELL_WARLOCK_HAND_OF_GULDAN_SUMMON, true);
+        }
+
+        int32 baseDamage = sSpellMgr->AssertSpellInfo(SPELL_WARLOCK_HAND_OF_GULDAN_DAMAGE, GetCastDifficulty())->GetEffect(EFFECT_0).CalcValue(caster);
+        caster->CastSpell(target, SPELL_WARLOCK_HAND_OF_GULDAN_DAMAGE, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_FULL_MASK,
+            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, baseDamage * std::min(shardsSpent + 1, 3) } }
+        });
+
+        if (caster->HasAura(SPELL_WARLOCK_HAND_OF_DOOM))
+            caster->CastSpell(target, SPELL_WARLOCK_DOOM, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_warl_hand_of_guldan::HandleOnHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
 // 48181 - Haunt
 class spell_warl_haunt : public AuraScript
 {
@@ -712,6 +829,39 @@ class spell_warl_haunt : public AuraScript
     void Register() override
     {
         OnEffectRemove += AuraEffectApplyFn(spell_warl_haunt::HandleRemove, EFFECT_1, SPELL_AURA_MOD_SCHOOL_MASK_DAMAGE_FROM_CASTER, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 80240 - Havoc
+// Applied to a secondary target; whenever the caster damages a different target while it's up,
+// copies that damage onto the Havoc'd target too.
+class spell_warl_havoc : public AuraScript
+{
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo& procInfo) const
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        Unit* victim = procInfo.GetActionTarget();
+        Unit* target = procInfo.GetProcTarget();
+        if (!victim || !target || victim == target)
+            return;
+
+        DamageInfo const* damageInfo = procInfo.GetDamageInfo();
+        if (!damageInfo || !damageInfo->GetDamage())
+            return;
+
+        SpellNonMeleeDamage copy(caster, target, aurEff->GetSpellInfo(), aurEff->GetBase()->GetSpellVisual(), aurEff->GetSpellInfo()->SchoolMask);
+        copy.damage = damageInfo->GetDamage();
+        copy.cleanDamage = copy.damage;
+        caster->DealSpellDamage(&copy, false);
+        caster->SendSpellNonMeleeDamageLog(&copy);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_warl_havoc::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -1701,7 +1851,9 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_bilescourge_bombers);
     RegisterAreaTriggerAI(at_warl_bilescourge_bombers);
     RegisterSpellAndAuraScriptPair(spell_warl_burning_rush, spell_warl_burning_rush_aura);
+    RegisterSpellScript(spell_warl_call_dreadstalkers);
     RegisterSpellScript(spell_warl_cataclysm);
+    RegisterSpellScript(spell_warl_channel_demonfire);
     RegisterSpellScript(spell_warl_chaos_bolt);
     RegisterSpellScript(spell_warl_chaotic_energies);
     RegisterSpellScript(spell_warl_conflagrate);
@@ -1716,7 +1868,9 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_devour_magic);
     RegisterSpellScript(spell_warl_doom);
     RegisterSpellScript(spell_warl_drain_soul);
+    RegisterSpellScript(spell_warl_hand_of_guldan);
     RegisterSpellScript(spell_warl_haunt);
+    RegisterSpellScript(spell_warl_havoc);
     RegisterSpellScript(spell_warl_health_funnel);
     RegisterSpellScript(spell_warl_healthstone_heal);
     RegisterSpellScript(spell_warl_immolate);
