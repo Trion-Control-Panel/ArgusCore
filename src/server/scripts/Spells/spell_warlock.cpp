@@ -1621,6 +1621,57 @@ class spell_warl_soul_fire : public SpellScript
     }
 };
 
+// 196098 - Soul Harvest
+// Extends its own duration based on how many nearby enemies carry the caster's spec DoT (Agony
+// for Affliction, Doom for Demonology, Immolate for Destruction), capped at 15 targets and at the
+// spell's own max duration (both read from its own DB2 effects rather than hardcoded).
+class spell_warl_soul_harvest : public AuraScript
+{
+    bool Validate(SpellInfo const* spellInfo) override
+    {
+        return ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 }, { spellInfo->Id, EFFECT_2 } });
+    }
+
+    void HandleApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/) const
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+
+        uint32 dotSpellId = SPELL_WARLOCK_AGONY;
+        switch (caster->GetPrimarySpecialization())
+        {
+            case ChrSpecialization::WarlockDemonology:
+                dotSpellId = SPELL_WARLOCK_DOOM;
+                break;
+            case ChrSpecialization::WarlockDestruction:
+                dotSpellId = SPELL_WARLOCK_IMMOLATE_PERIODIC;
+                break;
+            default:
+                break;
+        }
+
+        std::list<Unit*> enemies;
+        Trinity::AnyUnfriendlyUnitInObjectRangeCheck checker(caster, caster, 100.0f);
+        Trinity::UnitListSearcher<Trinity::AnyUnfriendlyUnitInObjectRangeCheck> searcher(caster, enemies, checker);
+        Cell::VisitAllObjects(caster, searcher, 100.0f);
+        enemies.remove_if(Trinity::UnitAuraCheck(false, dotSpellId, caster->GetGUID()));
+
+        int64 affectedCount = std::min<int64>(int64(enemies.size()), 15);
+        Milliseconds perTarget = Seconds(GetEffectInfo(EFFECT_1).CalcValue());
+        Milliseconds maxDuration = Seconds(GetEffectInfo(EFFECT_2).CalcValue());
+        Milliseconds newDuration = std::min(Milliseconds(GetAura()->GetMaxDuration()) + perTarget * affectedCount, maxDuration);
+
+        GetAura()->SetMaxDuration(newDuration.count());
+        GetAura()->SetDuration(newDuration.count());
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_warl_soul_harvest::HandleApply, EFFECT_0, SPELL_AURA_MOD_DAMAGE_PERCENT_DONE, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
 // 86121 - Soul Swap
 class spell_warl_soul_swap : public SpellScript
 {
@@ -2267,6 +2318,7 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_shadow_lock);
     RegisterSpellScript(spell_warl_siphon_life);
     RegisterSpellScript(spell_warl_soul_fire);
+    RegisterSpellScript(spell_warl_soul_harvest);
     RegisterSpellScript(spell_warl_soul_swap);
     RegisterSpellScript(spell_warl_soul_swap_dot_marker);
     RegisterSpellScript(spell_warl_soul_swap_exhale);
