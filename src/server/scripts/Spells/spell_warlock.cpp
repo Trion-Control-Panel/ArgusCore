@@ -68,6 +68,7 @@ enum WarlockSpells
     SPELL_WARLOCK_GLYPH_OF_DEMON_TRAINING           = 56249,
     SPELL_WARLOCK_GLYPH_OF_SOUL_SWAP                = 56226,
     SPELL_WARLOCK_GLYPH_OF_SUCCUBUS                 = 56250,
+    SPELL_WARLOCK_GRIMOIRE_OF_SYNERGY_BUFF          = 171982,
     SPELL_WARLOCK_HAND_OF_DOOM                      = 196283,
     SPELL_WARLOCK_HAND_OF_GULDAN_DAMAGE             = 86040,
     SPELL_WARLOCK_HAND_OF_GULDAN_SUMMON             = 196282,
@@ -785,6 +786,73 @@ class spell_warl_drain_soul : public AuraScript
     {
         AfterEffectRemove += AuraEffectApplyFn(spell_warl_drain_soul::HandleRemove, EFFECT_0, SPELL_AURA_PERIODIC_DAMAGE, AURA_EFFECT_HANDLE_REAL);
         DoEffectCalcDamageAndHealing += AuraEffectCalcDamageFn(spell_warl_drain_soul::CalculateDamage, EFFECT_0, SPELL_AURA_PERIODIC_DAMAGE);
+    }
+};
+
+// 171975 - Grimoire of Synergy
+// Applies its own passive aura to both the caster and their guardian pet; whichever one procs
+// (damages or heals) has a chance to buff the other.
+class spell_warl_grimoire_of_synergy : public SpellScript
+{
+    void HandleCast() const
+    {
+        Player* player = GetCaster()->ToPlayer();
+        if (!player)
+            return;
+
+        player->AddAura(GetSpellInfo()->Id, player);
+        if (Guardian* pet = player->GetGuardianPet())
+            player->AddAura(GetSpellInfo()->Id, pet);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_warl_grimoire_of_synergy::HandleCast);
+    }
+};
+
+// 171975 - Grimoire of Synergy (proc half)
+class spell_warl_grimoire_of_synergy_aura : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARLOCK_GRIMOIRE_OF_SYNERGY_BUFF });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo) const
+    {
+        Unit* actor = eventInfo.GetActor();
+        if (!actor)
+            return false;
+
+        if (actor->IsPet() || actor->IsGuardian())
+        {
+            Unit* owner = actor->GetOwner();
+            if (!owner)
+                return false;
+
+            if (roll_chance_i(10))
+                owner->CastSpell(owner, SPELL_WARLOCK_GRIMOIRE_OF_SYNERGY_BUFF, true);
+            return true;
+        }
+
+        if (Player* player = actor->ToPlayer())
+        {
+            Guardian* guardian = player->GetGuardianPet();
+            if (!guardian)
+                return false;
+
+            if (roll_chance_i(10))
+                player->CastSpell(guardian, SPELL_WARLOCK_GRIMOIRE_OF_SYNERGY_BUFF, true);
+            return true;
+        }
+
+        return false;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_warl_grimoire_of_synergy_aura::CheckProc);
     }
 };
 
@@ -2176,6 +2244,7 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_devour_magic);
     RegisterSpellScript(spell_warl_doom);
     RegisterSpellScript(spell_warl_drain_soul);
+    RegisterSpellAndAuraScriptPair(spell_warl_grimoire_of_synergy, spell_warl_grimoire_of_synergy_aura);
     RegisterSpellScript(spell_warl_hand_of_guldan);
     RegisterSpellScript(spell_warl_haunt);
     RegisterSpellScript(spell_warl_havoc);
