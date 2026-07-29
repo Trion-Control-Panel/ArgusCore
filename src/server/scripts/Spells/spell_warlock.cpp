@@ -1419,8 +1419,11 @@ class spell_warl_shadow_invocation : public AuraScript
 
 enum WarlockPetSpells
 {
+    SPELL_SUCCUBUS_WHIPLASH        = 6360,
     SPELL_VOIDWALKER_SUFFERING     = 17735,
     SPELL_FELHUNTER_SPELL_LOCK     = 19647,
+    SPELL_FELGUARD_FELSTORM        = 89751,
+    SPELL_INFERNAL_METEOR_STRIKE   = 171017,
     SPELL_DOOMGUARD_SHADOW_LOCK    = 171138
 };
 
@@ -1774,6 +1777,119 @@ class spell_warl_suffering : public SpellScript
     }
 };
 
+// 119914 - Felstorm
+// Commands a Felguard guardian pet to attack; the pet's DB2 data already handles the actual
+// mirrored cast, this script only needs to mirror its cooldown onto the player's command spell.
+class spell_warl_felstorm : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_FELGUARD_FELSTORM });
+    }
+
+    SpellCastResult CheckCast() const
+    {
+        Guardian* pet = GetCaster()->GetGuardianPet();
+        if (!pet)
+            return SPELL_FAILED_DONT_REPORT;
+
+        if (pet->GetSpellHistory()->HasCooldown(SPELL_FELGUARD_FELSTORM))
+            return SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW;
+
+        return SPELL_CAST_OK;
+    }
+
+    void HandleCast() const
+    {
+        GetCaster()->GetSpellHistory()->ModifyCooldown(GetSpellInfo()->Id, 45s);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_warl_felstorm::CheckCast);
+        AfterCast += SpellCastFn(spell_warl_felstorm::HandleCast);
+    }
+};
+
+// 171152 - Meteor Strike
+// Commands an Infernal guardian pet to slam the ground beneath itself.
+class spell_warl_meteor_strike : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_INFERNAL_METEOR_STRIKE });
+    }
+
+    SpellCastResult CheckCast() const
+    {
+        Guardian* pet = GetCaster()->GetGuardianPet();
+        if (!pet)
+            return SPELL_FAILED_DONT_REPORT;
+
+        if (pet->GetSpellHistory()->HasCooldown(SPELL_INFERNAL_METEOR_STRIKE))
+            return SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW;
+
+        return SPELL_CAST_OK;
+    }
+
+    void HandleCast() const
+    {
+        Unit* caster = GetCaster();
+        Guardian* pet = caster->GetGuardianPet();
+        if (!pet)
+            return;
+
+        pet->CastSpell(pet, SPELL_INFERNAL_METEOR_STRIKE, true);
+        caster->GetSpellHistory()->ModifyCooldown(GetSpellInfo()->Id, 60s);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_warl_meteor_strike::CheckCast);
+        AfterCast += SpellCastFn(spell_warl_meteor_strike::HandleCast);
+    }
+};
+
+// 119909 - Whiplash
+// Commands a Succubus/Sayaad guardian pet to fear enemies at the target destination.
+class spell_warl_whiplash : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_SUCCUBUS_WHIPLASH });
+    }
+
+    SpellCastResult CheckCast() const
+    {
+        Guardian* pet = GetCaster()->GetGuardianPet();
+        if (!pet)
+            return SPELL_FAILED_DONT_REPORT;
+
+        if (pet->GetSpellHistory()->HasCooldown(SPELL_SUCCUBUS_WHIPLASH))
+            return SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW;
+
+        return SPELL_CAST_OK;
+    }
+
+    void HandleCast() const
+    {
+        Unit* caster = GetCaster();
+        Guardian* pet = caster->GetGuardianPet();
+        WorldLocation const* dest = GetExplTargetDest();
+        if (!pet || !dest)
+            return;
+
+        pet->CastSpell(*dest, SPELL_SUCCUBUS_WHIPLASH, true);
+        caster->GetSpellHistory()->ModifyCooldown(GetSpellInfo()->Id, 25s);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_warl_whiplash::CheckCast);
+        AfterCast += SpellCastFn(spell_warl_whiplash::HandleCast);
+    }
+};
+
 // 366323 - Strengthen Pact - Succubus
 class spell_warl_strengthen_pact_succubus : public SpellScript
 {
@@ -2029,6 +2145,9 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_strengthen_pact_incubus);
     RegisterSpellScript(spell_warl_strengthen_pact_succubus);
     RegisterSpellScript(spell_warl_suffering);
+    RegisterSpellScript(spell_warl_felstorm);
+    RegisterSpellScript(spell_warl_meteor_strike);
+    RegisterSpellScript(spell_warl_whiplash);
     RegisterSpellScript(spell_warl_summon_sayaad);
     RegisterSpellScriptWithArgs(spell_warl_t4_2p_bonus<SPELL_WARLOCK_FLAMESHADOW>, "spell_warl_t4_2p_bonus_shadow");
     RegisterSpellScriptWithArgs(spell_warl_t4_2p_bonus<SPELL_WARLOCK_SHADOWFLAME>, "spell_warl_t4_2p_bonus_fire");
