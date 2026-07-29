@@ -74,9 +74,7 @@ enum PaladinSpells
     SPELL_PALADIN_ENDURING_LIGHT                 = 40471,
     SPELL_PALADIN_ENDURING_JUDGEMENT             = 40472,
     SPELL_PALADIN_EXECUTION_SENTENCE_DAMAGE      = 387113,
-    SPELL_PALADIN_EXECUTION_SENTENCE_11_SECONDS  = 406919,
     SPELL_PALADIN_EXECUTION_SENTENCE_8_SECONDS   = 386579,
-    SPELL_PALADIN_EXECUTIONERS_WILL              = 406940,
     SPELL_PALADIN_EYE_FOR_AN_EYE_TRIGGERED       = 205202,
     SPELL_PALADIN_FERVENT_MARTYR_BUFF            = 223316,
     SPELL_PALADIN_FINAL_STAND                    = 204077,
@@ -878,18 +876,13 @@ class spell_pal_execution_sentence : public SpellScript
         return ValidateSpellInfo(
         {
             SPELL_PALADIN_EXECUTION_SENTENCE_DAMAGE,
-            SPELL_PALADIN_EXECUTIONERS_WILL,
-            SPELL_PALADIN_EXECUTION_SENTENCE_11_SECONDS,
             SPELL_PALADIN_EXECUTION_SENTENCE_8_SECONDS
         });
     }
 
     void HandleVisual(SpellEffIndex /*effIndex*/) const
     {
-        uint32 visualSpellId = GetCaster()->HasAura(SPELL_PALADIN_EXECUTIONERS_WILL)
-            ? SPELL_PALADIN_EXECUTION_SENTENCE_11_SECONDS
-            : SPELL_PALADIN_EXECUTION_SENTENCE_8_SECONDS;
-        GetCaster()->CastSpell(GetHitUnit(), visualSpellId,
+        GetCaster()->CastSpell(GetHitUnit(), SPELL_PALADIN_EXECUTION_SENTENCE_8_SECONDS,
             CastSpellExtraArgsInit{
                 .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
                 .TriggeringSpell = GetSpell()
