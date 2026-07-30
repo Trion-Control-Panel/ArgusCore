@@ -31,7 +31,7 @@ void BIH::buildHierarchy(std::vector<uint32>& tempTree, buildData& dat, BuildSta
 
 void BIH::subdivide(int left, int right, std::vector<uint32>& tempTree, buildData& dat, AABound& gridBox, AABound& nodeBox, int nodeIndex, int depth, BuildStats& stats)
 {
-    if ((right - left + 1) <= dat.maxPrims || depth >= MAX_STACK_SIZE)
+    if ((right - left + 1) <= dat.maxPrims || depth >= int(MAX_STACK_SIZE))
     {
         // write leaf node
         stats.updateLeaf(depth, right - left + 1);
