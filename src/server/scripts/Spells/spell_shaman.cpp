@@ -657,7 +657,7 @@ class spell_sha_cloudburst_effect : public AuraScript
         return ValidateSpellInfo({ SPELL_TOTEM_CLOUDBURST }) && ValidateSpellEffect({ { SPELL_TOTEM_CLOUDBURST, EFFECT_0 } });
     }
 
-    void OnProc(AuraEffect* aurEff, ProcEventInfo& eventInfo) const
+    void OnProc(AuraEffect* aurEff, ProcEventInfo& eventInfo)
     {
         PreventDefaultAction();
 
