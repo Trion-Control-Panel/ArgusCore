@@ -1,0 +1,23 @@
+-- Shaman: removed Converging Storms (384363) - confirmed Dragonflight patch 10.0.0 (2022-10-25)
+-- content (originally named "Gathering Storms", renamed to "Converging Storms" in patch 10.0.2,
+-- 2022-11-15), no Legion connection. Part of the ongoing Legion 7.3.5 forward-drift removal pass
+-- (see ARGUSCORE_FIXES.md). This is the exclusive-choice sibling to Unrelenting Storms removed in
+-- 2026_07_29_06_world.sql.
+--
+-- Not to be confused with the genuine Legion artifact trait also called "Gathering Storms"
+-- (198299/198300, spell_sha_artifact_gathering_storms) - that class is untouched. The removed
+-- Converging Storms script reused the artifact trait's own buff spell id (198300) as its stacking
+-- buff, which is why its dangling spell_script_names row is also bound to 198300 rather than to
+-- 384363 itself.
+--
+-- spell_sha_delayed_stormstrike_mod_charge_drop_proc is a shared generic AuraScript class also
+-- used by the genuine Legion talent Stormsurge (201845/201846) via a second ScriptName alias -
+-- only the "spell_sha_converging_storms_buff" alias/registration was removed, the class itself and
+-- its "spell_sha_stormsurge_proc" alias are untouched.
+--
+-- Cleanup: matched by ScriptName rather than spell id, since (same "talent overlay bound to a
+-- different base spell" shape as Molten Thunder/Sundering, Stormweaver/Maelstrom Weapon, and
+-- Unrelenting Storms/Crash Lightning earlier this pass) spell_sha_converging_storms was actually
+-- bound to Crash Lightning's own cast id (187874), not its own talent id (384363).
+
+DELETE FROM `spell_script_names` WHERE `ScriptName` IN ('spell_sha_converging_storms', 'spell_sha_converging_storms_buff');

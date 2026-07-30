@@ -1,0 +1,23 @@
+-- Shaman: removed the modern Doom Winds implementation (466772/469270, periodic damage tick; and
+-- 335902/335904, a Shadowlands-legendary-shaped Windfury Totem interaction) - confirmed drift, no
+-- Legion connection. Part of the ongoing Legion 7.3.5 forward-drift removal pass (see
+-- ARGUSCORE_FIXES.md).
+--
+-- Doom Winds genuinely existed as a Legion 7.0.3 (2016-07-19) Doomhammer ARTIFACT TRAIT (204945,
+-- removed in patch 8.0.1/BFA, then completely reinvented under the same name as a Dragonflight
+-- 10.0.0 talent with a different mechanic, which is what these two classes actually implemented).
+-- Confirmed via AshamaneCore's genuine Legion-era spell_sha_windfury: the real 7.3.5 behavior is
+-- just "while the Doom Winds artifact buff (204945) is active, Windfury Weapon's proc chance is
+-- guaranteed" - a one-line OR condition folded directly into Windfury's own proc roll, not a
+-- separate periodic-damage aura or Windfury-Totem-label proc gate.
+--
+-- Re-adding that genuine behavior is deliberately NOT done in this pass and is left as an open
+-- follow-up (see ARGUSCORE_FIXES.md): ArgusCore's current spell_sha_windfury_weapon_proc has no
+-- manual proc-chance roll to OR against (proc chance is data-driven via spell_proc, not a
+-- roll_chance_f in script like the reference), so correctly forcing a guaranteed proc requires
+-- understanding ArgusCore's actual proc-chance-override idiom rather than guessing at one.
+--
+-- spell_sha_doom_winds_legendary (335902/335904) was never bound to a spell_script_names row in
+-- the base dump at all - dead/unregistered code, nothing to clean up for it.
+
+DELETE FROM `spell_script_names` WHERE `ScriptName` = 'spell_sha_doom_winds';
