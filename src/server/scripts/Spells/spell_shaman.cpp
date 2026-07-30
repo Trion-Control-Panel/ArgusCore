@@ -630,7 +630,7 @@ class spell_sha_cloudburst : public SpellScript
         _targetCount = uint32(targets.size());
     }
 
-    void HandleHeal(SpellEffIndex /*effIndex*/) const
+    void HandleHeal(SpellEffIndex /*effIndex*/)
     {
         if (_targetCount)
             SetHitHeal(GetHitHeal() / _targetCount);
