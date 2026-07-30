@@ -24,10 +24,13 @@
 #include "ScriptMgr.h"
 #include "AreaTrigger.h"
 #include "AreaTriggerAI.h"
+#include "CellImpl.h"
 #include "CommonPredicates.h"
 #include "Containers.h"
 #include "DB2Stores.h"
 #include "Group.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "Random.h"
@@ -41,6 +44,9 @@ enum PaladinSpells
 {
     SPELL_PALADIN_ARDENT_DEFENDER_HEAL           = 66235,
     SPELL_PALADIN_ART_OF_WAR_TRIGGERED           = 231843,
+    SPELL_PALADIN_AURA_OF_SACRIFICE               = 183416,
+    SPELL_PALADIN_AURA_OF_SACRIFICE_ALLY          = 210372,
+    SPELL_PALADIN_AURA_OF_SACRIFICE_DAMAGE        = 210380,
     SPELL_PALADIN_AVENGERS_SHIELD                = 31935,
     SPELL_PALADIN_AVENGING_WRATH                 = 31884,
     SPELL_PALADIN_BEACON_OF_FAITH                = 156910,
@@ -58,6 +64,7 @@ enum PaladinSpells
     SPELL_PALADIN_CONSECRATION                   = 26573,
     SPELL_PALADIN_CONSECRATION_DAMAGE            = 81297,
     SPELL_PALADIN_CONSECRATION_PROTECTION_AURA   = 188370,
+    SPELL_PALADIN_CRUSADER_STRIKE                = 35395,
     SPELL_PALADIN_DIVINE_HAMMER                  = 198034,
     SPELL_PALADIN_DIVINE_INTERVENTION_HEAL       = 184250,
     SPELL_PALADIN_DIVINE_PURPOSE_TRIGGERED       = 223819,
@@ -73,6 +80,7 @@ enum PaladinSpells
     SPELL_PALADIN_EYE_FOR_AN_EYE_TRIGGERED       = 205202,
     SPELL_PALADIN_FERVENT_MARTYR_BUFF            = 223316,
     SPELL_PALADIN_FINAL_STAND                    = 204077,
+    SPELL_PALADIN_FLASH_OF_LIGHT                 = 19750,
     SPELL_PALADIN_FINAL_STAND_EFFECT             = 204079,
     SPELL_PALADIN_FINAL_VERDICT                  = 383329,
     SPELL_PALADIN_FIRST_AVENGER                  = 203776,
@@ -107,6 +115,7 @@ enum PaladinSpells
     SPELL_PALADIN_JUDGMENT_OF_LIGHT_HEAL         = 183811,
     SPELL_PALADIN_JUDGMENT_PROT_RET_R3           = 315867,
     SPELL_PALADIN_LIGHT_OF_DAWN                  = 85222,
+    SPELL_PALADIN_LIGHT_OF_DAWN_TRIGGER          = 185984,
     SPELL_PALADIN_LIGHT_HAMMER_COSMETIC          = 122257,
     SPELL_PALADIN_LIGHT_OF_THE_MARTYR_DAMAGE     = 196917,
     SPELL_PALADIN_LIGHT_OF_THE_PROTECTOR         = 184092,
@@ -121,6 +130,7 @@ enum PaladinSpells
     SPELL_PALADIN_SHIELD_OF_THE_RIGHTEOUS_ARMOR  = 132403,
     SPELL_PALADIN_SHIELD_OF_VENGEANCE_DAMAGE     = 184689,
     SPELL_PALADIN_TEMPLAR_VERDICT_DAMAGE         = 224266,
+    SPELL_PALADIN_WORD_OF_GLORY                  = 210191,
     SPELL_PALADIN_ZEAL_AURA                      = 269571
 };
 
@@ -426,6 +436,30 @@ class spell_pal_crusader_might : public AuraScript
     }
 };
 
+// 209785 - The Fires of Justice
+// Gates its own (DB2-driven) proc-chance/cost-reduction effect to only trigger off Crusader
+// Strike, matching this file's established DB2-carries-the-numeric-effect pattern (see
+// spell_pal_judgement_of_the_pure, spell_pal_judgment_of_light below). The Crusader Strike
+// cooldown-reduction half of this talent is presumed to be a flat DB2 spell-mod on the
+// talent's own passive and needs no script.
+class spell_pal_the_fires_of_justice : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PALADIN_CRUSADER_STRIKE });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_PALADIN_CRUSADER_STRIKE;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_pal_the_fires_of_justice::CheckProc);
+    }
+};
+
 // 223817 - Divine Purpose
 class spell_pal_divine_purpose : public AuraScript
 {
@@ -682,6 +716,36 @@ class spell_pal_light_of_the_martyr : public SpellScript
     }
 };
 
+// 196923 - Fervent Martyr
+// Grants the stacking buff (223316) that spell_pal_light_of_the_martyr above already consumes -
+// this file previously had the consuming half but never the granting half. Gates its own
+// (DB2-driven, stacking) buff application to only trigger off Holy Light/Flash of Light casts,
+// matching this file's established DB2-carries-the-numeric-effect pattern.
+class spell_pal_fervent_martyr : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PALADIN_HOLY_LIGHT, SPELL_PALADIN_FLASH_OF_LIGHT, SPELL_PALADIN_FERVENT_MARTYR_BUFF });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
+        return spellInfo && (spellInfo->Id == SPELL_PALADIN_HOLY_LIGHT || spellInfo->Id == SPELL_PALADIN_FLASH_OF_LIGHT);
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+    {
+        eventInfo.GetActor()->CastSpell(eventInfo.GetActor(), SPELL_PALADIN_FERVENT_MARTYR_BUFF, true);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_pal_fervent_martyr::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_pal_fervent_martyr::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
 // 184092 - Light of the Protector, 213652 - Hand of the Protector
 // Self-heal scaling with the caster's own missing health, read from each spell's own EFFECT_0.
 class spell_pal_light_of_the_protector : public SpellScript
@@ -698,6 +762,56 @@ class spell_pal_light_of_the_protector : public SpellScript
     void Register() override
     {
         OnEffectLaunchTarget += SpellEffectFn(spell_pal_light_of_the_protector::HandleLaunchTarget, EFFECT_0, SPELL_EFFECT_HEAL);
+    }
+};
+
+// 85222 - Light of Dawn
+class spell_pal_light_of_dawn : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PALADIN_LIGHT_OF_DAWN_TRIGGER });
+    }
+
+    void HandleOnCast()
+    {
+        GetCaster()->CastSpell(GetCaster(), SPELL_PALADIN_LIGHT_OF_DAWN_TRIGGER, true);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_pal_light_of_dawn::HandleOnCast);
+    }
+};
+
+// 185984 - Light of Dawn (AOE heal trigger)
+// Cone target selection (15 yards, 90 degrees) capped to 5 targets, sorted by lowest health
+// percentage first - matching this file's health-pct-sort idiom used elsewhere for similar
+// Holy Power heals (e.g. spell_pal_holy_prism_selector) rather than the older random-pick
+// selection. The heal amount itself is read from this spell's own DB2 effect data, not a
+// hardcoded attack-power multiplier.
+class spell_pal_light_of_dawn_trigger : public SpellScript
+{
+    void FilterTargets(std::list<WorldObject*>& targets)
+    {
+        Unit* caster = GetCaster();
+
+        targets.remove_if([caster](WorldObject* target)
+        {
+            return !(caster->IsWithinDist2d(target, 15.0f) && caster->isInFront(target, float(M_PI / 3)));
+        });
+
+        uint32 const maxTargets = 5;
+        if (targets.size() > maxTargets)
+        {
+            targets.sort(Trinity::Predicates::HealthPctOrderPred());
+            targets.resize(maxTargets);
+        }
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pal_light_of_dawn_trigger::FilterTargets, EFFECT_0, TARGET_UNIT_DEST_AREA_ALLY);
     }
 };
 
@@ -1809,6 +1923,84 @@ class spell_pal_shield_of_vengeance : public AuraScript
     int32 _initialAmount = 0;
 };
 
+// 183416 - Aura of Sacrifice
+// Periodically re-applies the ally redirect-absorb buff (210372, below) to nearby raid
+// members instead of using a persistent AreaTrigger object like the reference cores do (their
+// AreaTrigger id is explicitly a made-up "custom" one, not a real Blizzard id) - avoids
+// inventing a new non-Blizzard AreaTrigger id/SQL row for a real spell. Uses the engine's own
+// Trinity::AnyGroupedUnitInObjectRangeCheck raid-range helper, the same shape already used
+// elsewhere in this codebase for similar radius-based grouped-unit scans.
+class spell_pal_aura_of_sacrifice : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PALADIN_AURA_OF_SACRIFICE_ALLY });
+    }
+
+    void HandleEffectPeriodic(AuraEffect const* /*aurEff*/)
+    {
+        Unit* caster = GetTarget();
+
+        std::list<Unit*> targets;
+        Trinity::AnyGroupedUnitInObjectRangeCheck check(caster, caster, 20.0f, true);
+        Trinity::UnitListSearcher<Trinity::AnyGroupedUnitInObjectRangeCheck> searcher(caster, targets, check);
+        Cell::VisitAllObjects(caster, searcher, 20.0f);
+
+        for (Unit* target : targets)
+            if (target != caster)
+                caster->CastSpell(target, SPELL_PALADIN_AURA_OF_SACRIFICE_ALLY, true);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_pal_aura_of_sacrifice::HandleEffectPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
+// 210372 - Aura of Sacrifice (ally redirect-absorb buff)
+// Redirects a percentage of damage taken by the ally back onto the paladin as damage, gated
+// on the paladin's own health being above the talent's own threshold - both percentages read
+// from Aura of Sacrifice's (183416) own DB2 effect data rather than hardcoded.
+class spell_pal_aura_of_sacrifice_ally : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PALADIN_AURA_OF_SACRIFICE, SPELL_PALADIN_AURA_OF_SACRIFICE_DAMAGE });
+    }
+
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = -1;
+    }
+
+    void Absorb(AuraEffect* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !caster->IsAlive())
+        {
+            absorbAmount = 0;
+            return;
+        }
+
+        SpellInfo const* auraOfSacrificeInfo = sSpellMgr->AssertSpellInfo(SPELL_PALADIN_AURA_OF_SACRIFICE, GetCastDifficulty());
+
+        if (caster->GetHealthPct() < auraOfSacrificeInfo->GetEffect(EFFECT_2).CalcValue(caster))
+        {
+            absorbAmount = 0;
+            return;
+        }
+
+        absorbAmount = CalculatePct(dmgInfo.GetDamage(), auraOfSacrificeInfo->GetEffect(EFFECT_0).CalcValue(caster));
+        GetTarget()->CastSpell(caster, SPELL_PALADIN_AURA_OF_SACRIFICE_DAMAGE, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT0, int32(absorbAmount)));
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pal_aura_of_sacrifice_ally::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_pal_aura_of_sacrifice_ally::Absorb, EFFECT_0);
+    }
+};
+
 // 469304 - Steed of Liberty
 class spell_pal_steed_of_liberty : public AuraScript
 {
@@ -1849,6 +2041,31 @@ class spell_pal_templar_s_verdict : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_pal_templar_s_verdict::HandleHitTarget, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 210191 - Word of Glory
+// Legion 7.3.5 tooltip (per Warcraft Wiki, patch 7.0.3): "Heal yourself and up to 5 friendly
+// targets within 15 yards for (900% of Spell power)" - a single multi-target heal effect, not
+// a separate self-cast bonus. Re-sorts the engine's own target selection by lowest-health-first
+// (matching this file's health-pct-sort idiom, e.g. spell_pal_holy_prism_selector) rather than
+// resizing/capping here - the actual target count cap is expected to already be data-driven via
+// this spell's own DB2 effect data, same as every other Holy Power heal in this file.
+// NOTE: ArgusCore has no caster-relative "ally" target type distinct from "party" - used
+// TARGET_UNIT_CASTER_AREA_PARTY (the closest valid enum for a self-centered ally heal) since
+// TARGET_UNIT_CASTER_AREA_ALLY does not exist anywhere in this engine. If this hook doesn't
+// fire, that assumption is the first thing to check against Legion 7.3.5 DB2 data.
+class spell_pal_word_of_glory : public SpellScript
+{
+    void FilterTargets(std::list<WorldObject*>& targets)
+    {
+        if (!targets.empty())
+            targets.sort(Trinity::Predicates::HealthPctOrderPred());
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pal_word_of_glory::FilterTargets, EFFECT_0, TARGET_UNIT_CASTER_AREA_PARTY);
     }
 };
 
@@ -1974,6 +2191,7 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_blinding_light);
     RegisterSpellScript(spell_pal_crusade);
     RegisterSpellScript(spell_pal_crusader_might);
+    RegisterSpellScript(spell_pal_the_fires_of_justice);
     RegisterSpellScript(spell_pal_consecration);
     RegisterAreaTriggerAI(areatrigger_pal_consecration);
     RegisterSpellScript(spell_pal_divine_purpose);
@@ -1985,8 +2203,11 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_seraphim);
     RegisterSpellScript(spell_pal_greater_blessing_of_kings);
     RegisterSpellScript(spell_pal_light_of_the_martyr);
+    RegisterSpellScript(spell_pal_fervent_martyr);
     RegisterSpellScript(spell_pal_light_of_the_protector);
     RegisterSpellScriptWithArgs(spell_pal_light_of_the_protector, "spell_pal_hand_of_the_protector");
+    RegisterSpellScript(spell_pal_light_of_dawn);
+    RegisterSpellScript(spell_pal_light_of_dawn_trigger);
     RegisterSpellScript(spell_pal_divine_hammer);
     RegisterSpellScript(spell_pal_divine_shield);
     RegisterSpellScript(spell_pal_divine_steed);
@@ -2027,8 +2248,11 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_selfless_healer);
     RegisterSpellScript(spell_pal_shield_of_the_righteous);
     RegisterSpellScript(spell_pal_shield_of_vengeance);
+    RegisterSpellScript(spell_pal_aura_of_sacrifice);
+    RegisterSpellScript(spell_pal_aura_of_sacrifice_ally);
     RegisterSpellScript(spell_pal_steed_of_liberty);
     RegisterSpellScript(spell_pal_templar_s_verdict);
+    RegisterSpellScript(spell_pal_word_of_glory);
     RegisterSpellScript(spell_pal_t3_6p_bonus);
     RegisterSpellScript(spell_pal_t8_2p_bonus);
     RegisterSpellScript(spell_pal_zeal);
