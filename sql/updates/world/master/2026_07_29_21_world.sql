@@ -1,0 +1,30 @@
+-- Paladin: removed the entire modern Execution Sentence implementation (343527/387113/386579,
+-- spell_pal_execution_sentence + spell_pal_execution_sentence_aura) - confirmed as a Shadowlands
+-- 9.0.1 (2020-10-13) redesign masquerading as Legion content under a reused ability name. This
+-- closes out a task that had been deliberately deferred earlier in the Legion 7.3.5 forward-drift
+-- removal pass (see ARGUSCORE_FIXES.md) pending real research into the ability's genuine Legion
+-- mechanic - now resolved.
+--
+-- Confirmed via warcraft.wiki.gg's full patch history: Execution Sentence was redesigned in patch
+-- 7.0.3 (2016-07-19) as a level 15 Retribution talent that simply "deals (1445% of attack power)
+-- Holy damage after 7 sec" - a single flat delayed burst, no accumulation of damage dealt during
+-- the debuff window. The "accumulate 20-30% of damage dealt, release on expiry" mechanic this
+-- codebase had implemented did not exist until Shadowlands patch 9.0.1.
+--
+-- The real Legion-era spell id is 213757 (not 343527), corroborated by matching implementations in
+-- BOTH primary reference cores (DestinyCore and AshamaneCore's spell_pal_execute_sentence). Their
+-- shared implementation only handles the Holy Power cost/refund and Hammer of Justice cooldown
+-- reduction side-effects on cast (via manual per-spell checks) - neither reference core scripts the
+-- delayed-damage payoff itself, confirming it's purely DB2 spell-effect data (a fixed-delay trigger
+-- effect), needing no C++ at all.
+--
+-- No replacement script was written for 213757: ArgusCore's own spell_pal_fist_of_justice and
+-- spell_pal_divine_purpose already handle the Holy Power cost/Hammer of Justice CD reduction and
+-- Divine Purpose refund GENERICALLY for any Holy-Power-costing spell cast
+-- (procSpell->HasPowerTypeCost(POWER_HOLY_POWER)), which already covers Execution Sentence once
+-- it's rebound - this is a more idiomatic, already-existing mechanism than the reference cores' own
+-- manual per-spell duplication, per this project's "prefer extending/reusing the nearest existing
+-- mechanism" policy. Writing a manual class mirroring the references' approach would have
+-- double-counted these interactions.
+
+DELETE FROM `spell_script_names` WHERE `ScriptName` = 'spell_pal_execution_sentence';
