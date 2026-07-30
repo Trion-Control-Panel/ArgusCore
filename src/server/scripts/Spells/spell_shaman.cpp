@@ -142,9 +142,6 @@ enum ShamanSpells
     SPELL_SHAMAN_SPIRIT_WOLF_TALENT             = 260878,
     SPELL_SHAMAN_SPIRIT_WOLF_PERIODIC           = 260882,
     SPELL_SHAMAN_SPIRIT_WOLF_AURA               = 260881,
-    SPELL_SHAMAN_STORMBLAST_DAMAGE              = 390287,
-    SPELL_SHAMAN_STORMBLAST_PROC                = 470466,
-    SPELL_SHAMAN_STORMBLAST_TALENT              = 319930,
     SPELL_SHAMAN_STORMFLURRY                    = 344357,
     SPELL_SHAMAN_STORMFLURRY_ARTIFACT           = 198367,
     SPELL_SHAMAN_STORMKEEPER                    = 191634,
@@ -163,8 +160,6 @@ enum ShamanSpells
     SPELL_SHAMAN_TOTEMIC_POWER_SPELL_POWER      = 28825,
     SPELL_SHAMAN_UNDULATION_PROC                = 216251,
     SPELL_SHAMAN_UNLIMITED_POWER_BUFF           = 272737,
-    SPELL_SHAMAN_UNRELENTING_STORMS_REDUCTION   = 470491,
-    SPELL_SHAMAN_UNRELENTING_STORMS_TALENT      = 470490,
     SPELL_SHAMAN_UNRULY_WINDS                   = 390288,
     SPELL_SHAMAN_WINDFURY_ATTACK                = 25504,
     SPELL_SHAMAN_WINDFURY_AURA                  = 319773,
@@ -2584,85 +2579,6 @@ class spell_sha_spirit_wolf : public AuraScript
     }
 };
 
-// 319930 - Stormblast
-class spell_sha_stormblast : public AuraScript
-{
-    void Register() override { }
-
-public:
-    ObjectGuid AllowedOriginalCastId;
-};
-
-// 470466 - Stormblast (Stormstrike and Winstrike damaging spells)
-class spell_sha_stormblast_damage : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellEffect({
-            { SPELL_SHAMAN_STORMBLAST_TALENT, EFFECT_0 },
-            { SPELL_SHAMAN_ENHANCED_ELEMENTS, EFFECT_0 }
-        });
-    }
-
-    bool Load() override
-    {
-        if (Aura const* stormblast = GetCaster()->GetAura(SPELL_SHAMAN_STORMBLAST_TALENT))
-            if (spell_sha_stormblast const* script = stormblast->GetScript<spell_sha_stormblast>())
-                return script->AllowedOriginalCastId == GetSpell()->m_originalCastId;
-
-        return false;
-    }
-
-    void TriggerDamage() const
-    {
-        if (AuraEffect const* stormblast = GetCaster()->GetAuraEffect(SPELL_SHAMAN_STORMBLAST_TALENT, EFFECT_0))
-        {
-            int32 damage = CalculatePct(GetHitDamage(), stormblast->GetAmount());
-
-            // Not part of SpellFamilyFlags for mastery effect but known to be affected by it
-            if (AuraEffect const* mastery = GetCaster()->GetAuraEffect(SPELL_SHAMAN_ENHANCED_ELEMENTS, EFFECT_0))
-                AddPct(damage, mastery->GetAmount());
-
-            GetCaster()->CastSpell(GetHitUnit(), SPELL_SHAMAN_STORMBLAST_DAMAGE, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, damage } }
-            });
-        }
-    }
-
-    void Register() override
-    {
-        AfterHit += SpellHitFn(spell_sha_stormblast_damage::TriggerDamage);
-    }
-};
-
-// 470466 - Stormblast (17364 - Stormstrike, 115356 - Windstrike)
-class spell_sha_stormblast_proc : public SpellScript
-{
-    bool Load() override
-    {
-        Unit const* caster = GetCaster();
-        return caster->HasAura(SPELL_SHAMAN_STORMBLAST_TALENT)
-            && caster->HasAura(SPELL_SHAMAN_STORMBLAST_PROC);
-    }
-
-    // Store allowed CastId in passive aura because damaging spells are delayed (and delayed further if Stormflurry is triggered)
-    void SaveCastId() const
-    {
-        Unit* caster = GetCaster();
-        if (Aura* stormblast = caster->GetAura(SPELL_SHAMAN_STORMBLAST_TALENT))
-            if (spell_sha_stormblast* script = stormblast->GetScript<spell_sha_stormblast>())
-                script->AllowedOriginalCastId = GetSpell()->m_castId;
-
-        caster->RemoveAuraFromStack(SPELL_SHAMAN_STORMBLAST_PROC);
-    }
-
-    void Register() override
-    {
-        OnCast += SpellCastFn(spell_sha_stormblast_proc::SaveCastId);
-    }
-};
-
 class StormflurryEvent : public BasicEvent
 {
 public:
@@ -3230,55 +3146,6 @@ class spell_sha_undulation_passive : public AuraScript
     uint8 _castCounter = 1; // first proc happens after two casts, then one every 3 casts
 };
 
-// 470490 - Unrelenting Storms
-class spell_sha_unrelenting_storms : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_SHAMAN_UNRELENTING_STORMS_REDUCTION })
-            && ValidateSpellEffect({ { SPELL_SHAMAN_UNRELENTING_STORMS_TALENT, EFFECT_1 } });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->HasAura(SPELL_SHAMAN_UNRELENTING_STORMS_TALENT);
-    }
-
-    void Trigger(SpellEffIndex effIndex) const
-    {
-        Unit* shaman = GetCaster();
-        Aura const* unrelentingStorms = shaman->GetAura(SPELL_SHAMAN_UNRELENTING_STORMS_TALENT);
-        if (!unrelentingStorms)
-            return;
-
-        int64 targetLimit = 0;
-        if (AuraEffect const* limitEffect = unrelentingStorms->GetEffect(EFFECT_0))
-            targetLimit = limitEffect->GetAmount();
-
-        if (GetUnitTargetCountForEffect(effIndex) > targetLimit)
-            return;
-
-        SpellHistory::Duration cooldown = 0ms;
-        if (AuraEffect const* reductionPctEffect = unrelentingStorms->GetEffect(EFFECT_1))
-        {
-            SpellHistory::GetCooldownDurations(GetSpellInfo(), 0, &cooldown, nullptr, nullptr);
-
-            shaman->CastSpell(shaman, SPELL_SHAMAN_UNRELENTING_STORMS_REDUCTION, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, -int32(CalculatePct(cooldown.count(), reductionPctEffect->GetAmount())) } }
-            });
-        }
-
-        if (shaman->HasAura(SPELL_SHAMAN_WINDFURY_AURA))
-            WindfuryProcEvent::Trigger(shaman, GetHitUnit());
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_sha_unrelenting_storms::Trigger, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
-    }
-};
-
 // 33757 - Windfury Weapon
 class spell_sha_windfury_weapon : public SpellScript
 {
@@ -3575,9 +3442,6 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_primordial_wave);
     RegisterSpellScript(spell_sha_restorative_mists);
     RegisterSpellScript(spell_sha_spirit_wolf);
-    RegisterSpellScript(spell_sha_stormblast);
-    RegisterSpellScript(spell_sha_stormblast_damage);
-    RegisterSpellScript(spell_sha_stormblast_proc);
     RegisterSpellScriptWithArgs(spell_sha_stormflurry, "spell_sha_artifact_stormflurry_stormstrike",
         SPELL_SHAMAN_STORMFLURRY_ARTIFACT, SPELL_SHAMAN_STORMSTRIKE_DAMAGE_MAIN_HAND, SPELL_SHAMAN_STORMSTRIKE_DAMAGE_OFF_HAND);
     RegisterSpellScriptWithArgs(spell_sha_stormflurry, "spell_sha_artifact_stormflurry_windstrike",
@@ -3602,7 +3466,6 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_thorims_invocation_trigger);
     RegisterSpellScript(spell_sha_unlimited_power);
     RegisterSpellScript(spell_sha_undulation_passive);
-    RegisterSpellScript(spell_sha_unrelenting_storms);
     RegisterSpellScript(spell_sha_windfury_weapon);
     RegisterSpellScript(spell_sha_windfury_weapon_proc);
     RegisterAreaTriggerAI(areatrigger_sha_wind_rush_totem);
