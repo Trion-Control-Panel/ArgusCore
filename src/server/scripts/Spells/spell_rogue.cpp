@@ -39,6 +39,9 @@ enum RogueSpells
     SPELL_ROGUE_BLADE_FLURRY_EXTRA_ATTACK           = 22482,
     SPELL_ROGUE_BROADSIDE                           = 193356,
     SPELL_ROGUE_BURIED_TREASURE                     = 199600,
+    SPELL_ROGUE_CANNONBALL_BARRAGE                  = 185767,
+    SPELL_ROGUE_CANNONBALL_BARRAGE_DAMAGE           = 185779,
+    SPELL_ROGUE_CANNONBALL_BARRAGE_SLOW             = 185778,
     SPELL_ROGUE_CHEAT_DEATH_DUMMY                   = 31231,
     SPELL_ROGUE_CHEATED_DEATH                       = 45181,
     SPELL_ROGUE_CHEATING_DEATH                      = 45182,
@@ -47,8 +50,14 @@ enum RogueSpells
     SPELL_ROGUE_DEADLY_POISON                       = 2823,
     SPELL_ROGUE_DEADLY_POISON_DEBUFF                = 2818,
     SPELL_ROGUE_DEADLY_POISON_INSTANT_DAMAGE        = 113780,
+    SPELL_ROGUE_DEEPENING_SHADOWS                   = 185314,
+    SPELL_ROGUE_DEEPER_STRATAGEM                    = 193531,
+    SPELL_ROGUE_ALACRITY                            = 193539,
+    SPELL_ROGUE_ALACRITY_BUFF                       = 193538,
+    SPELL_ROGUE_FAN_OF_KNIVES                       = 51723,
     SPELL_ROGUE_GRAND_MELEE                         = 193358,
     SPELL_ROGUE_GRAPPLING_HOOK                      = 195457,
+    SPELL_ROGUE_GRAPPLING_HOOK_TRIGGER              = 227180,
     SPELL_ROGUE_KILLING_SPREE                       = 51690,
     SPELL_ROGUE_KILLING_SPREE_TELEPORT              = 57840,
     SPELL_ROGUE_KILLING_SPREE_WEAPON_DMG            = 57841,
@@ -56,6 +65,8 @@ enum RogueSpells
     SPELL_ROGUE_KIDNEY_SHOT                         = 408,
     SPELL_ROGUE_MARKED_FOR_DEATH                    = 137619,
     SPELL_ROGUE_MAIN_GAUCHE                         = 86392,
+    SPELL_ROGUE_MASTER_OF_SHADOWS                   = 196976,
+    SPELL_ROGUE_NIGHTBLADE                          = 195452,
     SPELL_ROGUE_NIGHT_TERRORS                       = 277953,
     SPELL_ROGUE_NUMBING_POISON                      = 5761,
     SPELL_ROGUE_NUMBING_POISON_DEBUFF               = 5760,
@@ -64,13 +75,20 @@ enum RogueSpells
     SPELL_ROGUE_PREMEDITATION_ENERGIZE              = 343170,
     SPELL_ROGUE_PREY_ON_THE_WEAK_TALENT             = 131511,
     SPELL_ROGUE_PREY_ON_THE_WEAK                    = 255909,
+    SPELL_ROGUE_RELENTLESS_STRIKES                  = 58423,
     SPELL_ROGUE_RUTHLESS_PRECISION                  = 193357,
     SPELL_ROGUE_SANCTUARY                           = 98877,
+    SPELL_ROGUE_SHADOWSTEP_LEAP                     = 36563,
     SPELL_ROGUE_SKULL_AND_CROSSBONES                = 199603,
+    SPELL_ROGUE_STRIKE_FROM_THE_SHADOWS             = 196951,
+    SPELL_ROGUE_STRIKE_FROM_THE_SHADOWS_SLOW        = 222775,
+    SPELL_ROGUE_STRIKE_FROM_THE_SHADOWS_STUN        = 196958,
     SPELL_ROGUE_SHADOW_DANCE                        = 185313,
+    SPELL_ROGUE_SHADOW_DANCE_AURA                   = 185422,
     SPELL_ROGUE_SHADOW_FOCUS                        = 108209,
     SPELL_ROGUE_SHADOW_FOCUS_EFFECT                 = 112942,
     SPELL_ROGUE_SHADOWS_GRASP                       = 206760,
+    SPELL_ROGUE_SHADOW_TECHNIQUES_ENERGIZE          = 196911,
     SPELL_ROGUE_SHURIKEN_STORM_DAMAGE               = 197835,
     SPELL_ROGUE_SHURIKEN_STORM_ENERGIZE             = 212743,
     SPELL_ROGUE_SLICE_AND_DICE                      = 5171,
@@ -270,6 +288,61 @@ class spell_rog_deepening_shadows : public AuraScript
     }
 };
 
+// 185313 - Shadow Dance
+// Subtlety's core stealth-enabling cooldown - was entirely missing its own cast effect
+// (SPELL_ROGUE_SHADOW_DANCE was already referenced elsewhere, e.g. spell_rog_deepening_shadows
+// above modifying its charge recovery time, but nothing actually applied the buff on cast).
+class spell_rog_shadow_dance : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_ROGUE_SHADOW_DANCE_AURA, SPELL_ROGUE_MASTER_OF_SHADOWS });
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+
+        if (caster->HasAura(SPELL_ROGUE_MASTER_OF_SHADOWS))
+            caster->ModifyPower(POWER_ENERGY, 30);
+
+        caster->CastSpell(caster, SPELL_ROGUE_SHADOW_DANCE_AURA, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_rog_shadow_dance::HandleHit, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
+    }
+};
+
+// 196912 - Shadow Techniques
+// Baseline Rogue passive (all specs, long-standing since Cataclysm): melee auto-attacks have a
+// chance to grant a combo point directly, independent of any finisher/builder. Was entirely
+// missing - one of the more fundamental combo-point-generation mechanisms across all 3 specs.
+// The proc chance is read from this aura's own DB2 data rather than hardcoded.
+class spell_rog_shadow_techniques : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_ROGUE_SHADOW_TECHNIQUES_ENERGIZE });
+    }
+
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
+    {
+        DamageInfo const* damageInfo = eventInfo.GetDamageInfo();
+        if (!damageInfo || (damageInfo->GetAttackType() != BASE_ATTACK && damageInfo->GetAttackType() != OFF_ATTACK))
+            return;
+
+        if (roll_chance_i(aurEff->GetAmount()))
+            eventInfo.GetActor()->CastSpell(eventInfo.GetActor(), SPELL_ROGUE_SHADOW_TECHNIQUES_ENERGIZE, true);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_rog_shadow_techniques::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
 // 32645 - Envenom
 class spell_rog_envenom : public SpellScript
 {
@@ -460,6 +533,170 @@ class spell_rog_kidney_shot : public SpellScript
     void Register() override
     {
         AfterHit += SpellHitFn(spell_rog_kidney_shot::HandleAfterHit);
+    }
+};
+
+// 199804 - Between the Eyes
+// Duration scales with combo points spent - same shape as spell_rog_kidney_shot above.
+class spell_rog_between_the_eyes : public SpellScript
+{
+    void HandleAfterHit()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        int32 comboPoints = GetSpell()->GetPowerTypeCostAmount(POWER_COMBO_POINTS).value_or(0);
+        if (Aura* aura = target->GetAura(SPELL_ROGUE_BETWEEN_THE_EYES, caster->GetGUID()))
+            aura->SetDuration(comboPoints * IN_MILLISECONDS);
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_rog_between_the_eyes::HandleAfterHit);
+    }
+};
+
+// 195457 - Grappling Hook
+class spell_rog_grappling_hook : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_ROGUE_GRAPPLING_HOOK_TRIGGER });
+    }
+
+    void HandleOnCast()
+    {
+        Unit* caster = GetCaster();
+        WorldLocation const* dest = GetExplTargetDest();
+        if (!caster || !dest)
+            return;
+
+        caster->CastSpell(*dest, SPELL_ROGUE_GRAPPLING_HOOK_TRIGGER, true);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_rog_grappling_hook::HandleOnCast);
+    }
+};
+
+// 58423 - Relentless Strikes
+// Finishing moves generate 5 Energy per combo point spent - generic across all finishers via
+// Spell::GetPowerTypeCostAmount, the same "any combo-point-costing spell" idiom already used
+// in this file for spell_rog_deepening_shadows above.
+class spell_rog_relentless_strikes : public AuraScript
+{
+    static bool CheckProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& procEvent)
+    {
+        if (Spell const* procSpell = procEvent.GetProcSpell())
+            return procSpell->GetPowerTypeCostAmount(POWER_COMBO_POINTS) > 0;
+
+        return false;
+    }
+
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo const& procInfo) const
+    {
+        int32 comboPoints = *procInfo.GetProcSpell()->GetPowerTypeCostAmount(POWER_COMBO_POINTS);
+        GetTarget()->ModifyPower(POWER_ENERGY, comboPoints * aurEff->GetAmount());
+    }
+
+    void Register() override
+    {
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_rog_relentless_strikes::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_rog_relentless_strikes::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 193539 - Alacrity
+// Finishing moves have a 20% chance per combo point spent to grant a stacking 1% haste buff
+// (per community guides - "up to 25 times"), generic across all finishers via
+// Spell::GetPowerTypeCostAmount, the same idiom as spell_rog_relentless_strikes above.
+// Implemented as its own standalone proc rather than duplicated inside every finisher script
+// (AshamaneCore's reference inlines this same roll separately inside its Nightblade and
+// Enveloping Shadows classes - this avoids that duplication).
+class spell_rog_alacrity : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_ROGUE_ALACRITY_BUFF });
+    }
+
+    static bool CheckProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& procEvent)
+    {
+        if (Spell const* procSpell = procEvent.GetProcSpell())
+            return procSpell->GetPowerTypeCostAmount(POWER_COMBO_POINTS) > 0;
+
+        return false;
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& procInfo) const
+    {
+        int32 comboPoints = *procInfo.GetProcSpell()->GetPowerTypeCostAmount(POWER_COMBO_POINTS);
+        if (roll_chance_i(20 * comboPoints))
+            GetTarget()->CastSpell(GetTarget(), SPELL_ROGUE_ALACRITY_BUFF, true);
+    }
+
+    void Register() override
+    {
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_rog_alacrity::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_rog_alacrity::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 185767 - Cannonball Barrage
+// Slows the initial target on cast; the actual bombardment damage ticks periodically from a
+// DynamicObject the cast itself spawns (SPELL_EFFECT_PERSISTENT_AREA_AURA via this spell's own
+// DB2 data), matching the modern DB2-driven idiom already used elsewhere in this codebase
+// rather than a manually-tracked AreaTrigger.
+class spell_rog_cannonball_barrage : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_ROGUE_CANNONBALL_BARRAGE_SLOW });
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        caster->CastSpell(target, SPELL_ROGUE_CANNONBALL_BARRAGE_SLOW, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_rog_cannonball_barrage::HandleHit, EFFECT_2, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 185767 - Cannonball Barrage (periodic bombardment damage)
+class spell_rog_cannonball_barrage_aura : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_ROGUE_CANNONBALL_BARRAGE, SPELL_ROGUE_CANNONBALL_BARRAGE_DAMAGE });
+    }
+
+    void HandlePeriodic(AuraEffect const* /*aurEff*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        DynamicObject* barrage = caster->GetDynObject(SPELL_ROGUE_CANNONBALL_BARRAGE);
+        if (!barrage)
+            return;
+
+        caster->CastSpell(barrage->GetPosition(), SPELL_ROGUE_CANNONBALL_BARRAGE_DAMAGE, true);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_rog_cannonball_barrage_aura::HandlePeriodic, EFFECT_1, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
 
@@ -795,7 +1032,8 @@ class spell_rog_shadowstrike : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_ROGUE_PREMEDITATION_AURA, SPELL_ROGUE_SLICE_AND_DICE, SPELL_ROGUE_PREMEDITATION_PASSIVE })
+        return ValidateSpellInfo({ SPELL_ROGUE_PREMEDITATION_AURA, SPELL_ROGUE_SLICE_AND_DICE, SPELL_ROGUE_PREMEDITATION_PASSIVE,
+                SPELL_ROGUE_SHADOWSTEP_LEAP, SPELL_ROGUE_STRIKE_FROM_THE_SHADOWS_SLOW, SPELL_ROGUE_STRIKE_FROM_THE_SHADOWS_STUN })
             && ValidateSpellEffect({ { SPELL_ROGUE_PREMEDITATION_PASSIVE, EFFECT_0 } });
     }
 
@@ -805,6 +1043,14 @@ class spell_rog_shadowstrike : public SpellScript
         // when we reach HandleEnergize the aura won't be there, even if it was when player launched the spell
         _hasPremeditationAura = GetCaster()->HasAura(SPELL_ROGUE_PREMEDITATION_AURA);
         return SPELL_FAILED_SUCCESS;
+    }
+
+    // Shadowstrike's whole identity - teleport behind the target before the strike lands.
+    // Was completely missing: this ability did not reposition the caster at all previously.
+    void HandleLeapBehind()
+    {
+        if (Unit* target = GetExplTargetUnit())
+            GetCaster()->CastSpell(target, SPELL_ROGUE_SHADOWSTEP_LEAP, true);
     }
 
     void HandleEnergize(SpellEffIndex /*effIndex*/)
@@ -827,10 +1073,35 @@ class spell_rog_shadowstrike : public SpellScript
         }
     }
 
+    // Strike from the Shadows (level 75 talent, patch 7.0.3-8.0.1): applies a snare to players,
+    // a stun to NPCs (a common Blizzard PvP-balance split for on-hit CC talents).
+    // NOTE: hooked to EFFECT_0/SPELL_EFFECT_WEAPON_PERCENT_DAMAGE, inferred from this file's own
+    // already-confirmed EFFECT_1 == SPELL_EFFECT_ENERGIZE above (AshamaneCore's reference used
+    // EFFECT_1 for this piece too, which would collide with the energize effect here - ArgusCore's
+    // actual effect layout for this spell differs from the reference's). If this hook doesn't
+    // fire, the effect index is the first thing to check.
+    void HandleHitTarget(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        if (caster->HasAura(SPELL_ROGUE_STRIKE_FROM_THE_SHADOWS))
+        {
+            if (target->GetTypeId() == TYPEID_PLAYER)
+                caster->CastSpell(target, SPELL_ROGUE_STRIKE_FROM_THE_SHADOWS_SLOW, true);
+            else
+                caster->CastSpell(target, SPELL_ROGUE_STRIKE_FROM_THE_SHADOWS_STUN, true);
+        }
+    }
+
     void Register() override
     {
         OnCheckCast += SpellCheckCastFn(spell_rog_shadowstrike::HandleCheckCast);
+        BeforeCast += SpellCastFn(spell_rog_shadowstrike::HandleLeapBehind);
         OnEffectHitTarget += SpellEffectFn(spell_rog_shadowstrike::HandleEnergize, EFFECT_1, SPELL_EFFECT_ENERGIZE);
+        OnEffectHitTarget += SpellEffectFn(spell_rog_shadowstrike::HandleHitTarget, EFFECT_0, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
     }
 
 private:
@@ -890,6 +1161,24 @@ class spell_rog_shuriken_storm : public SpellScript
     void Register() override
     {
         OnEffectHit += SpellEffectFn(spell_rog_shuriken_storm::HandleEnergize, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 51723 - Fan of Knives
+// Assassination's AoE builder - generates 1 combo point per cast (not per target hit).
+// AshamaneCore's reference also clears old Killing Spree debuffs by hardcoded id on this cast,
+// which looks like stale drift from a much older Killing Spree shape - dropped rather than
+// ported.
+class spell_rog_fan_of_knives : public SpellScript
+{
+    void HandleOnCast()
+    {
+        GetCaster()->ModifyPower(POWER_COMBO_POINTS, 1);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_rog_fan_of_knives::HandleOnCast);
     }
 };
 
@@ -960,6 +1249,41 @@ class spell_rog_saber_slash : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_rog_saber_slash::HandleHit, EFFECT_2, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
+    }
+};
+
+// 193537 - Weaponmaster
+// Chance on a weapon hit to duplicate the damage as a free extra instance. Chance read from
+// this aura's own DB2 data. Uses the same SpellNonMeleeDamage/DealSpellDamage idiom already
+// established in this file for spell_rog_saber_slash's extra-hit mechanic above.
+class spell_rog_weaponmaster : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetDamageInfo() != nullptr;
+    }
+
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
+    {
+        if (!roll_chance_i(aurEff->GetAmount()))
+            return;
+
+        Unit* caster = eventInfo.GetActor();
+        Unit* target = eventInfo.GetActionTarget();
+        if (!caster || !target)
+            return;
+
+        SpellNonMeleeDamage log(caster, target, GetSpellInfo(), {}, GetSpellInfo()->SchoolMask);
+        log.damage = eventInfo.GetDamageInfo()->GetDamage();
+        log.cleanDamage = log.damage;
+        caster->DealSpellDamage(&log, false);
+        caster->SendSpellNonMeleeDamageLog(&log);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_rog_weaponmaster::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_rog_weaponmaster::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -1187,15 +1511,20 @@ void AddSC_rogue_spell_scripts()
 {
     RegisterSpellScript(spell_rog_backstab);
     RegisterSpellScript(spell_rog_blade_flurry);
+    RegisterSpellScript(spell_rog_alacrity);
+    RegisterSpellAndAuraScriptPair(spell_rog_cannonball_barrage, spell_rog_cannonball_barrage_aura);
     RegisterSpellScript(spell_rog_cheat_death);
     RegisterSpellScript(spell_rog_deadly_poison);
     RegisterSpellScript(spell_rog_deepening_shadows);
     RegisterSpellScript(spell_rog_envenom);
     RegisterSpellScript(spell_rog_eviscerate);
     RegisterSpellScript(spell_rog_grand_melee);
+    RegisterSpellScript(spell_rog_grappling_hook);
+    RegisterSpellScript(spell_rog_relentless_strikes);
     RegisterSpellScript(spell_rog_honor_among_thieves);
     RegisterSpellAndAuraScriptPair(spell_rog_killing_spree, spell_rog_killing_spree_aura);
     RegisterSpellScript(spell_rog_kidney_shot);
+    RegisterSpellScript(spell_rog_between_the_eyes);
     RegisterSpellScript(spell_rog_kingsbane);
     RegisterSpellScript(spell_rog_mastery_main_gauche);
     RegisterSpellScript(spell_rog_night_terrors);
@@ -1208,12 +1537,16 @@ void AddSC_rogue_spell_scripts()
     RegisterSpellScript(spell_rog_roll_the_bones);
     RegisterSpellScript(spell_rog_rupture);
     RegisterSpellScript(spell_rog_ruthlessness);
+    RegisterSpellScript(spell_rog_shadow_dance);
+    RegisterSpellScript(spell_rog_shadow_techniques);
+    RegisterSpellScript(spell_rog_fan_of_knives);
     RegisterSpellScript(spell_rog_shadowstrike);
     RegisterSpellScript(spell_rog_shadow_focus);
     RegisterSpellScript(spell_rog_shuriken_storm);
     RegisterSpellScript(spell_rog_shuriken_tornado);
     RegisterSpellScript(spell_rog_saber_slash);
     RegisterSpellScript(spell_rog_stealth);
+    RegisterSpellScript(spell_rog_weaponmaster);
     RegisterSpellAndAuraScriptPair(spell_rog_tricks_of_the_trade, spell_rog_tricks_of_the_trade_aura);
     RegisterSpellScript(spell_rog_tricks_of_the_trade_proc);
     RegisterSpellScript(spell_rog_turn_the_tables);

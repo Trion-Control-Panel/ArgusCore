@@ -57,6 +57,7 @@ enum WarriorSpells
     SPELL_WARRIOR_ENRAGE                            = 184362,
     SPELL_WARRIOR_FRESH_MEAT_DEBUFF                 = 316044,
     SPELL_WARRIOR_FRESH_MEAT_TALENT                 = 215568,
+    SPELL_WARRIOR_FROTHING_BERSERKER_BUFF           = 215572,
     SPELL_WARRIOR_FUELED_BY_VIOLENCE_HEAL           = 383104,
     SPELL_WARRIOR_FURIOUS_SLASH                     = 100130,
     SPELL_WARRIOR_GLYPH_OF_THE_BLAZING_TRAIL        = 123779,
@@ -76,6 +77,7 @@ enum WarriorSpells
     SPELL_WARRIOR_MASSACRE                          = 206315,
     SPELL_WARRIOR_MORTAL_STRIKE                     = 12294,
     SPELL_WARRIOR_MORTAL_WOUNDS                     = 213667,
+    SPELL_WARRIOR_ODYNS_FURY                        = 214871,
     SPELL_WARRIOR_OVERPOWER                         = 7384,
     SPELL_WARRIOR_PRECISE_STRIKES                   = 248195,
     SPELL_WARRIOR_RALLYING_CRY                      = 97462,
@@ -642,6 +644,23 @@ class spell_warr_dragon_roar : public SpellScript
     }
 };
 
+// 214871 - Odyn's Fury
+// Warswords of the Valarjar artifact ability. The spell's own DB2 data carries an unwanted
+// absorb component on this effect - disable it, matching the same pattern already used for
+// spell_pal_holy_shield in spell_paladin.cpp.
+class spell_warr_odyns_fury : public AuraScript
+{
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = 0;
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_warr_odyns_fury::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+    }
+};
+
 // 184361 - Enrage
 class spell_warr_enrage_proc : public AuraScript
 {
@@ -855,6 +874,30 @@ class spell_warr_frenzy : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_warr_frenzy::CheckProc);
+    }
+};
+
+// 215571 - Frothing Berserker
+// Legion 7.3.5 shape (per Warcraft Wiki): reaching 100 Rage grants +15% damage and +30% move
+// speed for 6s. The 100-Rage trigger itself is handled natively by this aura's own
+// SPELL_AURA_TRIGGER_SPELL_ON_POWER_AMOUNT DB2 data - the script only needs to cast the buff
+// on proc. NOTE: this talent was completely redesigned in Shadowlands 9.0.1 (Rampage refunding
+// Rage instead) - that later shape does not apply here.
+class spell_warr_frothing_berserker : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_FROTHING_BERSERKER_BUFF });
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+    {
+        GetCaster()->CastSpell(GetCaster(), SPELL_WARRIOR_FROTHING_BERSERKER_BUFF, true);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_warr_frothing_berserker::HandleProc, EFFECT_0, SPELL_AURA_TRIGGER_SPELL_ON_POWER_AMOUNT);
     }
 };
 
@@ -1677,6 +1720,36 @@ class spell_warr_shield_block : public SpellScript
     }
 };
 
+// 203177 - Heavy Repercussions
+// Shield Slam extends the duration of an active Shield Block buff by this aura's own DB2
+// amount (1.5s per Warcraft Wiki). The damage-increase half of this talent (Shield Block
+// increasing Shield Slam's damage) is presumed to be a plain DB2 spell-mod on the talent's
+// own passive and needs no script.
+class spell_warr_heavy_repercussions : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_SHIELD_SLAM, SPELL_WARRIOR_SHIELD_BLOCK_AURA });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->Id == SPELL_WARRIOR_SHIELD_SLAM;
+    }
+
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
+    {
+        if (Aura* shieldBlock = eventInfo.GetActor()->GetAura(SPELL_WARRIOR_SHIELD_BLOCK_AURA))
+            shieldBlock->SetDuration(shieldBlock->GetDuration() + aurEff->GetAmount());
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_warr_heavy_repercussions::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_warr_heavy_repercussions::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
 // 385952 - Shield Charge
 class spell_warr_shield_charge : public SpellScript
 {
@@ -2213,11 +2286,13 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_defensive_stance);
     RegisterSpellScript(spell_warr_devastator);
     RegisterSpellScript(spell_warr_dragon_roar);
+    RegisterSpellScript(spell_warr_odyns_fury);
     RegisterSpellScript(spell_warr_enrage_proc);
     RegisterSpellScript(spell_warr_execute);
     RegisterSpellScript(spell_warr_executioners_precision);
     RegisterSpellScript(spell_warr_focused_rage_arms);
     RegisterSpellScript(spell_warr_frenzy);
+    RegisterSpellScript(spell_warr_frothing_berserker);
     RegisterSpellScript(spell_warr_fueled_by_violence);
     RegisterSpellScript(spell_warr_heroic_leap);
     RegisterSpellScript(spell_warr_heroic_leap_jump);
@@ -2245,6 +2320,7 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_second_wind_heal);
     RegisterSpellScript(spell_warr_shattering_throw);
     RegisterSpellScript(spell_warr_shield_block);
+    RegisterSpellScript(spell_warr_heavy_repercussions);
     RegisterSpellScript(spell_warr_shield_charge);
     RegisterSpellScript(spell_warr_shockwave);
     RegisterSpellScript(spell_warr_soul_of_the_slaughter);

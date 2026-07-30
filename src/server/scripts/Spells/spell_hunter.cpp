@@ -25,6 +25,7 @@
 #include "AreaTriggerAI.h"
 #include "CellImpl.h"
 #include "GridNotifiersImpl.h"
+#include "ObjectAccessor.h"
 #include "Pet.h"
 #include "SpellAuraEffects.h"
 #include "SpellHistory.h"
@@ -107,6 +108,7 @@ enum HunterSpells
     SPELL_HUNTER_TAR_TRAP                           = 187699,
     SPELL_HUNTER_TAR_TRAP_AREATRIGGER               = 187700,
     SPELL_HUNTER_TAR_TRAP_SLOW                      = 135299,
+    SPELL_HUNTER_THROWING_AXES_DAMAGE               = 200167,
     SPELL_HUNTER_VULNERABLE                         = 187131,
     SPELL_ROAR_OF_SACRIFICE_TRIGGERED               = 67481
 };
@@ -812,6 +814,45 @@ class spell_hun_harpoon : public SpellScript
         OnCast += SpellCastFn(spell_hun_harpoon::CastHarpoon);
         OnEffectHitTarget += SpellEffectFn(spell_hun_harpoon::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
         AfterCast += SpellCastFn(spell_hun_harpoon::HandleAfterCast);
+    }
+};
+
+// 200163 - Throwing Axes
+// Throws N axes 500ms apart at the initial target, N read from this spell's own DB2 effect
+// data. ArgusCore has no Unit::GetScheduler()/TaskScheduler usable directly from a SpellScript
+// context (that idiom exists only on AreaTriggerAI, which owns an Update() tick to drive it) -
+// uses the Unit::m_Events + AddEventAtOffset lambda idiom instead, the same shape already used
+// for staggered casts elsewhere in this codebase (e.g. spell_mage_flurry in spell_mage.cpp).
+class spell_hun_throwing_axes : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_HUNTER_THROWING_AXES_DAMAGE });
+    }
+
+    void HandleOnCast()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetExplTargetUnit();
+        if (!caster || !target)
+            return;
+
+        ObjectGuid targetGuid = target->GetGUID();
+        int32 throwCount = GetEffectInfo(EFFECT_0).CalcValue(caster);
+
+        for (int32 i = 0; i < throwCount; ++i)
+        {
+            caster->m_Events.AddEventAtOffset([caster, targetGuid]()
+            {
+                if (Unit* target = ObjectAccessor::GetUnit(*caster, targetGuid))
+                    caster->CastSpell(target, SPELL_HUNTER_THROWING_AXES_DAMAGE, TRIGGERED_IGNORE_CAST_IN_PROGRESS);
+            }, Milliseconds(500 * i));
+        }
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_hun_throwing_axes::HandleOnCast);
     }
 };
 
@@ -1926,6 +1967,7 @@ void AddSC_hunter_spell_scripts()
     RegisterSpellScript(spell_hun_flanking_strike_proc);
     RegisterSpellScript(spell_hun_flanking_strike_proc_up);
     RegisterSpellScript(spell_hun_harpoon);
+    RegisterSpellScript(spell_hun_throwing_axes);
     RegisterSpellScript(spell_hun_hunters_mark);
     RegisterSpellScript(spell_hun_hunting_party);
     RegisterSpellScript(spell_hun_intimidation);
