@@ -1415,6 +1415,160 @@ class spell_dh_consume_soul : public SpellScript
     }
 };
 
+// 206478 - Demonic Appetite (Havoc talent passive): Chaos Strike/Annihilation main-hand crits
+// spawn a Lesser Soul Fragment. The Fury refund on consuming it is already handled by
+// spell_dh_consume_soul above (which already gates Consume Soul's own EFFECT_1 Fury trigger
+// behind HasAura(SPELL_DH_DEMONIC_APPETITE)) - this class only needs to add the missing
+// crit-triggers-fragment-spawn half, bound directly to the talent's own always-active passive
+// aura, matching the file's established "baseline passive with proc logic on its own id" idiom
+// (e.g. Frozen Veins in spell_mage.cpp). Confirmed via DestinyCore/AshamaneCore (identical
+// implementations). Casts SPELL_DH_SHATTERED_SOUL_LESSER_SOUL_FRAGMENT_1 (228533), the
+// Havoc "lesser" fragment trigger - not SPELL_DH_SHATTER_SOUL_HAVOC_NORMAL_CAST, which the
+// on-kill passive already uses for the "big" fragment. Checks ArgusCore's own
+// SPELL_DH_CHAOS_STRIKE_OH/SPELL_DH_ANNIHILATION_OH (199547/201428) - despite the differing
+// names, these are the exact same ids the references check under their own
+// (inverted-relative-to-ArgusCore) MAIN_HAND-labeled constants; checking only one hand's hit
+// id per cast avoids double-proccing per Chaos Strike/Annihilation cast.
+class spell_dh_demonic_appetite : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_SHATTERED_SOUL_LESSER_SOUL_FRAGMENT_1 });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() &&
+              (eventInfo.GetSpellInfo()->Id == SPELL_DH_CHAOS_STRIKE_OH ||
+               eventInfo.GetSpellInfo()->Id == SPELL_DH_ANNIHILATION_OH);
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+    {
+        if (Unit* caster = GetCaster())
+            caster->CastSpell(caster, SPELL_DH_SHATTERED_SOUL_LESSER_SOUL_FRAGMENT_1, TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_dh_demonic_appetite::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_dh_demonic_appetite::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
+
+// 211053 - Fel Barrage (Havoc capstone talent): channeled AOE whose duration/damage scales
+// with how many Fel Barrage charges the caster had banked when the channel began (built up via
+// spell_dh_fel_barrage_proc below). Confirmed via DestinyCore/AshamaneCore (identical
+// implementations). ArgusCore's SpellHistory has no direct "current charge count" getter
+// (unlike the reference's GetChargeCount) - counted the same way this project's own
+// spell_paladin.cpp already does elsewhere (loop HasCharge/ConsumeCharge), which also
+// naturally consumes them - matching Fel Barrage's real "consumes all banked charges on cast"
+// design. Translated Unit::CastCustomSpell (doesn't exist in ArgusCore) to
+// CastSpellExtraArgs/AddSpellMod.
+class spell_dh_fel_barrage : public AuraScript
+{
+    int32 _charges = 0;
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_FEL_BARRAGE_DMG });
+    }
+
+    bool Load() override
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return true;
+
+        SpellHistory* history = caster->GetSpellHistory();
+        uint32 chargeCategoryId = GetSpellInfo()->ChargeCategoryId;
+
+        _charges = 0;
+        while (history->HasCharge(chargeCategoryId))
+        {
+            history->ConsumeCharge(chargeCategoryId);
+            ++_charges;
+        }
+
+        return true;
+    }
+
+    void HandleTrigger(AuraEffect const* /*aurEff*/)
+    {
+        if (Unit* caster = GetCaster())
+            caster->CastSpell(GetTarget(), SPELL_DH_FEL_BARRAGE_DMG, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT1, _charges));
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dh_fel_barrage::HandleTrigger, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
+// 211052 - Fel Barrage (damage): scales per tick by the charge count passed via
+// SPELLVALUE_BASE_POINT1 from spell_dh_fel_barrage above - deliberately NOT
+// SPELLVALUE_BASE_POINT0/GetEffectValue(), since EFFECT_0 on this spell is itself the
+// SCHOOL_DAMAGE effect being scaled (the same EFFECT_0-collision problem already solved for
+// Spirit Bomb above, avoided here more directly via GetSpellValue()->EffectBasePoints[1],
+// which exists in ArgusCore and isn't tied to any single effect index).
+class spell_dh_fel_barrage_damage : public SpellScript
+{
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        int32 chargesUsed = GetSpellValue()->EffectBasePoints[EFFECT_1];
+        if (chargesUsed > 0)
+            SetHitDamage(GetHitDamage() * chargesUsed / 5);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dh_fel_barrage_damage::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 222703 - Fel Mastery (the Fel Barrage charge-builder passive): Blade Dance/Death Sweep,
+// Chaos Strike/Annihilation, and Eye Beam landing restores a Fel Barrage charge, banked for
+// the next Fel Barrage cast above. Excludes Blade Dance/Death Sweep's own multiple per-cast
+// sub-hits (199552/200685/210153/210155 - no named constants exist for these in ArgusCore
+// either) and Fel Barrage's own damage (SPELL_DH_FEL_BARRAGE_DMG) from re-triggering itself.
+// Confirmed via DestinyCore/AshamaneCore (identical implementations).
+class spell_dh_fel_barrage_proc : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_FEL_BARRAGE });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        if (!eventInfo.GetSpellInfo())
+            return false;
+
+        static std::vector<uint32> const excluded =
+        {
+            199552, 200685, 210153, 210155, SPELL_DH_FEL_BARRAGE_DMG
+        };
+        return std::find(excluded.begin(), excluded.end(), eventInfo.GetSpellInfo()->Id) == excluded.end();
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+    {
+        PreventDefaultAction();
+
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        caster->GetSpellHistory()->RestoreCharge(sSpellMgr->AssertSpellInfo(SPELL_DH_FEL_BARRAGE, DIFFICULTY_NONE)->ChargeCategoryId);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_dh_fel_barrage_proc::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_dh_fel_barrage_proc::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
+
 // 178963, 203794, 228532 - Consume Soul (Vengeance)
 // A second, independent script bound to the same spell ids as spell_dh_consume_soul above
 // (which gates the Fury/Pain refund behind Demonic Appetite) - this adds two unrelated
@@ -2715,6 +2869,10 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_fiery_brand);
     RegisterSpellScript(spell_dh_fiery_brand_absorb);
     RegisterSpellScript(spell_dh_consume_soul);
+    RegisterSpellScript(spell_dh_demonic_appetite);
+    RegisterSpellScript(spell_dh_fel_barrage);
+    RegisterSpellScript(spell_dh_fel_barrage_damage);
+    RegisterSpellScript(spell_dh_fel_barrage_proc);
     RegisterSpellScript(spell_dh_consume_soul_vengeance);
     RegisterSpellScript(spell_dh_burning_alive);
     RegisterSpellScript(spell_dh_soul_barrier);
