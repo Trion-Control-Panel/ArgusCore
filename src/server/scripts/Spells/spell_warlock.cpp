@@ -29,9 +29,11 @@
 #include "Creature.h"
 #include "GameObject.h"
 #include "GridNotifiersImpl.h"
+#include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "Pet.h"
 #include "Player.h"
+#include "ScriptedCreature.h"
 #include "Random.h"
 #include "SpellAuraEffects.h"
 #include "SpellAuras.h"
@@ -59,6 +61,18 @@ enum WarlockSpells
     SPELL_WARLOCK_DEMONIC_CALLING                   = 205145,
     SPELL_WARLOCK_DEMONIC_CALLING_TRIGGER           = 205146,
     SPELL_WARLOCK_DEMONIC_CIRCLE_TELEPORT           = 48020,
+    // Demonic Gateway (111771, confirmed via independent web sources - WowDB/Wowhead both
+    // agree - since neither reference core declares the base cast id explicitly, only its
+    // component pieces below).
+    SPELL_WARLOCK_DEMONIC_GATEWAY                    = 111771,
+    SPELL_WARLOCK_DEMONIC_GATEWAY_SUMMON_GREEN       = 113886,
+    SPELL_WARLOCK_GATEWAY_PORTAL_VISUAL               = 113900,
+    SPELL_WARLOCK_GATEWAY_INTERACT                    = 113902,
+    SPELL_WARLOCK_GATEWAY_COOLDOWN_MARKER             = 113942,
+    SPELL_WARLOCK_GATEWAY_TELEPORT_VISUAL_GREEN       = 236762,
+    SPELL_WARLOCK_GATEWAY_TELEPORT_VISUAL_PURPLE      = 236671,
+    NPC_WARLOCK_GATEWAY_GREEN                          = 59262,
+    NPC_WARLOCK_GATEWAY_PURPLE                         = 59271,
     SPELL_WARLOCK_DEVOUR_MAGIC_HEAL                 = 19658,
     SPELL_WARLOCK_DOOM                              = 603,
     SPELL_WARLOCK_DOOM_ENERGIZE                     = 193318,
@@ -308,6 +322,146 @@ class spell_warl_demonic_calling : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_warl_demonic_calling::CheckProc);
+    }
+};
+
+// 111771 - Demonic Gateway: summons a green gateway at the target destination (despawning any
+// pre-existing gateway pair the caster already owns first). The matching purple gateway is
+// summoned automatically by this spell's own second effect at the caster's position - not
+// scripted, since it needs no destination resolution. Confirmed via DestinyCore/AshamaneCore
+// (identical implementations). Translated the raw CastSpell(x, y, z, spellId, ...) float-triple
+// overload (this project's own CLAUDE.md already documents this doesn't exist in ArgusCore) to
+// CastSpell(Position const&, ...), and Creature::GetOwner() (unreliable for temp summons that
+// aren't guardian-type) to TempSummon::GetSummonerUnit(), the dedicated accessor for exactly
+// this need.
+class spell_warl_demonic_gateway : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARLOCK_DEMONIC_GATEWAY_SUMMON_GREEN });
+    }
+
+    void HandleSummon()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        WorldLocation const* dest = GetExplTargetDest();
+        if (!caster || !dest)
+            return;
+
+        for (uint32 entry : { uint32(NPC_WARLOCK_GATEWAY_GREEN), uint32(NPC_WARLOCK_GATEWAY_PURPLE) })
+        {
+            std::list<Creature*> gates;
+            caster->GetCreatureListWithEntryInGrid(gates, entry, 500.0f);
+
+            for (Creature* gate : gates)
+                if (gate->IsSummon() && gate->ToTempSummon()->GetSummonerUnit() == caster)
+                    gate->DespawnOrUnsummon();
+        }
+
+        caster->CastSpell(*dest, SPELL_WARLOCK_DEMONIC_GATEWAY_SUMMON_GREEN, true);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_warl_demonic_gateway::HandleSummon);
+    }
+};
+
+// 113902 - Gateway Interact: triggered by clicking either gateway NPC (bound via
+// npc_spellclick_spells with cast_flags = NPC_CLICK_CAST_TARGET_CLICKER only, so the clicked
+// gateway itself is the caster and the clicking player is the target - letting this script
+// know both which gate was clicked and who to teleport). Finds the nearest matching
+// opposite-color gateway belonging to the same owner and jumps the player there. Confirmed via
+// DestinyCore/AshamaneCore, but substantially redesigned: the references drive the whole
+// interaction through a legacy raw UNIT_FIELD_INTERACT_SPELLID field plus a manual
+// CreatureAI::OnSpellClick override with a `bool&` result parameter - ArgusCore's actual
+// CreatureAI::OnSpellClick takes `bool spellClickHandled` by value (an already-resolved
+// in-parameter, not an out-parameter the AI can veto), and click-to-cast wiring is DB-driven
+// via npc_spellclick_spells (SpellClickInfo), including built-in SPELL_CLICK_USER_PARTY
+// group-membership validation that replaces the reference's manual Group-comparison code
+// entirely. The group-membership/fear/cooldown checks and "am I friendly to whoever's already
+// interacting" logic are handled by that DB config plus this spell's own CheckCast, so no
+// CreatureAI::OnSpellClick override is needed at all - see npc_warl_demonic_gateway below for
+// the (much smaller) remaining creature AI piece.
+class spell_warl_demonic_gateway_interact : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARLOCK_GATEWAY_COOLDOWN_MARKER, SPELL_WARLOCK_GATEWAY_TELEPORT_VISUAL_GREEN, SPELL_WARLOCK_GATEWAY_TELEPORT_VISUAL_PURPLE });
+    }
+
+    SpellCastResult CheckCast()
+    {
+        Unit* caster = GetCaster();
+        Unit* player = GetExplTargetUnit();
+        if (!caster || !player)
+            return SPELL_FAILED_DONT_REPORT;
+
+        if (player->HasAura(SPELL_WARLOCK_GATEWAY_COOLDOWN_MARKER) || player->IsFeared())
+            return SPELL_FAILED_DONT_REPORT;
+
+        return SPELL_CAST_OK;
+    }
+
+    void HandleTeleport()
+    {
+        Creature* clickedGate = GetCaster() ? GetCaster()->ToCreature() : nullptr;
+        Unit* player = GetExplTargetUnit();
+        if (!clickedGate || !player || !clickedGate->IsSummon())
+            return;
+
+        Unit* owner = clickedGate->ToTempSummon()->GetSummonerUnit();
+        if (!owner)
+            return;
+
+        bool clickedGreen = clickedGate->GetEntry() == NPC_WARLOCK_GATEWAY_GREEN;
+        uint32 targetEntry = clickedGreen ? NPC_WARLOCK_GATEWAY_PURPLE : NPC_WARLOCK_GATEWAY_GREEN;
+
+        std::list<Creature*> candidates;
+        clickedGate->GetCreatureListWithEntryInGrid(candidates, targetEntry, 500.0f);
+        candidates.remove_if([owner](Creature* gate)
+        {
+            return !gate->IsSummon() || gate->ToTempSummon()->GetSummonerUnit() != owner;
+        });
+
+        if (candidates.empty())
+            return;
+
+        candidates.sort([clickedGate](Creature const* a, Creature const* b)
+        {
+            return a->GetDistance(clickedGate) < b->GetDistance(clickedGate);
+        });
+
+        Creature* targetGate = candidates.front();
+
+        player->CastSpell(player, SPELL_WARLOCK_GATEWAY_COOLDOWN_MARKER, true);
+        player->CastSpell(player, clickedGreen ? SPELL_WARLOCK_GATEWAY_TELEPORT_VISUAL_GREEN : SPELL_WARLOCK_GATEWAY_TELEPORT_VISUAL_PURPLE, true);
+
+        float speedZ = 5.0f;
+        float speedXY = player->GetExactDist2d(targetGate) * 10.0f / speedZ;
+        player->GetMotionMaster()->MoveJump(targetGate->GetPosition(), speedXY, speedZ);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_warl_demonic_gateway_interact::CheckCast);
+        OnCast += SpellCastFn(spell_warl_demonic_gateway_interact::HandleTeleport);
+    }
+};
+
+// 59262 (green) / 59271 (purple) - Demonic Gateway portals. Shared by both colors - just plays
+// the portal visual on spawn. Everything else (click-to-cast wiring, non-attackable/no-client-
+// control flags, passive react state) is DB-driven via creature_template/npc_spellclick_spells
+// rather than runtime AI code, matching this project's established preference (e.g. the
+// existing Gunship Turret spell-click NPC configuration) over the reference's legacy
+// UNIT_FIELD_INTERACT_SPELLID-poking approach.
+struct npc_warl_demonic_gateway : public ScriptedAI
+{
+    npc_warl_demonic_gateway(Creature* creature) : ScriptedAI(creature) { }
+
+    void Reset() override
+    {
+        me->CastSpell(me, SPELL_WARLOCK_GATEWAY_PORTAL_VISUAL, true);
     }
 };
 
@@ -2166,6 +2320,9 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellAndAuraScriptPair(spell_warl_burning_rush, spell_warl_burning_rush_aura);
     RegisterSpellScript(spell_warl_call_dreadstalkers);
     RegisterSpellScript(spell_warl_demonic_calling);
+    RegisterSpellScript(spell_warl_demonic_gateway);
+    RegisterSpellScript(spell_warl_demonic_gateway_interact);
+    RegisterCreatureAI(npc_warl_demonic_gateway);
     RegisterSpellScript(spell_warl_cataclysm);
     RegisterSpellScript(spell_warl_channel_demonfire);
     RegisterSpellScript(spell_warl_chaos_bolt);
