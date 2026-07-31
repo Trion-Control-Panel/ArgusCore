@@ -1,0 +1,23 @@
+-- Battlegrounds: correct bad map IDs for Warsong Gulch/Arathi Basin.
+-- Both battlegrounds are fully implemented and registered
+-- (src/server/scripts/Battlegrounds/WarsongGulch, .../ArathiBasin) but were silently
+-- unreachable: their RegisterBattlegroundMapScript() calls, and the matching
+-- battleground_scripts rows shipped in ArgusCore's own base data
+-- (sql/TDB_world_735.26972_2025_05_11.sql), both used map IDs 2106/2107, which don't
+-- exist in sMapStore - causing "BattlegroundMgr::LoadBattlegroundScriptTemplate: bad
+-- mapid 2106/2107!" at startup and silently dropping the row (BattlegroundMgr.cpp:266-273).
+--
+-- A prior DB-error-cleanup pass (sql/pending/world/2026_05_30_00_world.sql, still
+-- pending/unapplied) caught the same startup error but "fixed" it by deleting these two
+-- rows outright - that would have permanently orphaned the working C++ code instead of
+-- fixing the actual bug. This migration supersedes that approach for the applied chain:
+-- it corrects the MapId instead of removing the row.
+--
+-- The real Legion 7.3.5 map IDs are 489 (Warsong Gulch) and 529 (Arathi Basin) - 489 is
+-- independently confirmed elsewhere in ArgusCore's own code (SpellInfo.cpp's
+-- Warsong/Silverwing Flag area check: `map_id == 489`); 529 is the long-stable Arathi
+-- Basin map id, unchanged since Vanilla. The C++ registration calls
+-- (battleground_warsong_gulch.cpp, battleground_arathi_basin.cpp) were corrected to
+-- match in the same change. See ARGUSCORE_FIXES.md for the full investigation.
+UPDATE `battleground_scripts` SET `MapId` = 489 WHERE `MapId` = 2106;
+UPDATE `battleground_scripts` SET `MapId` = 529 WHERE `MapId` = 2107;

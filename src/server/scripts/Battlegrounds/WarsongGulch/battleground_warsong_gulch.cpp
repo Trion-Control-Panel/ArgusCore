@@ -605,5 +605,9 @@ private:
 
 void AddSC_battleground_warsong_gulch()
 {
-    RegisterBattlegroundMapScript(battleground_warsong_gulch, 2106);
+    // Map 489 is Warsong Gulch's real map id (confirmed elsewhere in ArgusCore itself, e.g.
+    // SpellInfo.cpp's Warsong/Silverwing Flag area check: `map_id == 489`). The previous id
+    // (2106) doesn't exist in sMapStore, causing a "bad mapid" load failure at startup and
+    // silently leaving this fully-implemented battleground unreachable - see ARGUSCORE_FIXES.md.
+    RegisterBattlegroundMapScript(battleground_warsong_gulch, 489);
 }

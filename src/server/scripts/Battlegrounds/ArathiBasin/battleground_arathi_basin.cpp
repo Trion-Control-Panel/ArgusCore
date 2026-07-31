@@ -601,5 +601,9 @@ private:
 
 void AddSC_battleground_arathi_basin()
 {
-    RegisterBattlegroundMapScript(battleground_arathi_basin, 2107);
+    // Map 529 is Arathi Basin's real map id (stable since Vanilla, same PVPZone02 map used by
+    // every WoW patch through Legion). The previous id (2107) doesn't exist in sMapStore,
+    // causing a "bad mapid" load failure at startup and silently leaving this fully-implemented
+    // battleground unreachable - see ARGUSCORE_FIXES.md.
+    RegisterBattlegroundMapScript(battleground_arathi_basin, 529);
 }
