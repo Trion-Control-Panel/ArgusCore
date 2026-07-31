@@ -55,11 +55,16 @@ enum WarlockSpells
     SPELL_WARLOCK_DEMONBOLT_ENERGIZE                = 280127,
     SPELL_WARLOCK_DEMONIC_CIRCLE_ALLOW_CAST         = 62388,
     SPELL_WARLOCK_DEMONIC_CIRCLE_SUMMON             = 48018,
+    SPELL_WARLOCK_DEMONBOLT                         = 157695,
+    SPELL_WARLOCK_DEMONIC_CALLING                   = 205145,
+    SPELL_WARLOCK_DEMONIC_CALLING_TRIGGER           = 205146,
     SPELL_WARLOCK_DEMONIC_CIRCLE_TELEPORT           = 48020,
     SPELL_WARLOCK_DEVOUR_MAGIC_HEAL                 = 19658,
     SPELL_WARLOCK_DOOM                              = 603,
     SPELL_WARLOCK_DOOM_ENERGIZE                     = 193318,
     SPELL_WARLOCK_DRAIN_SOUL_ENERGIZE               = 205292,
+    SPELL_WARLOCK_ERADICATION                       = 196412,
+    SPELL_WARLOCK_ERADICATION_DEBUFF                = 196414,
     SPELL_WARLOCK_FLAMESHADOW                       = 37379,
     SPELL_WARLOCK_GLYPH_OF_DEMON_TRAINING           = 56249,
     SPELL_WARLOCK_GLYPH_OF_SOUL_SWAP                = 56226,
@@ -69,6 +74,13 @@ enum WarlockSpells
     SPELL_WARLOCK_HAND_OF_GULDAN_DAMAGE             = 86040,
     SPELL_WARLOCK_HAND_OF_GULDAN_SUMMON             = 196282,
     SPELL_WARLOCK_IMMOLATE_PERIODIC                 = 157736,
+    SPELL_WARLOCK_IMPLOSION_DAMAGE                  = 196278,
+    SPELL_WARLOCK_IMPLOSION_JUMP                    = 205205,
+    // Wild Imp pet creature entry, needed by Implosion below to find the caster's currently
+    // active imps via Unit::m_Controlled - confirmed independently via Wowhead, since neither
+    // reference core actually defines this id anywhere (their own Implosion logic is dead,
+    // commented-out code referencing an undefined PET_ENTRY_WILD_IMP that never compiled).
+    NPC_WARLOCK_WILD_IMP                            = 55659,
     SPELL_WARLOCK_IMPROVED_DREADSTALKERS            = 196272,
     SPELL_WARLOCK_IMPROVED_HEALTH_FUNNEL_BUFF_R1    = 60955,
     SPELL_WARLOCK_IMPROVED_HEALTH_FUNNEL_BUFF_R2    = 60956,
@@ -80,8 +92,13 @@ enum WarlockSpells
     SPELL_WARLOCK_SEED_OF_CORRUPTION_DAMAGE         = 27285,
     SPELL_WARLOCK_SEED_OF_CORRUPTION_GENERIC        = 32865,
     SPELL_WARLOCK_SHADOWBURN_ENERGIZE               = 245731,
+    SPELL_WARLOCK_SHADOW_BOLT                       = 686,
     SPELL_WARLOCK_SHADOW_BOLT_ENERGIZE              = 194192,
     SPELL_WARLOCK_SHADOWFLAME                       = 37378,
+    SPELL_WARLOCK_SOUL_CONDUIT_REFUND                = 215942,
+    SPELL_WARLOCK_DEMONSKIN                         = 219272,
+    SPELL_WARLOCK_SOUL_LEECH                        = 228974,
+    SPELL_WARLOCK_SOUL_LEECH_ABSORB                 = 108366,
     SPELL_WARLOCK_SOUL_FIRE_ENERGIZE                = 281490,
     SPELL_WARLOCK_SOUL_SWAP_CD_MARKER               = 94229,
     SPELL_WARLOCK_SOUL_SWAP_DOT_MARKER              = 92795,
@@ -257,6 +274,42 @@ class spell_warl_call_dreadstalkers : public SpellScript
     }
 };
 
+// 205145 - Demonic Calling (Demonology talent): Shadow Bolt/Demonbolt hits have a 20% chance
+// to grant a buff making the next Call Dreadstalkers free/instant. Confirmed via DestinyCore/
+// AshamaneCore (identical implementations) - both also carry an apparently-erroneous second
+// copy of this exact check inside their unrelated Demonwrath class, which was not ported here
+// since it reads as leftover/copy-paste drift rather than a genuine second trigger (Demonic
+// Calling's real tooltip is specifically about Shadow Bolt/Demonbolt). Only grants the buff -
+// nothing in either reference ever scripts consuming it either, meaning the "next Call
+// Dreadstalkers is free" effect is entirely the buff's own DB2 spell-modifier data
+// (SpellClassMask-restricted, auto-consumed by the generic engine spell-mod pipeline when Call
+// Dreadstalkers is cast), needing no script on the consuming side at all.
+class spell_warl_demonic_calling : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARLOCK_DEMONIC_CALLING_TRIGGER });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        Unit* caster = GetCaster();
+        if (caster && eventInfo.GetSpellInfo() &&
+            (eventInfo.GetSpellInfo()->Id == SPELL_WARLOCK_DEMONBOLT || eventInfo.GetSpellInfo()->Id == SPELL_WARLOCK_SHADOW_BOLT) &&
+            roll_chance_i(20))
+        {
+            caster->CastSpell(caster, SPELL_WARLOCK_DEMONIC_CALLING_TRIGGER, true);
+        }
+
+        return false;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_warl_demonic_calling::CheckProc);
+    }
+};
+
 // 152108 - Cataclysm
 class spell_warl_cataclysm : public SpellScript
 {
@@ -315,14 +368,29 @@ class spell_warl_channel_demonfire : public AuraScript
 // 116858 - Chaos Bolt
 class spell_warl_chaos_bolt : public SpellScript
 {
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARLOCK_ERADICATION_DEBUFF });
+    }
+
     bool Load() override
     {
         return GetCaster()->GetTypeId() == TYPEID_PLAYER;
     }
 
+    // 196412/196414 - Eradication (Destruction talent): Chaos Bolt applies a damage-taken
+    // debuff to the target if the caster has the talent. Confirmed via DestinyCore/
+    // AshamaneCore; the references' own standalone "Eradication" AuraScript does nothing
+    // (its CheckProc always returns false) - the actual debuff application already lives on
+    // Chaos Bolt's own hit handler in both references, matched here.
     void HandleDummy(SpellEffIndex /*effIndex*/)
     {
         SetHitDamage(GetHitDamage() + CalculatePct(GetHitDamage(), GetCaster()->ToPlayer()->GetFloatValue(PLAYER_SPELL_CRIT_PERCENTAGE1)));
+
+        if (Unit* caster = GetCaster())
+            if (Unit* target = GetHitUnit())
+                if (caster->HasAura(SPELL_WARLOCK_ERADICATION))
+                    caster->CastSpell(target, SPELL_WARLOCK_ERADICATION_DEBUFF, true);
     }
 
     void CalcCritChance(Unit const* /*victim*/, float& critChance)
@@ -793,6 +861,65 @@ class spell_warl_hand_of_guldan : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_warl_hand_of_guldan::HandleOnHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 196277 - Implosion (Demonology): commands all active Wild Imp pets to fly to the target and
+// explode, dealing damage. Both DestinyCore and AshamaneCore have this ability's real logic
+// entirely commented out (dead code referencing an undefined PET_ENTRY_WILD_IMP that never
+// compiled even in the reference) - the intended design is clear from the comment though, and
+// was used to inform this implementation: iterate Unit::m_Controlled (the established idiom
+// for "my current pets/guardians," e.g. spell_dk.cpp's Dancing Rune Weapon lookup), filtered
+// to the Wild Imp creature entry, guarded the same safe way DK's lookup is (Validate() checks
+// sObjectMgr->GetCreatureTemplate() first, so the script simply no-ops if the entry somehow
+// isn't in this server's DB rather than assuming it blindly). Uses the
+// Unit::m_Events/AddEventAtOffset lambda idiom for the ~1 sec travel delay before each imp
+// detonates, matching this project's own established pattern for staggered delayed casts.
+class spell_warl_implosion : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        if (!sObjectMgr->GetCreatureTemplate(NPC_WARLOCK_WILD_IMP))
+            return false;
+        return ValidateSpellInfo({ SPELL_WARLOCK_IMPLOSION_JUMP, SPELL_WARLOCK_IMPLOSION_DAMAGE });
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        ObjectGuid targetGuid = target->GetGUID();
+
+        for (Unit* controlled : caster->m_Controlled)
+        {
+            Creature* imp = controlled->GetEntry() == NPC_WARLOCK_WILD_IMP ? controlled->ToCreature() : nullptr;
+            if (!imp)
+                continue;
+
+            imp->CastStop();
+            imp->CastSpell(target, SPELL_WARLOCK_IMPLOSION_JUMP, true);
+
+            ObjectGuid impGuid = imp->GetGUID();
+            caster->m_Events.AddEventAtOffset([caster, impGuid, targetGuid]()
+            {
+                Creature* imp = ObjectAccessor::GetCreature(*caster, impGuid);
+                if (!imp)
+                    return;
+
+                if (Unit* target = ObjectAccessor::GetUnit(*caster, targetGuid))
+                    imp->CastSpell(target, SPELL_WARLOCK_IMPLOSION_DAMAGE, true);
+
+                imp->DisappearAndDie();
+            }, 1000ms);
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_warl_implosion::HandleHit, EFFECT_0, SPELL_EFFECT_DUMMY);
     }
 };
 
@@ -1540,6 +1667,142 @@ class spell_warl_soul_swap_exhale : public SpellScript
     }
 };
 
+// 228974 - Soul Leech (baseline passive, all specs): dealing damage grants an absorb shield
+// scaled by the damage dealt, capped at 15% max health. Confirmed via DestinyCore/AshamaneCore
+// (identical implementations), but simplified: the reference also raises the cap to 20% if the
+// caster has "Demonskin" (a separate talent) - not ported, since Demonskin itself isn't
+// implemented in ArgusCore yet either (left as a documented follow-up rather than guessed at).
+// The reference's own separate "Soul Leach appliers" system (137046/137044/137043, cast on pet
+// summon) is unrelated pre-Legion drift under a similar name - modern Soul Leech is a simple
+// always-active baseline passive, not something that needs applying via a pet summon at all,
+// so that piece was not ported either. Translated `CastCustomSpell` (doesn't exist in
+// ArgusCore) to `CastSpellExtraArgs`/`AddSpellMod`, and the raw
+// `GetSpellInfo()->GetEffect(EFFECT_N)->BasePoints` pointer access (`SpellEffectInfo` has no
+// `operator->`) to `GetEffectInfo(EFFECT_N).CalcValue()`.
+class spell_warl_soul_leech : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARLOCK_SOUL_LEECH_ABSORB });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return false;
+
+        DamageInfo const* damageInfo = eventInfo.GetDamageInfo();
+        int32 absorb = damageInfo ? CalculatePct(int32(damageInfo->GetDamage()), GetEffectInfo(EFFECT_0).CalcValue(caster)) : 0;
+
+        // Add the remaining amount if the shield is already up
+        if (Aura const* existing = caster->GetAura(SPELL_WARLOCK_SOUL_LEECH_ABSORB))
+            if (AuraEffect const* existingEffect = existing->GetEffect(EFFECT_0))
+                absorb += existingEffect->GetAmount();
+
+        int32 threshold = CalculatePct(int32(caster->GetMaxHealth()), GetEffectInfo(EFFECT_1).CalcValue(caster));
+        absorb = std::min(absorb, threshold);
+
+        caster->CastSpell(caster, SPELL_WARLOCK_SOUL_LEECH_ABSORB, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT0, absorb));
+        return true;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_warl_soul_leech::CheckProc);
+    }
+};
+
+// 219272 - Demonskin (PvP Honor Talent, lower priority): periodically tops up the Soul Leech
+// absorb shield by 1% max health per tick, capped at this talent's own (higher) threshold.
+// Confirmed via DestinyCore/AshamaneCore (identical implementations). Translated
+// `CastCustomSpell` (doesn't exist in ArgusCore) to `CastSpellExtraArgs`/`AddSpellMod`, and the
+// raw `GetSpellInfo()->GetEffect(EFFECT_1)->BasePoints` pointer access (`SpellEffectInfo` has
+// no `operator->`) to `GetEffectInfo(EFFECT_1).CalcValue()`.
+class spell_warl_demonskin : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARLOCK_SOUL_LEECH_ABSORB });
+    }
+
+    void HandlePeriodic(AuraEffect const* /*aurEff*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        int32 absorb = int32(caster->CountPctFromMaxHealth(1));
+
+        if (Aura const* existing = caster->GetAura(SPELL_WARLOCK_SOUL_LEECH_ABSORB))
+            if (AuraEffect const* existingEffect = existing->GetEffect(EFFECT_0))
+                absorb += existingEffect->GetAmount();
+
+        int32 threshold = int32(caster->CountPctFromMaxHealth(GetEffectInfo(EFFECT_1).CalcValue(caster)));
+        absorb = std::min(absorb, threshold);
+
+        caster->CastSpell(caster, SPELL_WARLOCK_SOUL_LEECH_ABSORB, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT0, absorb));
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_warl_demonskin::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
+// 215941 - Soul Conduit (talent, all specs): each Soul Shard spent has a chance to be
+// refunded. Confirmed via DestinyCore/AshamaneCore, but corrected a bug shared by both: they
+// check `POWER_MANA` instead of `POWER_SOUL_SHARDS` when looking up how much was just spent -
+// a mana-refund formula that was never adapted for what should be a Soul Shard refund.
+// Translated `CastCustomSpell` (doesn't exist in ArgusCore) to
+// `CastSpellExtraArgs`/`AddSpellMod`, and the raw
+// `GetSpellInfo()->GetEffect(EFFECT_0)->BasePoints` pointer access (`SpellEffectInfo` has no
+// `operator->`) to `aurEff->GetAmount()` (the same underlying DB2 value, already resolved by
+// the aura-effect pipeline for the effect this hook is bound to).
+class spell_warl_soul_conduit : public AuraScript
+{
+    int32 _refund = 0;
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARLOCK_SOUL_CONDUIT_REFUND });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        Unit* caster = GetCaster();
+        if (!caster || (eventInfo.GetActor() && eventInfo.GetActor() != caster))
+            return false;
+
+        Spell const* spell = eventInfo.GetProcSpell();
+        if (!spell)
+            return false;
+
+        Optional<int32> cost = spell->GetPowerTypeCostAmount(POWER_SOUL_SHARDS);
+        if (!cost || *cost <= 0)
+            return false;
+
+        _refund = *cost;
+        return true;
+    }
+
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo& /*eventInfo*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (roll_chance_i(aurEff->GetAmount()))
+            caster->CastSpell(caster, SPELL_WARLOCK_SOUL_CONDUIT_REFUND, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT0, _refund));
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_warl_soul_conduit::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_warl_soul_conduit::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
 // 29858 - Soulshatter
 class spell_warl_soulshatter : public SpellScript
 {
@@ -1865,6 +2128,7 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_banish);
     RegisterSpellAndAuraScriptPair(spell_warl_burning_rush, spell_warl_burning_rush_aura);
     RegisterSpellScript(spell_warl_call_dreadstalkers);
+    RegisterSpellScript(spell_warl_demonic_calling);
     RegisterSpellScript(spell_warl_cataclysm);
     RegisterSpellScript(spell_warl_channel_demonfire);
     RegisterSpellScript(spell_warl_chaos_bolt);
@@ -1883,6 +2147,7 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_drain_soul);
     RegisterSpellAndAuraScriptPair(spell_warl_grimoire_of_synergy, spell_warl_grimoire_of_synergy_aura);
     RegisterSpellScript(spell_warl_hand_of_guldan);
+    RegisterSpellScript(spell_warl_implosion);
     RegisterSpellScript(spell_warl_haunt);
     RegisterSpellScript(spell_warl_havoc);
     RegisterSpellScript(spell_warl_health_funnel);
@@ -1903,6 +2168,9 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_soul_swap_dot_marker);
     RegisterSpellScript(spell_warl_soul_swap_exhale);
     RegisterSpellScript(spell_warl_soul_swap_override);
+    RegisterSpellScript(spell_warl_soul_conduit);
+    RegisterSpellScript(spell_warl_soul_leech);
+    RegisterSpellScript(spell_warl_demonskin);
     RegisterSpellScript(spell_warl_soulshatter);
     RegisterSpellScript(spell_warl_spell_lock);
     RegisterSpellScript(spell_warl_suffering);
