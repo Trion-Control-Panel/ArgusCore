@@ -50,6 +50,7 @@ enum ShamanSpells
     SPELL_SHAMAN_CHAINED_HEAL                   = 70809,
     SPELL_SHAMAN_CRASH_LIGHTNING                = 187874,
     SPELL_SHAMAN_CRASH_LIGHTNING_CLEAVE         = 187878,
+    SPELL_SHAMAN_FURY_OF_AIR                    = 197211,
     SPELL_SHAMAN_CRASH_LIGHTNING_DAMAGE_BUFF    = 333964,
     SPELL_SHAMAN_DELUGE_AURA                    = 200075,
     SPELL_SHAMAN_DELUGE_TALENT                  = 200076,
@@ -138,6 +139,9 @@ enum ShamanSpells
     SPELL_SHAMAN_SPIRIT_WOLF_AURA               = 260881,
     SPELL_SHAMAN_STORMFLURRY_ARTIFACT           = 198367,
     SPELL_SHAMAN_STORMKEEPER                    = 191634,
+    SPELL_SHAMAN_STORMLASH                      = 195255,
+    SPELL_SHAMAN_STORMLASH_BUFF                 = 195222,
+    SPELL_SHAMAN_STORMLASH_DAMAGE               = 213307,
     SPELL_SHAMAN_STORMSTRIKE                    = 17364,
     SPELL_SHAMAN_STORMSTRIKE_DAMAGE_MAIN_HAND   = 32175,
     SPELL_SHAMAN_STORMSTRIKE_DAMAGE_OFF_HAND    = 32176,
@@ -768,6 +772,30 @@ class spell_sha_crash_lightning : public SpellScript
     void Register() override
     {
         OnEffectHit += SpellEffectFn(spell_sha_crash_lightning::TriggerCleaveBuff, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 197211 - Fury of Air (Enhancement talent): periodic AOE wind damage, draining 5 Maelstrom
+// per tick and cancelling itself once Maelstrom runs out. The damage tick itself is the
+// aura's own SPELL_AURA_PERIODIC_TRIGGER_SPELL effect data, needing no script. Confirmed via
+// DestinyCore/AshamaneCore (identical implementations).
+class spell_sha_fury_of_air : public AuraScript
+{
+    void HandlePeriodic(AuraEffect const* /*aurEff*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (caster->GetPower(POWER_MAELSTROM) >= 5)
+            caster->ModifyPower(POWER_MAELSTROM, -5);
+        else
+            caster->RemoveAura(SPELL_SHAMAN_FURY_OF_AIR);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_sha_fury_of_air::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
     }
 };
 
@@ -2480,6 +2508,51 @@ class spell_sha_stormflurry_damage : public SpellScript
     }
 };
 
+// 195255 - Stormlash (Doomhammer artifact trait): while weapons are enhanced, attacks have a
+// chance to grant Stormlash to up to 2 party/raid members (the target-selection is the buff's
+// own DB2 data, not scripted). Confirmed genuine Legion content via web search - a distinct
+// trait from the removed WoD-era "Stormlash Totem," the same reused-name-across-eras pattern
+// already confirmed this session for Doom Winds/Stormflurry/Death's Embrace. Confirmed via
+// DestinyCore/AshamaneCore (identical implementations).
+class spell_sha_stormlash : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_SHAMAN_STORMLASH_BUFF });
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+    {
+        if (Unit* caster = GetCaster())
+            caster->CastSpell(caster, SPELL_SHAMAN_STORMLASH_BUFF, true);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_sha_stormlash::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 195222 - Stormlash Buff: whoever holds this buff deals extra Nature damage via
+// SPELL_SHAMAN_STORMLASH_DAMAGE whenever their own attacks/casts land.
+class spell_sha_stormlash_buff : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_SHAMAN_STORMLASH_DAMAGE });
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+    {
+        eventInfo.GetActor()->CastSpell(eventInfo.GetActionTarget(), SPELL_SHAMAN_STORMLASH_DAMAGE, true);
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_sha_stormlash_buff::HandleProc, EFFECT_1, SPELL_AURA_DUMMY);
+    }
+};
+
 // 201845 - Stormsurge
 class spell_sha_stormsurge : public AuraScript
 {
@@ -3164,6 +3237,7 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_resonance_effect);
     RegisterSpellScript(spell_sha_earthgrab);
     RegisterSpellScript(spell_sha_crash_lightning);
+    RegisterSpellScript(spell_sha_fury_of_air);
     RegisterSpellScript(spell_sha_deeply_rooted_elements);
     RegisterSpellScript(spell_sha_deluge);
     RegisterSpellScript(spell_sha_deluge_healing_rain);
@@ -3218,6 +3292,8 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScriptWithArgs(spell_sha_stormflurry, "spell_sha_artifact_stormflurry_windstrike",
         SPELL_SHAMAN_STORMFLURRY_ARTIFACT, SPELL_SHAMAN_WINDSTRIKE_DAMAGE_MAIN_HAND, SPELL_SHAMAN_WINDSTRIKE_DAMAGE_OFF_HAND);
     RegisterSpellScript(spell_sha_stormflurry_damage);
+    RegisterSpellScript(spell_sha_stormlash);
+    RegisterSpellScript(spell_sha_stormlash_buff);
     RegisterSpellScript(spell_sha_stormsurge);
     RegisterSpellScriptWithArgs(spell_sha_delayed_stormstrike_mod_charge_drop_proc, "spell_sha_stormsurge_proc");
     RegisterSpellScript(spell_sha_swirling_maelstrom);
