@@ -32,6 +32,7 @@
 #include "ObjectAccessor.h"
 #include "PathGenerator.h"
 #include "Player.h"
+#include "ScriptedCreature.h"
 #include "Spell.h"
 #include "SpellAuraEffects.h"
 #include "SpellInfo.h"
@@ -57,6 +58,18 @@ enum MonkSpells
     // beyond that. Guarded at every use site via sObjectMgr->GetCreatureTemplate() so the
     // scripts below simply no-op rather than assuming this blindly.
     NPC_MONK_TRANSCENDENCE_SPIRIT                        = 54569,
+    SPELL_MONK_SEF                                       = 137639,
+    SPELL_MONK_SEF_STORM_VISUAL                          = 138080,
+    SPELL_MONK_SEF_FIRE_VISUAL                           = 138081,
+    SPELL_MONK_SEF_EARTH_VISUAL                          = 138083,
+    SPELL_MONK_SEF_CHARGE                                = 138104,
+    SPELL_MONK_SEF_SUMMON_EARTH                          = 138121,
+    SPELL_MONK_SEF_SUMMON_FIRE                           = 138123,
+    SPELL_MONK_SEF_SUMMONS_STATS                         = 138130,
+    // DB note: creature_template.ScriptName must be 'npc_monk_sef_spirit' for entries 69791
+    // (Fire) and 69792 (Earth). Confirmed via DestinyCore/AshamaneCore.
+    NPC_MONK_SEF_FIRE_SPIRIT                             = 69791,
+    NPC_MONK_SEF_EARTH_SPIRIT                            = 69792,
     SPELL_MONK_BURST_OF_LIFE_TALENT                     = 399226,
     SPELL_MONK_BURST_OF_LIFE_HEAL                       = 399230,
     SPELL_MONK_CALMING_COALESCENCE                      = 388220,
@@ -2848,6 +2861,102 @@ class spell_monk_zen_pulse : public SpellScript
     }
 };
 
+// 137639 - Storm, Earth, and Fire (Windwalker signature cooldown): summons a Fire and an Earth
+// spirit clone that mirror the caster's offensive casts. Confirmed via DestinyCore/AshamaneCore
+// (identical implementations) - this turned out to be much smaller than the doc's original
+// "large creature-AI undertaking" assessment suggested: one AuraScript for
+// summon/cleanup, one small ScriptedAI struct with a single IsSummonedBy hook (no bespoke
+// combat AI needed - the base ScriptedAI's default melee behavior handles the rest, matching
+// the already-working precedent of Shaman's npc_sha_feral_spirit in spell_shaman.cpp), and one
+// PlayerScript that mirrors offensive casts to both spirits. Translated
+// Unit::GetSummonedCreatureByEntry (doesn't exist in ArgusCore) to the established
+// Unit::m_Controlled filter idiom (matching Implosion/Dancing Rune Weapon/Transcendence
+// elsewhere this session), and PlayerScript::OnSuccessfulSpellCast (doesn't exist) to
+// ArgusCore's actual equivalent, PlayerScript::OnSpellCast (fires from Spell::_cast(), after
+// cast checks pass and immediately before the spell executes - functionally equivalent to
+// "successful cast" for this purpose).
+class spell_monk_storm_earth_and_fire : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        if (!sObjectMgr->GetCreatureTemplate(NPC_MONK_SEF_FIRE_SPIRIT) || !sObjectMgr->GetCreatureTemplate(NPC_MONK_SEF_EARTH_SPIRIT))
+            return false;
+        return ValidateSpellInfo({ SPELL_MONK_SEF_STORM_VISUAL, SPELL_MONK_SEF_SUMMON_EARTH, SPELL_MONK_SEF_SUMMON_FIRE });
+    }
+
+    void HandleApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* target = GetTarget();
+        target->CastSpell(target, SPELL_MONK_SEF_STORM_VISUAL, true);
+        target->CastSpell(target, SPELL_MONK_SEF_SUMMON_EARTH, true);
+        target->CastSpell(target, SPELL_MONK_SEF_SUMMON_FIRE, true);
+    }
+
+    void HandleRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* target = GetTarget();
+        target->RemoveAurasDueToSpell(SPELL_MONK_SEF_STORM_VISUAL);
+
+        for (Unit* controlled : target->m_Controlled)
+        {
+            if (controlled->GetEntry() == NPC_MONK_SEF_FIRE_SPIRIT || controlled->GetEntry() == NPC_MONK_SEF_EARTH_SPIRIT)
+                if (Creature* spirit = controlled->ToCreature())
+                    spirit->DespawnOrUnsummon();
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectApply += AuraEffectApplyFn(spell_monk_storm_earth_and_fire::HandleApply, EFFECT_0, SPELL_AURA_ADD_PCT_MODIFIER, AURA_EFFECT_HANDLE_REAL);
+        OnEffectRemove += AuraEffectRemoveFn(spell_monk_storm_earth_and_fire::HandleRemove, EFFECT_0, SPELL_AURA_ADD_PCT_MODIFIER, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 69791 (Fire)/69792 (Earth) - Storm, Earth, and Fire spirit clones.
+struct npc_monk_sef_spirit : public ScriptedAI
+{
+    npc_monk_sef_spirit(Creature* creature) : ScriptedAI(creature) { }
+
+    void IsSummonedBy(WorldObject* summonerObj) override
+    {
+        Unit* summoner = summonerObj->ToUnit();
+        if (!summoner)
+            return;
+
+        me->SetLevel(summoner->GetLevel());
+        summoner->CastSpell(me, SPELL_MONK_TRANSCENDENCE_CLONE_TARGET, true);
+        me->CastSpell(me, me->GetEntry() == NPC_MONK_SEF_FIRE_SPIRIT ? SPELL_MONK_SEF_FIRE_VISUAL : SPELL_MONK_SEF_EARTH_VISUAL, true);
+        me->CastSpell(me, SPELL_MONK_SEF_SUMMONS_STATS, true);
+
+        if (Unit* target = ObjectAccessor::GetUnit(*summoner, summoner->GetTarget()))
+            me->CastSpell(target, SPELL_MONK_SEF_CHARGE, true);
+    }
+};
+
+// Mirrors the Windwalker's offensive casts onto both Storm, Earth, and Fire spirits.
+class playerScript_monk_storm_earth_and_fire : public PlayerScript
+{
+public:
+    playerScript_monk_storm_earth_and_fire() : PlayerScript("playerScript_monk_storm_earth_and_fire") { }
+
+    void OnSpellCast(Player* player, Spell* spell, bool /*skipCheck*/) override
+    {
+        SpellInfo const* spellInfo = spell->GetSpellInfo();
+        if (!player->HasAura(SPELL_MONK_SEF) || spellInfo->IsPositive())
+            return;
+
+        Unit* target = ObjectAccessor::GetUnit(*player, player->GetTarget());
+        if (!target)
+            return;
+
+        for (Unit* controlled : player->m_Controlled)
+        {
+            if (controlled->GetEntry() == NPC_MONK_SEF_FIRE_SPIRIT || controlled->GetEntry() == NPC_MONK_SEF_EARTH_SPIRIT)
+                controlled->CastSpell(target, spellInfo->Id, true);
+        }
+    }
+};
+
 void AddSC_monk_spell_scripts()
 {
     RegisterSpellScript(spell_monk_black_ox_brew);
@@ -2926,4 +3035,7 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_whirling_dragon_punch);
     RegisterSpellScript(spell_monk_zen_pilgrimage);
     RegisterSpellScript(spell_monk_zen_pulse);
+    RegisterSpellScript(spell_monk_storm_earth_and_fire);
+    RegisterCreatureAI(npc_monk_sef_spirit);
+    new playerScript_monk_storm_earth_and_fire();
 }
