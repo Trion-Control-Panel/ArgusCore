@@ -49,7 +49,14 @@ enum MonkSpells
     SPELL_MONK_ELUSIVE_BRAWLER                          = 195630,
     SPELL_MONK_EXPEL_HARM_DAMAGE                        = 115129,
     SPELL_MONK_MANA_TEA_STACKS                          = 115867,
+    SPELL_MONK_MEDITATE_VISUAL                          = 124416,
     SPELL_MONK_PLUS_ONE_MANA_TEA                        = 123760,
+    SPELL_MONK_TRANSCENDENCE_CLONE_TARGET                = 119051,
+    // Transcendence spirit clone creature entry - confirmed from AshamaneCore's own dedicated
+    // migration (2018_02_05_01_world_spell_transcendence.sql), not independently re-verified
+    // beyond that. Guarded at every use site via sObjectMgr->GetCreatureTemplate() so the
+    // scripts below simply no-op rather than assuming this blindly.
+    NPC_MONK_TRANSCENDENCE_SPIRIT                        = 54569,
     SPELL_MONK_BURST_OF_LIFE_TALENT                     = 399226,
     SPELL_MONK_BURST_OF_LIFE_HEAL                       = 399230,
     SPELL_MONK_CALMING_COALESCENCE                      = 388220,
@@ -455,6 +462,116 @@ class spell_monk_mana_tea_stacks : public AuraScript
     {
         DoCheckEffectProc += AuraCheckEffectProcFn(spell_monk_mana_tea_stacks::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
         OnEffectProc += AuraEffectProcFn(spell_monk_mana_tea_stacks::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 101643 - Transcendence: summons a spirit clone, positions swappable with the caster via
+// Transcendence: Transfer (119996) below. Confirmed via DestinyCore/AshamaneCore, but
+// redesigned: neither Unit::OnEffectSummon (the hook the references use) nor Object::Variables
+// (used to cache the spirit's GUID across hooks) exist anywhere in ArgusCore. Uses this
+// project's own established idioms instead - GetSpell()->GetExecuteLogEffectTargets(
+// SPELL_EFFECT_SUMMON, ...) to find what was just summoned (matching
+// spell_pal_light_hammer_init_summon in spell_paladin.cpp), and Unit::m_Controlled to find the
+// spirit again later rather than caching its GUID (matching Warlock's Implosion/DK's Dancing
+// Rune Weapon lookups elsewhere this session). Guarded via Validate() checking
+// sObjectMgr->GetCreatureTemplate() first.
+class spell_monk_transcendence : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        if (!sObjectMgr->GetCreatureTemplate(NPC_MONK_TRANSCENDENCE_SPIRIT))
+            return false;
+        return ValidateSpellInfo({ SPELL_MONK_TRANSCENDENCE_CLONE_TARGET, SPELL_MONK_MEDITATE_VISUAL });
+    }
+
+    // Only one spirit at a time - despawn any existing one before the new one is summoned.
+    void DespawnPrevious()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        for (Unit* controlled : caster->m_Controlled)
+            if (controlled->GetEntry() == NPC_MONK_TRANSCENDENCE_SPIRIT)
+                if (Creature* oldSpirit = controlled->ToCreature())
+                    oldSpirit->DespawnOrUnsummon();
+    }
+
+    void HandleSummon()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        for (SpellLogEffectGenericVictimParams const& summoned : GetSpell()->GetExecuteLogEffectTargets(SPELL_EFFECT_SUMMON, &SpellLogEffect::GenericVictimTargets))
+        {
+            if (Unit* spirit = ObjectAccessor::GetUnit(*caster, summoned.Victim))
+            {
+                caster->CastSpell(spirit, SPELL_MONK_TRANSCENDENCE_CLONE_TARGET, true);
+                spirit->CastSpell(spirit, SPELL_MONK_MEDITATE_VISUAL, true);
+            }
+        }
+    }
+
+    void Register() override
+    {
+        BeforeCast += SpellCastFn(spell_monk_transcendence::DespawnPrevious);
+        AfterCast += SpellCastFn(spell_monk_transcendence::HandleSummon);
+    }
+};
+
+// 119996 - Transcendence: Transfer: swaps the caster and their Transcendence spirit's
+// positions, if the spirit is within range. Confirmed via DestinyCore/AshamaneCore.
+class spell_monk_transcendence_transfer : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return sObjectMgr->GetCreatureTemplate(NPC_MONK_TRANSCENDENCE_SPIRIT) != nullptr;
+    }
+
+    Creature* FindSpirit() const
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return nullptr;
+
+        for (Unit* controlled : caster->m_Controlled)
+            if (controlled->GetEntry() == NPC_MONK_TRANSCENDENCE_SPIRIT)
+                if (Creature* spirit = controlled->ToCreature())
+                    return spirit;
+
+        return nullptr;
+    }
+
+    SpellCastResult CheckCast()
+    {
+        Creature* spirit = FindSpirit();
+        if (!spirit)
+            return SPELL_FAILED_NO_PET;
+
+        if (!spirit->IsWithinDist(GetCaster(), GetSpellInfo()->GetMaxRange(true, GetCaster(), GetSpell())))
+            return SPELL_FAILED_OUT_OF_RANGE;
+
+        return SPELL_CAST_OK;
+    }
+
+    void HandleOnCast()
+    {
+        Unit* caster = GetCaster();
+        Creature* spirit = FindSpirit();
+        if (!caster || !spirit)
+            return;
+
+        Position casterPos = caster->GetPosition();
+        Position spiritPos = spirit->GetPosition();
+        caster->NearTeleportTo(spiritPos, true);
+        spirit->NearTeleportTo(casterPos, true);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_monk_transcendence_transfer::CheckCast);
+        OnCast += SpellCastFn(spell_monk_transcendence_transfer::HandleOnCast);
     }
 };
 
@@ -2742,6 +2859,8 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_expel_harm);
     RegisterSpellScript(spell_monk_mana_tea);
     RegisterSpellScript(spell_monk_mana_tea_stacks);
+    RegisterSpellScript(spell_monk_transcendence);
+    RegisterSpellScript(spell_monk_transcendence_transfer);
     RegisterSpellScript(spell_monk_burst_of_life);
     RegisterSpellScript(spell_monk_burst_of_life_heal);
     RegisterSpellScript(spell_monk_chi_burst_heal);
