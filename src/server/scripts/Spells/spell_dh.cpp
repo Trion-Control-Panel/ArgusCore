@@ -109,6 +109,8 @@ enum DemonHunterSpells
     SPELL_DH_FELBLADE_COOLDOWN_RESET_PROC_VENGEANCE= 203557,
     SPELL_DH_FELBLADE_COOLDOWN_RESET_PROC_VISUAL   = 204497,
     SPELL_DH_FELBLADE_DAMAGE                       = 213243,
+    SPELL_DH_FRACTURE                              = 209795,
+    SPELL_DH_FRAILTY                               = 224509,
     SPELL_DH_FIERY_BRAND                           = 204021,
     SPELL_DH_FIERY_BRAND_DEBUFF_RANK_1             = 207744,
     SPELL_DH_FIERY_BRAND_DEBUFF_RANK_2             = 207771,
@@ -188,7 +190,12 @@ enum DemonHunterSpells
     SPELL_DH_SOUL_FRAGMENT_COUNTER                 = 203981,
     SPELL_DH_SOUL_RENDING                          = 204909,
     SPELL_DH_SOUL_RENDING_VENGEANCE                = 217996,
-    SPELL_DH_SPIRIT_BOMB_DAMAGE                    = 218677,
+    // NOTE: SPIRIT_BOMB_DAMAGE corrected from 218677 (this constant's original value, never
+    // referenced anywhere in this file and thus unverified) to 247455, confirmed by both
+    // DestinyCore and AshamaneCore agreeing exactly; SPIRIT_BOMB_HEAL (227255) already matched
+    // both references and needed no change.
+    SPELL_DH_SPIRIT_BOMB                           = 247454,
+    SPELL_DH_SPIRIT_BOMB_DAMAGE                     = 247455,
     SPELL_DH_SPIRIT_BOMB_HEAL                      = 227255,
     SPELL_DH_SPIRIT_BOMB_VISUAL                    = 218678,
     SPELL_DH_THROW_GLAIVE                          = 185123,
@@ -2082,6 +2089,66 @@ class spell_dh_mana_rift : public SpellScript
     }
 };
 
+// 203782 - Shear (Vengeance's basic Chi-generator): 20% chance on hit to spawn a Lesser Soul
+// Fragment. Confirmed via DestinyCore/AshamaneCore, which drive this off a separate always-on
+// "Shear Proc" passive (203783) with its own proc-check against Shear's spell id - simplified
+// here to a direct OnHit roll on Shear itself instead, avoiding a dependency on unconfirmed
+// passive-granting data for 203783. Casts SPELL_DH_SHATTER_SOUL (209980), the Vengeance
+// "lesser" fragment trigger - not currently used by the on-kill path below (which only uses
+// the "big" _1/_2 variants) - routing through the already-existing spell_dh_shatter_soul
+// AreaTrigger-spawn chain two-stages below.
+class spell_dh_shear : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_SHATTER_SOUL });
+    }
+
+    void HandleOnHit()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (roll_chance_i(20))
+            caster->CastSpell(caster, SPELL_DH_SHATTER_SOUL, TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_dh_shear::HandleOnHit);
+    }
+};
+
+// 209795 - Fracture (Vengeance's alternate builder): spawns 2 Soul Fragments directly, at
+// higher cost/cooldown than Shear's chance-based 1. Confirmed via DestinyCore/AshamaneCore
+// (identical implementations - both use CastCustomSpell with SPELLVALUE_TRIGGER_SPELL against
+// a shared "missile" spell, neither of which exists in ArgusCore; simplified here to casting
+// SPELL_DH_SHATTER_SOUL directly twice, matching the already-established
+// spell_dh_shattered_souls::OnProc pattern below instead).
+class spell_dh_fracture : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_SHATTER_SOUL });
+    }
+
+    void HandleOnHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        caster->CastSpell(caster, SPELL_DH_SHATTER_SOUL, TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
+        caster->CastSpell(caster, SPELL_DH_SHATTER_SOUL, TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dh_fracture::HandleOnHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
 // 178940 - Shattered Souls (Havoc passive)
 // 204254 - Shattered Souls (Vengeance passive)
 // On kill, spawns a soul fragment AreaTrigger at the enemy's location.
@@ -2163,6 +2230,144 @@ class spell_dh_shatter_soul : public SpellScript
     void Register() override
     {
         OnEffectHit += SpellEffectFn(spell_dh_shatter_soul::HandleHitTarget, EFFECT_1, SPELL_EFFECT_TRIGGER_MISSILE);
+    }
+};
+
+// 247454 - Spirit Bomb (Vengeance AOE Soul Fragment consumer): consumes all nearby Soul
+// Fragment AreaTriggers within range, dealing AOE damage scaled by the count consumed and
+// applying Frailty (below) to everything hit. Confirmed via DestinyCore/AshamaneCore
+// (count-then-multi-cast shape) and structurally corroborated by LegionCore-7.3.5V2
+// (count-then-scale-single-cast shape, reused here since it maps directly onto ArgusCore's own
+// SetHitDamage idiom). Two engine APIs used by the references don't exist in ArgusCore:
+// Unit::GetAreaTriggerListWithSpellIDInRange (no range-filtered overload here - translated to
+// Unit::GetAreaTriggers(spellId) plus a manual GetDistance check, the same idiom already used
+// by DK's Defile) and GetEffectInfo(EFFECT_0)->BasePoints/Effects[EFFECT_0]->BasePoints
+// (SpellEffectInfo has no operator-> - use GetEffectInfo(EFFECT_0).CalcValue(caster) instead).
+// Only scans the Vengeance-side fragment AreaTrigger ids (SPELL_DH_SHATTERED_SOUL/
+// SPELL_DH_SHATTER_SOUL_AT_VENGEANCE_NORMAL/_DEMON) - Havoc has its own separate fragment
+// chain that this ability doesn't touch.
+//
+// The consumed count is handed to the separate damage spell (247455) via the caster's own
+// SPELL_DH_SOUL_FRAGMENT_COUNTER stack count rather than a SPELLVALUE_BASE_POINT0 override -
+// EFFECT_0 on 247455 is itself the SCHOOL_DAMAGE effect, so overriding its base points would
+// have corrupted the intrinsic damage value instead of just carrying the multiplier across the
+// two casts. TrinityCore's current master branch confirms SPELL_DH_SOUL_FRAGMENT_COUNTER
+// (203981, already declared in ArgusCore but previously unused) is exactly this kind of
+// Vengeance-side fragment-count stacking aura, though its full design maintains the stack
+// automatically via AreaTrigger OnCreate/OnRemove hooks that don't exist in ArgusCore yet
+// (a materially bigger undertaking, out of scope here) - reused narrowly here as a two-cast
+// scratch value instead, since this script already computes the true count itself every cast.
+class spell_dh_spirit_bomb : public SpellScript
+{
+    uint8 _fragmentsConsumed = 0;
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({
+            SPELL_DH_SPIRIT_BOMB_DAMAGE, SPELL_DH_SOUL_FRAGMENT_COUNTER, SPELL_DH_SHATTERED_SOUL,
+            SPELL_DH_SHATTER_SOUL_AT_VENGEANCE_NORMAL, SPELL_DH_SHATTER_SOUL_AT_VENGEANCE_DEMON
+        });
+    }
+
+    SpellCastResult CheckCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return SPELL_FAILED_DONT_REPORT;
+
+        float range = GetEffectInfo(EFFECT_0).CalcValue(caster);
+
+        _fragmentsConsumed = 0;
+        for (uint32 fragSpellId : { SPELL_DH_SHATTERED_SOUL, SPELL_DH_SHATTER_SOUL_AT_VENGEANCE_NORMAL, SPELL_DH_SHATTER_SOUL_AT_VENGEANCE_DEMON })
+        {
+            for (AreaTrigger* at : caster->GetAreaTriggers(fragSpellId))
+            {
+                if (caster->GetDistance(at) > range)
+                    continue;
+
+                at->Remove();
+                ++_fragmentsConsumed;
+            }
+        }
+
+        return _fragmentsConsumed ? SPELL_CAST_OK : SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW;
+    }
+
+    void HandleOnCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        caster->CastSpell(caster, SPELL_DH_SOUL_FRAGMENT_COUNTER, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_AURA_STACK, int32(_fragmentsConsumed)));
+        caster->CastSpell(caster, SPELL_DH_SPIRIT_BOMB_DAMAGE, true);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_dh_spirit_bomb::CheckCast);
+        OnCast += SpellCastFn(spell_dh_spirit_bomb::HandleOnCast);
+    }
+};
+
+// 247455 - Spirit Bomb (damage): scales by the fragment count carried via the caster's
+// SPELL_DH_SOUL_FRAGMENT_COUNTER stack amount (set by spell_dh_spirit_bomb above immediately
+// before this cast), and applies Frailty to every target hit.
+class spell_dh_spirit_bomb_damage : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_FRAILTY, SPELL_DH_SOUL_FRAGMENT_COUNTER });
+    }
+
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        if (Aura const* counter = caster->GetAura(SPELL_DH_SOUL_FRAGMENT_COUNTER))
+        {
+            int32 fragmentsConsumed = counter->GetStackAmount();
+            if (fragmentsConsumed > 1)
+                SetHitDamage(GetHitDamage() * fragmentsConsumed);
+        }
+
+        caster->CastSpell(target, SPELL_DH_FRAILTY, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dh_spirit_bomb_damage::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// 224509 - Frailty (Spirit Bomb's debuff): whenever an affected enemy takes damage, heals
+// whichever Demon Hunter applied Frailty to them for a percentage of that damage. Confirmed
+// via DestinyCore/AshamaneCore (identical implementations, modulo the CastCustomSpell
+// translation below).
+class aura_dh_frailty : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_SPIRIT_BOMB_HEAL });
+    }
+
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
+    {
+        Unit* caster = aurEff->GetCaster();
+        DamageInfo const* damageInfo = eventInfo.GetDamageInfo();
+        if (!caster || !damageInfo)
+            return;
+
+        int32 healAmount = CalculatePct(int32(damageInfo->GetDamage()), GetEffectInfo(EFFECT_0).CalcValue(caster));
+        caster->CastSpell(caster, SPELL_DH_SPIRIT_BOMB_HEAL, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT0, healAmount));
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(aura_dh_frailty::HandleProc, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
 
@@ -2557,6 +2762,11 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_mana_rift);
     RegisterSpellScript(spell_dh_shattered_souls);
     RegisterSpellScript(spell_dh_shatter_soul);
+    RegisterSpellScript(spell_dh_shear);
+    RegisterSpellScript(spell_dh_fracture);
+    RegisterSpellScript(spell_dh_spirit_bomb);
+    RegisterSpellScript(spell_dh_spirit_bomb_damage);
+    RegisterSpellScript(aura_dh_frailty);
     RegisterSpellScript(spell_dh_soul_cleave);
     RegisterSpellScript(spell_dh_soul_cleave_damage);
     RegisterSpellScript(spell_dh_flaming_soul);

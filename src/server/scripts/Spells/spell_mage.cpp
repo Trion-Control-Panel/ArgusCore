@@ -89,10 +89,14 @@ enum MageSpells
     SPELL_MAGE_FLAME_PATCH_TALENT                = 205037,
     SPELL_MAGE_FLAMESTRIKE                       = 2120,
     SPELL_MAGE_FLURRY_DAMAGE                     = 228596,
+    SPELL_MAGE_FROST_BOMB_AURA                    = 112948,
+    SPELL_MAGE_FROST_BOMB_TRIGGERED               = 113092,
     SPELL_MAGE_FROST_NOVA                        = 122,
     SPELL_MAGE_GIRAFFE_FORM                      = 32816,
+    SPELL_MAGE_GLACIAL_INSULATION                = 235297,
     SPELL_MAGE_HEATING_UP                        = 48107,
     SPELL_MAGE_HOT_STREAK                        = 48108,
+    SPELL_MAGE_HYPOTHERMIA                       = 41425,
     SPELL_MAGE_ICE_BARRIER                       = 11426,
     SPELL_MAGE_ICE_BLOCK                         = 45438,
     SPELL_MAGE_ICE_FLOES                         = 108839,
@@ -764,6 +768,40 @@ class spell_mage_chain_reaction : public AuraScript
     }
 };
 
+// 195345 - Frozen Veins (Frost artifact trait): Frostbolt casts reduce Icy Veins' cooldown.
+// Confirmed via DestinyCore/AshamaneCore. `SpellHistory::ModifyCooldown` needs a
+// `Milliseconds` argument (documented gotcha in this project's own CLAUDE.md) - the
+// reference's raw `aurEff->GetAmount()` int would fail to compile without the wrap.
+class spell_mage_frozen_veins : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_ICY_VEINS });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return eventInfo.GetSpellInfo() &&
+            (eventInfo.GetSpellInfo()->Id == SPELL_MAGE_FROSTBOLT || eventInfo.GetSpellInfo()->Id == SPELL_MAGE_FROSTBOLT_TRIGGER);
+    }
+
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo& /*eventInfo*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (caster->GetSpellHistory()->HasCooldown(SPELL_MAGE_ICY_VEINS))
+            caster->GetSpellHistory()->ModifyCooldown(SPELL_MAGE_ICY_VEINS, Milliseconds(aurEff->GetAmount()));
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_mage_frozen_veins::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_mage_frozen_veins::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
+
 // 235219 - Cold Snap
 class spell_mage_cold_snap : public SpellScript
 {
@@ -1397,6 +1435,37 @@ class spell_mage_hyper_impact : public AuraScript
     }
 };
 
+// 45438 - Ice Block: applies Hypothermia on activation (long-standing anti-spam debuff,
+// relevant since Cold Snap above can reset Ice Block's cooldown), and converts into Ice
+// Barrier on removal if the Glacial Insulation talent is active. Confirmed via DestinyCore and
+// AshamaneCore (identical implementations). Neither reference implements any explicit
+// cast-blocking check for Hypothermia itself - relies on the debuff's own DB2 data, matching
+// this project's established pattern of data-driven mechanics needing no script at all.
+class spell_mage_ice_block : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MAGE_HYPOTHERMIA, SPELL_MAGE_GLACIAL_INSULATION, SPELL_MAGE_ICE_BARRIER });
+    }
+
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        GetTarget()->CastSpell(GetTarget(), SPELL_MAGE_HYPOTHERMIA, true);
+    }
+
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (GetTarget()->HasAura(SPELL_MAGE_GLACIAL_INSULATION))
+            GetTarget()->CastSpell(GetTarget(), SPELL_MAGE_ICE_BARRIER, true);
+    }
+
+    void Register() override
+    {
+        OnEffectApply += AuraEffectApplyFn(spell_mage_ice_block::OnApply, EFFECT_2, SPELL_AURA_SCHOOL_IMMUNITY, AURA_EFFECT_HANDLE_REAL);
+        OnEffectRemove += AuraEffectRemoveFn(spell_mage_ice_block::OnRemove, EFFECT_2, SPELL_AURA_SCHOOL_IMMUNITY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
 // 11426 - Ice Barrier
 class spell_mage_ice_barrier : public AuraScript
 {
@@ -1473,7 +1542,9 @@ class spell_mage_ice_lance : public SpellScript
             SPELL_MAGE_THERMAL_VOID,
             SPELL_MAGE_ICY_VEINS,
             SPELL_MAGE_FINGERS_OF_FROST,
-            SPELL_MAGE_BRAIN_FREEZE_AURA
+            SPELL_MAGE_BRAIN_FREEZE_AURA,
+            SPELL_MAGE_FROST_BOMB_AURA,
+            SPELL_MAGE_FROST_BOMB_TRIGGERED
         });
     }
 
@@ -1519,6 +1590,16 @@ class spell_mage_ice_lance : public SpellScript
             // data (see spell_mage_chain_reaction below) - Ice Lance no longer casts it directly.
         }
 
+        // Frost Bomb: detonates on the primary target when either the target is frozen or the
+        // caster has Fingers of Frost up - a broader condition than Thermal Void above (which
+        // requires frozen specifically), so checked separately. Confirmed via DestinyCore and
+        // AshamaneCore (identical implementations).
+        if (index == 0 && target->HasAura(SPELL_MAGE_FROST_BOMB_AURA)
+            && (target->HasAuraState(AURA_STATE_FROZEN, GetSpellInfo(), caster) || caster->HasAura(SPELL_MAGE_FINGERS_OF_FROST)))
+        {
+            caster->CastSpell(target, SPELL_MAGE_FROST_BOMB_TRIGGERED, true);
+        }
+
         // put target index for chain value multiplier into EFFECT_1 base points, otherwise triggered spell doesn't know which damage multiplier to apply
         CastSpellExtraArgs args;
         args.TriggerFlags = TRIGGERED_FULL_MASK;
@@ -1535,6 +1616,31 @@ class spell_mage_ice_lance : public SpellScript
     }
 
     std::vector<ObjectGuid> _orderedTargets;
+};
+
+// 113092 - Frost Bomb (damage): explicit target takes more damage than the splash targets.
+// The exact 1.84275/1.15128 spell-power ratios are ported verbatim from the reference -
+// unlike most hardcoded-formula cases this project is cautious about, these match to 5
+// decimal places across two independently-written reference cores (DestinyCore and
+// AshamaneCore), which is corroboration for genuine data rather than a shared guess.
+class spell_mage_frost_bomb_damage : public SpellScript
+{
+    void HandleDamage(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        Unit* explicitTarget = GetExplTargetUnit();
+        if (!caster || !target || !explicitTarget)
+            return;
+
+        float multiplier = target == explicitTarget ? 1.84275f : 1.15128f;
+        SetHitDamage(int32(caster->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_SPELL) * multiplier));
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_mage_frost_bomb_damage::HandleDamage, EFFECT_1, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
 };
 
 // 195448 - Chilled to the Core
@@ -2506,6 +2612,7 @@ void AddSC_mage_spell_scripts()
     RegisterSpellAndAuraScriptPair(spell_mage_cauterize, spell_mage_cauterize_AuraScript);
     RegisterSpellScript(spell_mage_chain_reaction);
     RegisterSpellScript(spell_mage_cold_snap);
+    RegisterSpellScript(spell_mage_frozen_veins);
     RegisterSpellScript(spell_mage_combustion);
     RegisterSpellScript(spell_mage_comet_storm);
     RegisterSpellScript(spell_mage_comet_storm_damage);
@@ -2532,10 +2639,12 @@ void AddSC_mage_spell_scripts()
     RegisterAreaTriggerAI(at_mage_meteor_timer);
     RegisterAreaTriggerAI(at_mage_meteor_burn);
     RegisterSpellScript(spell_mage_ice_barrier);
+    RegisterSpellScript(spell_mage_ice_block);
     RegisterSpellScriptWithArgs(spell_mage_nova_talent, "spell_mage_ice_nova");
     RegisterSpellScriptWithArgs(spell_mage_nova_talent, "spell_mage_supernova");
     RegisterSpellScript(spell_mage_chilled_to_the_core);
     RegisterSpellScript(spell_mage_ice_lance);
+    RegisterSpellScript(spell_mage_frost_bomb_damage);
     RegisterSpellScript(spell_mage_ice_lance_damage);
     RegisterSpellScript(spell_mage_jouster);
     RegisterSpellScript(spell_mage_jouster_buff);

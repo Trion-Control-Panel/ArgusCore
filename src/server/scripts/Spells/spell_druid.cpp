@@ -1937,6 +1937,19 @@ protected:
     bool ToCatForm() const override { return true; }
 };
 
+// Activate Cat Form: shifts the caster into Cat Form before casting if not already
+// shapeshifted, bound (via multiple spell_script_names rows under this one ScriptName) to
+// Dash (1850) and Displacer Beast (102280) - Prowl (5215, above) already gets this for free
+// via its own dedicated spell_dru_prowl/spell_dru_base_transformer subclass. Reuses the
+// already-existing, already-proven spell_dru_base_transformer mechanism (the same one Prowl
+// and the Incarnation talents already use) rather than porting AshamaneCore's separate
+// one-off SpellScript, since ArgusCore already has a generic solution for exactly this need.
+class spell_dru_activate_cat_form : public spell_dru_base_transformer
+{
+protected:
+    bool ToCatForm() const override { return true; }
+};
+
 // 1822 - Rake
 class spell_dru_rake : public SpellScript
 {
@@ -3005,6 +3018,7 @@ void AddSC_druid_spell_scripts()
     RegisterSpellScriptWithArgs(spell_dru_predatory_swiftness_aura, "spell_dru_predatory_swiftness_aura_regrowth");
     RegisterSpellScript(spell_dru_bloodtalons);
     RegisterSpellScript(spell_dru_prowl);
+    RegisterSpellScript(spell_dru_activate_cat_form);
     RegisterSpellScript(spell_dru_rake);
     RegisterSpellScript(spell_dru_rip);
     RegisterSpellAndAuraScriptPair(spell_dru_savage_roar, spell_dru_savage_roar_aura);

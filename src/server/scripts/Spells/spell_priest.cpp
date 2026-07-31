@@ -93,6 +93,7 @@ enum PriestSpells
     SPELL_PRIEST_ESSENCE_DEVOURER_SHADOWFIEND_HEAL  = 415673,
     SPELL_PRIEST_ESSENCE_DEVOURER_MINDBENDER_HEAL   = 415676,
     SPELL_PRIEST_FLASH_HEAL                         = 2061,
+    SPELL_PRIEST_FOCUSED_WILL_BUFF                  = 45242,
     SPELL_PRIEST_FROM_DARKNESS_COMES_LIGHT_AURA     = 390617,
     SPELL_PRIEST_GREATER_HEAL                       = 289666,
     SPELL_PRIEST_FOCUSED_MENDING                    = 372354,
@@ -201,6 +202,8 @@ enum PriestSpells
     SPELL_PRIEST_THE_PENITENT_AURA                  = 200347,
     SPELL_PRIEST_TRAIL_OF_LIGHT_HEAL                = 234946,
     SPELL_PRIEST_TRINITY                            = 214205,
+    SPELL_PRIEST_SPIRIT_SHELL_ABSORPTION             = 114908,
+    SPELL_PRIEST_SPIRIT_SHELL_AURA                   = 109964,
     SPELL_PRIEST_TRINITY_EFFECT                     = 214206,
     SPELL_PRIEST_ULTIMATE_PENITENCE                 = 421453,
     SPELL_PRIEST_ULTIMATE_PENITENCE_DAMAGE          = 421543,
@@ -217,6 +220,7 @@ enum PriestSpells
     SPELL_PRIEST_VOID_ERUPTION_DAMAGE               = 228360,
     SPELL_PRIEST_VOID_SHIELD                        = 199144,
     SPELL_PRIEST_VOID_SHIELD_EFFECT                 = 199145,
+    SPELL_PRIEST_VOID_SHIFT                         = 108968,
     SPELL_PRIEST_VOID_TENDRILS_SUMMON                = 127665,
     SPELL_PRIEST_WEAKENED_SOUL                      = 6788,
     SPELL_PRIEST_WHISPERING_SHADOWS                 = 406777,
@@ -837,6 +841,34 @@ class spell_pri_guardian_spirit : public AuraScript
     {
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pri_guardian_spirit::CalculateAmount, EFFECT_1, SPELL_AURA_SCHOOL_ABSORB);
         OnEffectAbsorb += AuraEffectAbsorbFn(spell_pri_guardian_spirit::Absorb, EFFECT_1);
+    }
+};
+
+// 45243 - Focused Will
+// Baseline Discipline/Holy passive (level 34): taking a melee hit grants a stacking
+// (up to 2) damage-reduction buff (45242). Changed in patch 7.0.3 to melee-only.
+class spell_pri_focused_will : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PRIEST_FOCUSED_WILL_BUFF });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        DamageInfo const* damageInfo = eventInfo.GetDamageInfo();
+        return damageInfo && (damageInfo->GetAttackType() == BASE_ATTACK || damageInfo->GetAttackType() == OFF_ATTACK);
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
+    {
+        eventInfo.GetActor()->CastSpell(eventInfo.GetActor(), SPELL_PRIEST_FOCUSED_WILL_BUFF, true);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_pri_focused_will::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_pri_focused_will::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
     }
 };
 
@@ -2526,6 +2558,84 @@ class spell_pri_twist_of_fate : public AuraScript
     }
 };
 
+// 108968 - Void Shift
+// Swaps the caster's and target's current health percentages, both floored at 25%.
+class spell_pri_void_shift : public SpellScript
+{
+    SpellCastResult CheckTarget()
+    {
+        if (Unit* target = GetExplTargetUnit())
+            if (target->GetTypeId() != TYPEID_PLAYER)
+                return SPELL_FAILED_BAD_TARGETS;
+
+        return SPELL_CAST_OK;
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        float casterPct = std::max(caster->GetHealthPct(), 25.0f);
+        float targetPct = std::max(target->GetHealthPct(), 25.0f);
+
+        caster->SetHealth(caster->CountPctFromMaxHealth(int32(targetPct)));
+        target->SetHealth(target->CountPctFromMaxHealth(int32(casterPct)));
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_pri_void_shift::CheckTarget);
+        OnEffectHitTarget += SpellEffectFn(spell_pri_void_shift::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 109964 - Spirit Shell
+// Discipline's capstone: while active, converts the priest's outgoing healing into a
+// stacking absorb shield on the target instead of direct healing, capped at 60% of the
+// target's own max health. Generic heal-redirect hooked to whichever heal spell ids get a
+// spell_script_names row bound to this ScriptName, matching this file's existing
+// spell_pri_atonement_effect pattern - bound to Heal/Flash Heal/Prayer of Healing/Renew for
+// now (the confirmed core heal spells already known to this file); the full intended list of
+// intercepted heals needs Legion 7.3.5 tooltip/DB2 verification before broadening further.
+// CORRECTION from the reference implementation: the reference checked the absorb aura
+// effect on the *caster* (the priest) to decide whether to extend an existing shield or
+// apply a new one - that doesn't match a per-target stacking shield, so this checks the
+// aura on the *target* being healed instead, and caps at the target's own max health.
+class spell_pri_spirit_shell : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_PRIEST_SPIRIT_SHELL_AURA, SPELL_PRIEST_SPIRIT_SHELL_ABSORPTION });
+    }
+
+    void HandleHeal()
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !caster->HasAura(SPELL_PRIEST_SPIRIT_SHELL_AURA))
+            return;
+
+        Unit* target = GetHitUnit();
+        if (!target)
+            return;
+
+        int32 healAmount = GetHitHeal();
+        SetHitHeal(0);
+
+        if (AuraEffect* shell = target->GetAuraEffect(SPELL_PRIEST_SPIRIT_SHELL_ABSORPTION, EFFECT_0))
+            shell->SetAmount(std::min(shell->GetAmount() + healAmount, int32(target->CountPctFromMaxHealth(60))));
+        else
+            caster->CastSpell(target, SPELL_PRIEST_SPIRIT_SHELL_ABSORPTION, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT0, healAmount));
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_pri_spirit_shell::HandleHeal);
+    }
+};
+
 // 15286 - Vampiric Embrace
 class spell_pri_vampiric_embrace : public AuraScript
 {
@@ -2742,6 +2852,9 @@ void AddSC_priest_spell_scripts()
     RegisterAreaTriggerAI(areatrigger_pri_divine_star);
     RegisterSpellScript(spell_pri_evangelism);
     RegisterSpellScript(spell_pri_guardian_spirit);
+    RegisterSpellScript(spell_pri_focused_will);
+    RegisterSpellScript(spell_pri_void_shift);
+    RegisterSpellScript(spell_pri_spirit_shell);
     RegisterSpellScript(spell_pri_halo_shadow);
     RegisterAreaTriggerAI(areatrigger_pri_halo);
     RegisterSpellScript(spell_pri_holy_words);

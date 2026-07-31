@@ -41,7 +41,15 @@
 
 enum MonkSpells
 {
+    SPELL_MONK_BLACKOUT_STRIKE                          = 205523,
+    SPELL_MONK_BREATH_OF_FIRE                           = 115181,
     SPELL_MONK_BREATH_OF_FIRE_DOT                       = 123725,
+    SPELL_MONK_DISABLE                                  = 116095,
+    SPELL_MONK_DISABLE_ROOT                             = 116706,
+    SPELL_MONK_ELUSIVE_BRAWLER                          = 195630,
+    SPELL_MONK_EXPEL_HARM_DAMAGE                        = 115129,
+    SPELL_MONK_MANA_TEA_STACKS                          = 115867,
+    SPELL_MONK_PLUS_ONE_MANA_TEA                        = 123760,
     SPELL_MONK_BURST_OF_LIFE_TALENT                     = 399226,
     SPELL_MONK_BURST_OF_LIFE_HEAL                       = 399230,
     SPELL_MONK_CALMING_COALESCENCE                      = 388220,
@@ -211,6 +219,53 @@ class spell_monk_blackout_kick : public SpellScript
     }
 };
 
+// 116095 - Disable (baseline snare): upgrades to a root effect if the target is already
+// snared; the resulting snare/root refreshes its own duration on the caster's subsequent
+// melee hits. Confirmed via DestinyCore and AshamaneCore (identical implementations).
+class spell_monk_disable : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_DISABLE, SPELL_MONK_DISABLE_ROOT });
+    }
+
+    void HandleOnEffectHitTarget(SpellEffIndex /*effectIndex*/)
+    {
+        if (Unit* target = GetExplTargetUnit())
+            if (target->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED))
+                GetCaster()->CastSpell(target, SPELL_MONK_DISABLE_ROOT, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_monk_disable::HandleOnEffectHitTarget, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
+    }
+};
+
+class aura_monk_disable : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        DamageInfo* damageInfo = eventInfo.GetDamageInfo();
+        if (!damageInfo)
+            return false;
+
+        if ((damageInfo->GetAttackType() == BASE_ATTACK || damageInfo->GetAttackType() == OFF_ATTACK)
+            && damageInfo->GetAttacker() == GetCaster())
+        {
+            GetAura()->RefreshDuration();
+            return true;
+        }
+
+        return false;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(aura_monk_disable::CheckProc);
+    }
+};
+
 // 115181 - Breath of Fire
 // Applies a burning DoT if the target already has Dizzying Haze or is showing Keg Smash's own
 // DB2-driven debuff aura (SPELL_MONK_KEG_SMASH_AURA shares the same id as Keg Smash's own outer
@@ -232,6 +287,174 @@ class spell_monk_breath_of_fire : public SpellScript
     void Register() override
     {
         AfterHit += SpellHitFn(spell_monk_breath_of_fire::HandleAfterHit);
+    }
+};
+
+// 117906 - Mastery: Elusive Brawler. Grants a stack of the dodge-chance buff (195630) on
+// Blackout Strike/Breath of Fire hits and on being hit. Confirmed via DestinyCore and
+// AshamaneCore (identical implementations).
+class spell_monk_elusive_brawler_mastery : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        if (eventInfo.GetTypeMask() & TAKEN_HIT_PROC_FLAG_MASK)
+            return true;
+
+        return eventInfo.GetProcSpell() &&
+              (eventInfo.GetProcSpell()->GetSpellInfo()->Id == SPELL_MONK_BLACKOUT_STRIKE ||
+               eventInfo.GetProcSpell()->GetSpellInfo()->Id == SPELL_MONK_BREATH_OF_FIRE);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_monk_elusive_brawler_mastery::CheckProc);
+    }
+};
+
+// 195630 - Elusive Brawler: the stacking dodge-chance buff itself. Consumed (duration zeroed,
+// letting the normal expiry pipeline remove it) on a successful dodge. Confirmed via
+// DestinyCore and AshamaneCore (identical implementations).
+class spell_monk_elusive_brawler_stacks : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        if (!(eventInfo.GetHitMask() & PROC_HIT_DODGE))
+            return false;
+
+        if (Aura* elusiveBrawler = GetCaster()->GetAura(SPELL_MONK_ELUSIVE_BRAWLER, GetCaster()->GetGUID()))
+            elusiveBrawler->SetDuration(0);
+
+        return true;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_monk_elusive_brawler_stacks::CheckProc);
+    }
+};
+
+// 115072 - Expel Harm (baseline, level 26): heals the caster and discharges half the amount
+// healed as damage to nearby attackable enemies. Confirmed via DestinyCore and AshamaneCore
+// (identical implementations). Id corrected from 322101 (this doc's originally-recorded id,
+// which is a much later/modern-retail id per Wowhead) to 115072, the id both reference cores
+// agree on and the one that has existed since Mists of Pandaria through Legion.
+// Player::GetAttackableUnitListInRange doesn't exist in ArgusCore - translated to the
+// established Trinity::AnyUnfriendlyUnitInObjectRangeCheck/UnitListSearcher/
+// Cell::VisitAllObjects idiom already used elsewhere in this codebase (e.g. spell_warlock.cpp).
+class spell_monk_expel_harm : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_EXPEL_HARM_DAMAGE });
+    }
+
+    void HandleOnHit()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+
+        std::list<Unit*> enemies;
+        Trinity::AnyUnfriendlyUnitInObjectRangeCheck checker(caster, caster, 10.0f);
+        Trinity::UnitListSearcher<Trinity::AnyUnfriendlyUnitInObjectRangeCheck> searcher(caster, enemies, checker);
+        Cell::VisitAllObjects(caster, searcher, 10.0f);
+
+        int32 bp = CalculatePct(-GetHitDamage(), 50);
+        for (Unit* enemy : enemies)
+            if (caster->IsValidAttackTarget(enemy))
+                caster->CastSpell(enemy, SPELL_MONK_EXPEL_HARM_DAMAGE, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT0, bp));
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_monk_expel_harm::HandleOnHit);
+    }
+};
+
+// 115294 - Mana Tea (channel): duration scales with the caster's current Mana Tea stack
+// count (1 sec channeled per stack), consuming 1 stack per tick rather than the whole stack
+// at once (so cancelling early doesn't waste unconsumed stacks). Confirmed via DestinyCore and
+// AshamaneCore (identical implementations), but both drive the variable duration by injecting
+// a raw SpellModifier with hand-set flag128 mask bits before the cast - the same pre-refactor
+// pattern this project's CLAUDE.md already flags as unsafe to guess (see the Fire Mage
+// Passive precedent). Reused this session's own established alternative instead: apply the
+// aura at its default duration, then adjust it directly via Aura::SetDuration once applied -
+// the same idiom already used for DK's Bonestorm and Mage's Thermal Void elsewhere in this
+// project.
+class spell_monk_mana_tea : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_MANA_TEA_STACKS });
+    }
+
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (Aura* stacks = caster->GetAura(SPELL_MONK_MANA_TEA_STACKS))
+            GetAura()->SetDuration(stacks->GetStackAmount() * IN_MILLISECONDS);
+    }
+
+    void OnTick(AuraEffect const* /*aurEff*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (Aura* stacks = caster->GetAura(SPELL_MONK_MANA_TEA_STACKS))
+        {
+            if (stacks->GetStackAmount() > 1)
+                stacks->SetStackAmount(stacks->GetStackAmount() - 1);
+            else
+                caster->RemoveAura(SPELL_MONK_MANA_TEA_STACKS);
+        }
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_monk_mana_tea::OnApply, EFFECT_0, SPELL_AURA_OBS_MOD_POWER, AURA_EFFECT_HANDLE_REAL);
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_monk_mana_tea::OnTick, EFFECT_0, SPELL_AURA_OBS_MOD_POWER);
+    }
+};
+
+// 123766 - Brewing: Mana Tea (Mistweaver passive): every 4 Chi spent grants 1 Mana Tea stack
+// (capped at 20 by the buff's own DB2 MaxStack). The reference drives this via
+// AuraEffect::SetData, a legacy virtual-callback shape with no equivalent call site in
+// ArgusCore. Uses the same generic "any Chi-costing spell" proc idiom already established for
+// DK's Runic Empowerment/Blood Charge instead.
+class spell_monk_mana_tea_stacks : public AuraScript
+{
+    int32 _chiSpent = 0;
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_MANA_TEA_STACKS, SPELL_MONK_PLUS_ONE_MANA_TEA });
+    }
+
+    static bool CheckProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& procEvent)
+    {
+        Spell const* procSpell = procEvent.GetProcSpell();
+        return procSpell && procSpell->GetPowerTypeCostAmount(POWER_CHI) > 0;
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& procInfo)
+    {
+        _chiSpent += *procInfo.GetProcSpell()->GetPowerTypeCostAmount(POWER_CHI);
+        while (_chiSpent >= 4)
+        {
+            _chiSpent -= 4;
+            GetTarget()->CastSpell(GetTarget(), SPELL_MONK_MANA_TEA_STACKS, true);
+            GetTarget()->CastSpell(GetTarget(), SPELL_MONK_PLUS_ONE_MANA_TEA, true);
+        }
+    }
+
+    void Register() override
+    {
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_monk_mana_tea_stacks::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_monk_mana_tea_stacks::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -2512,7 +2735,13 @@ void AddSC_monk_spell_scripts()
 {
     RegisterSpellScript(spell_monk_black_ox_brew);
     RegisterSpellScript(spell_monk_blackout_kick);
+    RegisterSpellAndAuraScriptPair(spell_monk_disable, aura_monk_disable);
     RegisterSpellScript(spell_monk_breath_of_fire);
+    RegisterSpellScript(spell_monk_elusive_brawler_mastery);
+    RegisterSpellScript(spell_monk_elusive_brawler_stacks);
+    RegisterSpellScript(spell_monk_expel_harm);
+    RegisterSpellScript(spell_monk_mana_tea);
+    RegisterSpellScript(spell_monk_mana_tea_stacks);
     RegisterSpellScript(spell_monk_burst_of_life);
     RegisterSpellScript(spell_monk_burst_of_life_heal);
     RegisterSpellScript(spell_monk_chi_burst_heal);

@@ -52,6 +52,12 @@ enum DeathKnightSpells
     SPELL_DK_BLOOD_PLAGUE                       = 55078,
     SPELL_DK_BLOOD_SHIELD_ABSORB                = 77535,
     SPELL_DK_BLOOD_SHIELD_MASTERY               = 77513,
+    SPELL_DK_BLOOD_MIRROR                       = 206977,
+    SPELL_DK_BLOOD_MIRROR_DAMAGE                = 221847,
+    SPELL_DK_BLOOD_CHARGE                       = 114851,
+    SPELL_DK_BLOOD_TAP                          = 45529,
+    SPELL_DK_GLACIAL_ADVANCE                    = 194913,
+    SPELL_DK_GLACIAL_ADVANCE_DAMAGE             = 195975,
     SPELL_DK_BONE_SHIELD                        = 195181,
     SPELL_DK_BONESTORM_HEAL                     = 196545,
     SPELL_DK_BREATH_OF_SINDRAGOSA               = 152279,
@@ -108,7 +114,12 @@ enum DeathKnightSpells
     SPELL_DK_PURGATORY_DEATH                    = 123982,
     SPELL_DK_PURGATORY_MARKER                   = 123981,
     SPELL_DK_DESECRATED_GROUND_IMMUNE           = 115018,
-    SPELL_DK_DARK_INFUSION                      = 215711,
+    // NOTE: 215711 (the id this constant previously held) does not exist as a real spell
+    // (confirmed 404 on Wowhead); corrected to 91342, corroborated by both DestinyCore and
+    // AshamaneCore's independently-written spell_dk_dark_transformation_form, which consume
+    // this exact id from both player and pet. Pre-existing bug, not introduced this session.
+    SPELL_DK_DARK_INFUSION                      = 91342,
+    SPELL_DK_DARK_TRANSFORMATION                = 63560,
     SPELL_DK_SOUL_REAPER_OLD_DEBUFF             = 130736,
     SPELL_DK_CORPSE_SHIELD_TRANSFER             = 212753,
     SPELL_DK_CORPSE_SHIELD_KILL                 = 212756,
@@ -739,6 +750,26 @@ class spell_dk_festering_strike : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_dk_festering_strike::HandleScriptEffect, EFFECT_1, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 195758 - Blighted Rune Weapon (Unholy talent): applies a Festering Wound on hit.
+class spell_dk_blighted_rune_weapon : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_FESTERING_WOUND });
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        if (Unit* target = GetHitUnit())
+            GetCaster()->CastSpell(target, SPELL_DK_FESTERING_WOUND, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_dk_blighted_rune_weapon::HandleHit, EFFECT_0, SPELL_EFFECT_DUMMY);
     }
 };
 
@@ -1515,6 +1546,93 @@ private:
     Optional<SpellEffIndex> _healthLimitEffectIndex;
 };
 
+// 81229 - Runic Empowerment (Frost baseline passive)
+// Each Runic Power spent has a chance to instantly recharge a random used rune. Generic
+// across all Runic-Power-costing spells via Spell::GetPowerTypeCostAmount, the same "any
+// X-costing spell" idiom already used elsewhere in this codebase (e.g.
+// spell_rog_relentless_strikes in spell_rogue.cpp). ArgusCore has no
+// PlayerScript::OnModifyPower hook - AshamaneCore's reference used one that does not exist
+// in this engine - so this is a standard proc-aura instead, which also composes correctly
+// with the rest of the proc system rather than needing a new engine-level hook.
+class spell_dk_runic_empowerment : public AuraScript
+{
+    static bool CheckProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& procEvent)
+    {
+        Spell const* procSpell = procEvent.GetProcSpell();
+        return procSpell && procSpell->GetPowerTypeCostAmount(POWER_RUNIC_POWER) > 0;
+    }
+
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo const& procInfo)
+    {
+        int32 rpSpent = *procInfo.GetProcSpell()->GetPowerTypeCostAmount(POWER_RUNIC_POWER);
+        if (!roll_chance_i(aurEff->GetAmount() * rpSpent))
+            return;
+
+        Player* player = GetTarget()->ToPlayer();
+        if (!player)
+            return;
+
+        std::vector<uint8> usedRunes;
+        for (uint8 i = 0; i < MAX_RUNES; ++i)
+            if (player->GetRuneCooldown(i))
+                usedRunes.push_back(i);
+
+        if (usedRunes.empty())
+            return;
+
+        player->SetRuneCooldown(Trinity::Containers::SelectRandomContainerElement(usedRunes), 0);
+        player->ResyncRunes();
+    }
+
+    void Register() override
+    {
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dk_runic_empowerment::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_dk_runic_empowerment::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 51460 - Runic Corruption (Unholy baseline passive)
+// Each Runic Power spent has a chance to grant the Runic Corruption buff (rune regeneration
+// rate boost). Same generic "any Runic-Power-costing spell" idiom as Runic Empowerment
+// above. Reuses the already-existing SPELL_DK_RUNIC_CORRUPTION constant/buff (already cast
+// directly by spell_dk_soul_reaper above) rather than adding a second, separate id - web
+// research surfaced a possible id split across eras (51460 vs a later 51462) for this
+// ability's name; this binds to the same id Soul Reaper already successfully uses, on the
+// assumption a single id serves as both the passive and its own granted buff (matching the
+// shape confirmed for Priest's Focused Will this session) - flagged here in case that
+// assumption needs revisiting.
+class spell_dk_runic_corruption : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_RUNIC_CORRUPTION });
+    }
+
+    static bool CheckProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& procEvent)
+    {
+        Spell const* procSpell = procEvent.GetProcSpell();
+        return procSpell && procSpell->GetPowerTypeCostAmount(POWER_RUNIC_POWER) > 0;
+    }
+
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo const& procInfo)
+    {
+        int32 rpSpent = *procInfo.GetProcSpell()->GetPowerTypeCostAmount(POWER_RUNIC_POWER);
+        if (!roll_chance_i(aurEff->GetAmount() * rpSpent))
+            return;
+
+        GetTarget()->CastSpell(GetTarget(), SPELL_DK_RUNIC_CORRUPTION, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringAura = aurEff
+        });
+    }
+
+    void Register() override
+    {
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dk_runic_corruption::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_dk_runic_corruption::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
 // 242057 - Rune Empowered
 class spell_dk_t20_2p_rune_empowered : public AuraScript
 {
@@ -1600,6 +1718,51 @@ class spell_dk_chilblains : public SpellScript
     void Register() override
     {
         OnHit += SpellHitFn(spell_dk_chilblains::HandleOnHit);
+    }
+};
+
+// 194913 - Glacial Advance: casts a spreading line of ice damage away from the caster.
+// Both DestinyCore and AshamaneCore schedule the staggered casts via Unit::GetScheduler(),
+// which does not exist on ArgusCore's Unit (previously logged here as blocked for exactly
+// this reason) - resolved using the same Unit::m_Events/AddEventAtOffset lambda idiom already
+// used for Hunter's Throwing Axes and matching spell_mage_flurry's established pattern.
+// GetFirstCollisionPosition/MovePosition both exist in ArgusCore but require an explicit
+// angle argument (no single-arg overload) - passed 0.0f for straight ahead of the caster.
+// Radius read via SpellEffectInfo::CalcRadius (this file's/the project's established idiom,
+// e.g. spell_priest.cpp), not the reference's raw MaxRadiusEntry field, which does not exist
+// under that name in ArgusCore's SpellEffectInfo (TargetARadiusEntry/TargetBRadiusEntry
+// instead).
+class spell_dk_glacial_advance : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_GLACIAL_ADVANCE_DAMAGE });
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        Position castPosition = *caster;
+        Position collisionPos = caster->GetFirstCollisionPosition(GetEffectInfo().CalcRadius(caster), 0.0f);
+        float maxDistance = caster->GetDistance(collisionPos);
+
+        for (float dist = 0.0f; dist <= maxDistance; dist += 1.5f)
+        {
+            caster->m_Events.AddEventAtOffset([caster, castPosition, dist]()
+            {
+                Position targetPosition = castPosition;
+                caster->MovePosition(targetPosition, dist, 0.0f);
+                caster->CastSpell(targetPosition, SPELL_DK_GLACIAL_ADVANCE_DAMAGE, true);
+            }, Milliseconds(uint32(dist / 1.5f * 50.0f)));
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_dk_glacial_advance::HandleHit, EFFECT_0, SPELL_EFFECT_DUMMY);
     }
 };
 
@@ -2354,6 +2517,165 @@ class spell_dk_corpse_shield : public AuraScript
     }
 };
 
+// 206977 - Blood Mirror (Blood PvP talent): absorbs a percentage of damage taken and
+// redirects that same amount as damage onto the enemy the caster had targeted when Blood
+// Mirror was applied. Corroborated by DestinyCore and AshamaneCore (identical
+// implementations, both id 206977 with a companion 221847 redirect-damage spell), and
+// structurally agreed on by LegionCore-7.3.5V2 independently. All three references persist
+// the marked enemy's GUID via an `Aura::Variables` generic scratch store that has no
+// equivalent in ArgusCore's `Aura` class - captured instead via the caster's own
+// currently-selected target at the moment this aura applies (functionally equivalent for an
+// instant self-cast buff, since nothing can change the caster's selection between the cast
+// completing and its resulting aura being applied).
+class spell_dk_blood_mirror : public AuraScript
+{
+    ObjectGuid _mirrorTarget;
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_BLOOD_MIRROR_DAMAGE });
+    }
+
+    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = -1;
+    }
+
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr)
+            if (Unit* target = caster->GetSelectedUnit())
+                _mirrorTarget = target->GetGUID();
+    }
+
+    void Absorb(AuraEffect* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        absorbAmount = 0;
+        Unit* caster = GetTarget();
+        if (!caster || _mirrorTarget.IsEmpty())
+            return;
+
+        Unit* mirrorTarget = ObjectAccessor::GetUnit(*caster, _mirrorTarget);
+        if (!mirrorTarget)
+            return;
+
+        int32 absorbPct = GetEffectInfo(EFFECT_0).CalcValue(caster);
+        absorbAmount = CalculatePct(dmgInfo.GetDamage(), absorbPct);
+        if (!absorbAmount)
+            return;
+
+        CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
+        args.AddSpellMod(SPELLVALUE_BASE_POINT0, (int32)absorbAmount);
+        caster->CastSpell(mirrorTarget, SPELL_DK_BLOOD_MIRROR_DAMAGE, args);
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_blood_mirror::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        AfterEffectApply += AuraEffectApplyFn(spell_dk_blood_mirror::OnApply, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB, AURA_EFFECT_HANDLE_REAL);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_dk_blood_mirror::Absorb, EFFECT_0);
+    }
+};
+
+// 114851 - Blood Charge accumulation (Blood Tap's Legion 7.0.3 redesign): every 15 Runic
+// Power spent generates 1 Blood Charge stack (capped at 12 by the buff's own DB2 MaxStack).
+// DestinyCore and AshamaneCore both still carry Blood Tap's pre-7.0.3 mechanic verbatim (2
+// Blood Charges per damaging Death Coil/Frost Strike/Rune Strike hit) - confirmed via
+// Warcraft Wiki patch history this is stale/backward drift for Legion 7.3.5, not the
+// redesigned RP-accumulator version that was actually live for all of Legion (7.0.3 through
+// removal in 8.0.1). Same generic "any Runic-Power-costing spell" idiom as Runic
+// Empowerment/Corruption above.
+class spell_dk_blood_charge : public AuraScript
+{
+    int32 _rpAccumulated = 0;
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_BLOOD_CHARGE });
+    }
+
+    static bool CheckProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& procEvent)
+    {
+        Spell const* procSpell = procEvent.GetProcSpell();
+        return procSpell && procSpell->GetPowerTypeCostAmount(POWER_RUNIC_POWER) > 0;
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& procInfo)
+    {
+        _rpAccumulated += *procInfo.GetProcSpell()->GetPowerTypeCostAmount(POWER_RUNIC_POWER);
+        while (_rpAccumulated >= 15)
+        {
+            _rpAccumulated -= 15;
+            GetTarget()->CastSpell(GetTarget(), SPELL_DK_BLOOD_CHARGE, true);
+        }
+    }
+
+    void Register() override
+    {
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dk_blood_charge::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_dk_blood_charge::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 45529 - Blood Tap: consumes 5 Blood Charges to instantly ready a random fully-depleted
+// rune. None of the four reference cores implement this spell's own cast handler at all -
+// only the (wrong-era) charge-generation side exists in any of them - so this is written
+// fresh against the confirmed Legion 7.0.3+ tooltip. ArgusCore's rune model has no rune-type/
+// "Death Rune" concept anywhere in the engine (confirmed by grepping the whole server tree),
+// so the historical "...as a Death Rune" tooltip wording is functionally identical here to
+// simply readying the rune - same GetRuneCooldown/SetRuneCooldown/ResyncRunes idiom already
+// used by spell_dk_runic_empowerment above.
+class spell_dk_blood_tap : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_BLOOD_CHARGE });
+    }
+
+    SpellCastResult CheckCast()
+    {
+        Player* caster = GetCaster()->ToPlayer();
+        if (!caster)
+            return SPELL_FAILED_DONT_REPORT;
+
+        Aura* bloodCharge = caster->GetAura(SPELL_DK_BLOOD_CHARGE);
+        if (!bloodCharge || bloodCharge->GetStackAmount() < 5)
+            return SPELL_FAILED_NO_CHARGES_REMAIN;
+
+        return SPELL_CAST_OK;
+    }
+
+    void HandleOnCast()
+    {
+        Player* caster = GetCaster()->ToPlayer();
+        if (!caster)
+            return;
+
+        Aura* bloodCharge = caster->GetAura(SPELL_DK_BLOOD_CHARGE);
+        if (!bloodCharge || bloodCharge->GetStackAmount() < 5)
+            return;
+
+        bloodCharge->ModStackAmount(-5);
+
+        std::vector<uint8> usedRunes;
+        for (uint8 i = 0; i < MAX_RUNES; ++i)
+            if (caster->GetRuneCooldown(i))
+                usedRunes.push_back(i);
+
+        if (usedRunes.empty())
+            return;
+
+        caster->SetRuneCooldown(Trinity::Containers::SelectRandomContainerElement(usedRunes), 0);
+        caster->ResyncRunes();
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_dk_blood_tap::CheckCast);
+        OnCast += SpellCastFn(spell_dk_blood_tap::HandleOnCast);
+    }
+};
+
 // 205223 - Consumption (Artifact — heals caster for a percent of damage dealt)
 class spell_dk_consumption : public SpellScript
 {
@@ -2474,6 +2796,39 @@ class spell_dk_festering_wound : public SpellScript
     }
 };
 
+// 63560 - Dark Transformation: consumes the Dark Infusion stack (granted above by
+// spell_dk_festering_wound) from both player and pet when it hits the pet, matching the
+// corroborated implementation shared by DestinyCore and AshamaneCore.
+class spell_dk_dark_transformation_form : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_DARK_INFUSION });
+    }
+
+    void HandleOnHit()
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!player)
+            return;
+
+        Unit* pet = GetHitUnit();
+        if (!pet)
+            return;
+
+        if (pet->HasAura(SPELL_DK_DARK_INFUSION))
+        {
+            player->RemoveAura(SPELL_DK_DARK_INFUSION);
+            pet->RemoveAura(SPELL_DK_DARK_INFUSION);
+        }
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_dk_dark_transformation_form::HandleOnHit);
+    }
+};
+
 // 207290, 51460 - Unholy Frenzy / Runic Corruption (stack duration on reapply)
 class spell_dk_change_duration : public SpellScript
 {
@@ -2548,6 +2903,7 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_chilblains);
     RegisterSpellScript(spell_dk_obliterate);
     RegisterSpellScript(spell_dk_frozen_pulse);
+    RegisterSpellScript(spell_dk_glacial_advance);
     RegisterSpellScript(spell_dk_death_siphon);
     RegisterSpellScript(spell_dk_bonestorm);
     RegisterSpellScript(spell_dk_dark_succor);
@@ -2556,6 +2912,9 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_blinding_sleet);
     RegisterSpellScript(spell_dk_blooddrinker);
     RegisterSpellScript(spell_dk_blood_boil);
+    RegisterSpellScript(spell_dk_blood_charge);
+    RegisterSpellScript(spell_dk_blood_mirror);
+    RegisterSpellScript(spell_dk_blood_tap);
     RegisterSpellScript(spell_dk_bone_shield);
     RegisterSpellScript(spell_dk_change_duration);
     RegisterSpellScript(spell_dk_consumption);
@@ -2565,6 +2924,7 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_dancing_rune_weapon);
     RegisterSpellScript(spell_dk_dark_simulacrum);
     RegisterSpellScript(spell_dk_dark_simulacrum_buff);
+    RegisterSpellScript(spell_dk_dark_transformation_form);
     RegisterSpellScript(spell_dk_death_and_decay);
     RegisterSpellScript(spell_dk_death_coil);
     RegisterSpellScript(spell_dk_death_gate);
@@ -2579,6 +2939,7 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_death_pact);
     RegisterSpellScript(spell_dk_death_strike);
     RegisterSpellScript(spell_dk_death_strike_enabler);
+    RegisterSpellScript(spell_dk_blighted_rune_weapon);
     RegisterSpellScript(spell_dk_festering_strike);
     RegisterSpellScript(spell_dk_festering_wound);
     RegisterSpellScript(spell_dk_frost_fever_proc);
@@ -2605,6 +2966,8 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_pvp_4p_bonus);
     RegisterSpellScript(spell_dk_raise_dead);
     RegisterSpellScript(spell_dk_rime);
+    RegisterSpellScript(spell_dk_runic_empowerment);
+    RegisterSpellScript(spell_dk_runic_corruption);
     RegisterSpellScriptWithArgs(spell_dk_soul_reaper, "spell_dk_soul_reaper", EFFECT_1, EFFECT_2);
     RegisterSpellScript(spell_dk_t20_2p_rune_empowered);
     RegisterSpellScript(spell_dk_tombstone);
