@@ -110,7 +110,6 @@ enum DemonHunterSpells
     SPELL_DH_FELBLADE_COOLDOWN_RESET_PROC_VISUAL   = 204497,
     SPELL_DH_FELBLADE_DAMAGE                       = 213243,
     SPELL_DH_FRACTURE                              = 209795,
-    SPELL_DH_FRAILTY                               = 224509,
     SPELL_DH_FIERY_BRAND                           = 204021,
     SPELL_DH_FIERY_BRAND_DEBUFF_RANK_1             = 207744,
     SPELL_DH_FIERY_BRAND_DEBUFF_RANK_2             = 207771,
