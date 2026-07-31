@@ -64,6 +64,7 @@ enum WarlockSpells
     SPELL_WARLOCK_DOOM_ENERGIZE                     = 193318,
     SPELL_WARLOCK_DRAIN_SOUL_ENERGIZE               = 205292,
     SPELL_WARLOCK_ERADICATION                       = 196412,
+    SPELL_WARLOCK_EYE_LASER                         = 205231,
     SPELL_WARLOCK_ERADICATION_DEBUFF                = 196414,
     SPELL_WARLOCK_FLAMESHADOW                       = 37379,
     SPELL_WARLOCK_GLYPH_OF_DEMON_TRAINING           = 56249,
@@ -1750,6 +1751,42 @@ class spell_warl_demonskin : public AuraScript
     }
 };
 
+// 205231 - Eye Laser (Darkglare pet ability, Affliction cooldown): overrides its own default
+// target selection to hit every enemy within 100 yards currently afflicted by Doom, refreshing
+// it on each. The Darkglare pet AI (npc_pet_warlock_darkglare in pet_warlock.cpp) only needs
+// to find one valid Doom target to trigger this cast - this override does the real work of
+// finding and hitting all of them. Confirmed via DestinyCore/AshamaneCore (identical
+// implementations). Translated Trinity::AllWorldObjectsInRange/WorldObjectListSearcher (the
+// latter doesn't exist in ArgusCore) to the established
+// Trinity::AnyUnfriendlyUnitInObjectRangeCheck/UnitListSearcher idiom used elsewhere this
+// session, filtering to Unit* results and re-checking the Doom aura directly rather than
+// relying on a separate WorldObject-flavored searcher.
+class spell_warl_eye_laser : public SpellScript
+{
+    void HandleTargets(std::list<WorldObject*>& targets)
+    {
+        Unit* caster = GetOriginalCaster();
+        if (!caster)
+            return;
+
+        targets.clear();
+
+        std::list<Unit*> nearby;
+        Trinity::AnyUnfriendlyUnitInObjectRangeCheck checker(caster, caster, 100.0f);
+        Trinity::UnitListSearcher<Trinity::AnyUnfriendlyUnitInObjectRangeCheck> searcher(caster, nearby, checker);
+        Cell::VisitAllObjects(caster, searcher, 100.0f);
+
+        for (Unit* unit : nearby)
+            if (unit->HasAura(SPELL_WARLOCK_DOOM, caster->GetGUID()))
+                targets.push_back(unit);
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_warl_eye_laser::HandleTargets, EFFECT_0, TARGET_UNIT_TARGET_ENEMY);
+    }
+};
+
 // 215941 - Soul Conduit (talent, all specs): each Soul Shard spent has a chance to be
 // refunded. Confirmed via DestinyCore/AshamaneCore, but corrected a bug shared by both: they
 // check `POWER_MANA` instead of `POWER_SOUL_SHARDS` when looking up how much was just spent -
@@ -2171,6 +2208,7 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_soul_conduit);
     RegisterSpellScript(spell_warl_soul_leech);
     RegisterSpellScript(spell_warl_demonskin);
+    RegisterSpellScript(spell_warl_eye_laser);
     RegisterSpellScript(spell_warl_soulshatter);
     RegisterSpellScript(spell_warl_spell_lock);
     RegisterSpellScript(spell_warl_suffering);
