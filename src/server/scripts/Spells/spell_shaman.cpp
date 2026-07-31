@@ -73,6 +73,13 @@ enum ShamanSpells
     SPELL_SHAMAN_ELEMENTAL_MASTERY              = 16166,
     SPELL_SHAMAN_ELEMENTAL_WEAPONS_BUFF         = 408390,
     SPELL_SHAMAN_ENERGY_SURGE                   = 40465,
+    SPELL_SHAMAN_EARTHEN_SHIELD_ABSORB          = 201633,
+    SPELL_SHAMAN_EARTHEN_SHIELD_ABSORB_DAMAGE   = 201657,
+    // Earthen Shield Totem creature entry - confirmed via ArgusCore's own base world DB dump
+    // (a VerifiedBuild row explicitly labels entry 100943 "Earthen Shield Totem" under a
+    // genuine Legion build number), not merely a web lookup that could have surfaced the later
+    // "Earthen Wall Totem" identity instead.
+    NPC_SHAMAN_EARTHEN_SHIELD_TOTEM              = 100943,
     SPELL_SHAMAN_ENHANCED_ELEMENTS              = 77223,
     SPELL_SHAMAN_EXHAUSTION                     = 57723,
     SPELL_SHAMAN_FERAL_LUNGE_DAMAGE             = 215802,
@@ -796,6 +803,74 @@ class spell_sha_fury_of_air : public AuraScript
     void Register() override
     {
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_sha_fury_of_air::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
+    }
+};
+
+// 201633 - Earthen Shield Totem (redirect-absorb buff): applied to nearby allies by the
+// totem's own AI (npc_pet_shaman_earthen_shield_totem in pet_shaman.cpp). Confirmed via
+// DestinyCore/AshamaneCore (identical implementations) - the absorb cap is the totem's own
+// current health (self-limiting: the totem soaks damage until it runs out), and each hit's
+// redirected amount is separately capped by the shaman's spell power before being dealt back
+// to the totem as real damage. Unlike the reference, this does not rely on the buff's own
+// GetCaster() literally being the totem (this project's version applies the buff with the
+// shaman as caster, simpler) - both hooks instead resolve the shaman's own totem fresh via
+// Unit::m_Controlled each time (the same idiom used for Implosion/Dancing Rune Weapon/
+// Transcendence elsewhere this session), decoupling the redirect target from whoever cast the
+// buff. Translated CastCustomSpell (doesn't exist in ArgusCore) to
+// CastSpellExtraArgs/AddSpellMod, and Unit::GetTotalSpellPowerValue (doesn't exist) to
+// Unit::SpellBaseDamageBonusDone, this project's established spell-power-reading idiom
+// (already used elsewhere in this same file and for Mage's Frost Bomb this session).
+class spell_sha_earthen_shield_absorb : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_SHAMAN_EARTHEN_SHIELD_ABSORB_DAMAGE });
+    }
+
+    static Creature* FindTotem(Unit* shaman)
+    {
+        for (Unit* controlled : shaman->m_Controlled)
+            if (controlled->GetEntry() == NPC_SHAMAN_EARTHEN_SHIELD_TOTEM)
+                if (Creature* totem = controlled->ToCreature())
+                    return totem;
+
+        return nullptr;
+    }
+
+    void CalcAbsorb(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        Unit* caster = GetCaster();
+        Creature* totem = caster ? FindTotem(caster) : nullptr;
+        amount = totem ? int32(totem->GetHealth()) : 0;
+    }
+
+    void HandleAbsorb(AuraEffect* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        absorbAmount = 0;
+
+        Unit* caster = GetCaster();
+        Creature* totem = caster ? FindTotem(caster) : nullptr;
+        if (!caster || !totem)
+            return;
+
+        int32 spellPower = int32(caster->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_ALL));
+        absorbAmount = std::min<uint32>(dmgInfo.GetDamage(), uint32(std::max(spellPower, 0)));
+
+        if (totem->GetHealth() <= absorbAmount)
+        {
+            absorbAmount = uint32(totem->GetHealth());
+            totem->DespawnOrUnsummon();
+        }
+        else
+        {
+            totem->CastSpell(totem, SPELL_SHAMAN_EARTHEN_SHIELD_ABSORB_DAMAGE, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT0, int32(absorbAmount)));
+        }
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_sha_earthen_shield_absorb::CalcAbsorb, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_sha_earthen_shield_absorb::HandleAbsorb, EFFECT_0);
     }
 };
 
@@ -3238,6 +3313,7 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_earthgrab);
     RegisterSpellScript(spell_sha_crash_lightning);
     RegisterSpellScript(spell_sha_fury_of_air);
+    RegisterSpellScript(spell_sha_earthen_shield_absorb);
     RegisterSpellScript(spell_sha_deeply_rooted_elements);
     RegisterSpellScript(spell_sha_deluge);
     RegisterSpellScript(spell_sha_deluge_healing_rain);
