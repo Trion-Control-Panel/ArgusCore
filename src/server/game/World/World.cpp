@@ -906,6 +906,7 @@ void World::LoadConfigSettings(bool reload)
         { .Name = "Layer.MaxPlayersPerLayer"sv, .DefaultValue = DEFAULT_LAYER_MAX_PLAYERS, .Index = CONFIG_LAYER_MAX_PLAYERS, .Min = 1 },
         { .Name = "Layer.MinPlayersPerLayer"sv, .DefaultValue = DEFAULT_LAYER_MIN_PLAYERS, .Index = CONFIG_LAYER_MIN_PLAYERS, .Min = 0 },
         { .Name = "Layer.ChangeCooldownSecs"sv, .DefaultValue = DEFAULT_LAYER_CHANGE_CD_SECS, .Index = CONFIG_LAYER_CHANGE_COOLDOWN_SECS, .Min = 0 },
+        { .Name = "Layer.MergeIntervalSecs"sv, .DefaultValue = DEFAULT_LAYER_MERGE_INTERVAL_SECS, .Index = CONFIG_LAYER_MERGE_INTERVAL_SECS, .Min = 1 },
     } };
 
     static constexpr ConfigOptionLoadDefinitionArray<uint64, INT64_CONFIG_VALUE_COUNT> int64s =
@@ -1035,7 +1036,8 @@ void World::LoadConfigSettings(bool reload)
     // block below only runs on /reload config, not on initial startup.
     sLayerMgr->Configure(m_int_configs[CONFIG_LAYER_MAX_PLAYERS],
                          m_int_configs[CONFIG_LAYER_MIN_PLAYERS],
-                         m_int_configs[CONFIG_LAYER_CHANGE_COOLDOWN_SECS]);
+                         m_int_configs[CONFIG_LAYER_CHANGE_COOLDOWN_SECS],
+                         m_int_configs[CONFIG_LAYER_MERGE_INTERVAL_SECS]);
 
     for (ConfigOptionLoadDefinition<uint64, WorldInt64Configs> const& definition : int64s)
         StoreConfigValue(m_int64_configs[definition.Index], sConfigMgr->GetInt64Default(definition.Name, definition.DefaultValue), definition, reload);

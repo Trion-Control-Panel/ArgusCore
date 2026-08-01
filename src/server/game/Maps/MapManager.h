@@ -164,10 +164,14 @@ class TC_GAME_API MapManager
 
         bool DestroyMap(Map* map);
 
+        // Periodic World Layering merge-down sweep — see LayerManager::GetNextMergeCandidate.
+        void ProcessLayerMerges(uint32 diff);
+
         mutable std::shared_mutex _mapsLock;
         uint32 i_gridCleanUpDelay;
         MapMapType i_maps;
         IntervalTimer i_timer;
+        IntervalTimer i_layerMergeTimer;
 
         std::unique_ptr<InstanceIds> _freeInstanceIds;
         uint32 _nextInstanceId;

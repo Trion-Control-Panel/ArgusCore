@@ -4382,18 +4382,25 @@ Load.Locales = 1
 #
 #    Layer.MinPlayersPerLayer
 #        Description: Minimum player count on a layer before it is eligible for merging
-#                     into another layer (merge logic is not yet implemented; this value
-#                     is reserved for a future step).
+#                     back into another layer on the same map.
 #        Default:     80
 #
 #    Layer.ChangeCooldownSecs
 #        Description: Seconds a player must wait between involuntary layer changes.
 #                     Prevents rapid cycling exploits (group-join/leave loops).
 #        Default:     1800  (30 minutes)
+#
+#    Layer.MergeIntervalSecs
+#        Description: How often (in seconds) MapManager sweeps for layers eligible to be
+#                     merged back together. A periodic sweep, not a per-logout check, so
+#                     the cost of merge-eligibility bookkeeping stays independent of how
+#                     often players actually log out/change zones.
+#        Default:     300  (5 minutes)
 
 Layer.MaxPlayersPerLayer = 400
 Layer.MinPlayersPerLayer = 80
 Layer.ChangeCooldownSecs = 1800
+Layer.MergeIntervalSecs = 300
 
 #
 ###################################################################################################

@@ -308,13 +308,53 @@ bool LayerManager::ConsumePendingMigration(ObjectGuid guid, uint32& outLayerId)
     return true;
 }
 
-void LayerManager::Configure(uint32 maxPlayers, uint32 minPlayers, uint32 cooldownSecs)
+void LayerManager::Configure(uint32 maxPlayers, uint32 minPlayers, uint32 cooldownSecs, uint32 mergeIntervalSecs)
 {
     _maxPlayersPerLayer = maxPlayers;
     _minPlayersPerLayer = minPlayers;
     _changeCooldownSecs = cooldownSecs;
-    TC_LOG_INFO("layers", "LayerManager: configured — max {} min {} cooldown {}s.",
-        maxPlayers, minPlayers, cooldownSecs);
+    _mergeIntervalSecs  = mergeIntervalSecs;
+    TC_LOG_INFO("layers", "LayerManager: configured — max {} min {} cooldown {}s merge-interval {}s.",
+        maxPlayers, minPlayers, cooldownSecs, mergeIntervalSecs);
+}
+
+bool LayerManager::GetNextMergeCandidate(LayerMergeCandidate& out) const
+{
+    std::shared_lock lock(_lock);
+    for (auto const& [mapId, layers] : _layers)
+    {
+        if (layers.size() < 2)
+            continue;
+
+        for (LayerData const& source : layers)
+        {
+            // Layer 0 is the map's permanent base layer (see the file header) — never removed,
+            // so it's never a merge source, only ever a merge target.
+            if (source.layerId == 0 || source.playerCount.load() > _minPlayersPerLayer)
+                continue;
+
+            LayerData const* target = nullptr;
+            for (LayerData const& candidate : layers)
+            {
+                if (candidate.layerId == source.layerId)
+                    continue;
+                if (candidate.playerCount.load() + source.playerCount.load() > _maxPlayersPerLayer)
+                    continue;
+                if (!target || candidate.layerId == 0 || candidate.playerCount.load() < target->playerCount.load())
+                    target = &candidate;
+            }
+
+            if (target)
+            {
+                out.mapId         = mapId;
+                out.sourceLayerId = source.layerId;
+                out.targetLayerId = target->layerId;
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 void LayerManager::MigratePlayerToLayer(Player* player, uint32 targetLayerId)

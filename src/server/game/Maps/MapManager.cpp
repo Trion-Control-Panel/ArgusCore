@@ -44,6 +44,7 @@ MapManager::MapManager()
 {
     i_gridCleanUpDelay = sWorld->getIntConfig(CONFIG_INTERVAL_GRIDCLEAN);
     i_timer.SetInterval(sWorld->getIntConfig(CONFIG_INTERVAL_MAPUPDATE));
+    i_layerMergeTimer.SetInterval(sLayerMgr->GetMergeIntervalSecs() * IN_MILLISECONDS);
 }
 
 MapManager::~MapManager() = default;
@@ -333,6 +334,8 @@ uint32 MapManager::FindInstanceIdForPlayer(uint32 mapId, Player const* player) c
 
 void MapManager::Update(uint32 diff)
 {
+    ProcessLayerMerges(diff);
+
     i_timer.Update(diff);
     if (!i_timer.Passed())
         return;
@@ -369,6 +372,47 @@ void MapManager::Update(uint32 diff)
     i_timer.SetCurrent(0);
 }
 
+void MapManager::ProcessLayerMerges(uint32 diff)
+{
+    i_layerMergeTimer.Update(diff);
+    if (!i_layerMergeTimer.Passed())
+        return;
+    i_layerMergeTimer.SetCurrent(0);
+
+    LayerMergeCandidate candidate;
+    if (!sLayerMgr->GetNextMergeCandidate(candidate))
+        return;
+
+    // i_maps is ordered by (mapId, instanceId, layerId); a map can have more than one live
+    // instanceId sharing the same mapId (faction-split base maps), and LayerManager's own
+    // bookkeeping doesn't track instanceId, so merge every instance's copy of the source layer.
+    for (auto const& [key, map] : i_maps)
+    {
+        if (key.mapId < candidate.mapId)
+            continue;
+        if (key.mapId > candidate.mapId)
+            break;
+        if (key.layerId != candidate.sourceLayerId)
+            continue;
+
+        TC_LOG_INFO("layers", "LayerManager: merging layer {} into layer {} on map {} (instance {}, {} players).",
+            candidate.sourceLayerId, candidate.targetLayerId, candidate.mapId, key.instanceId,
+            sLayerMgr->GetPlayerCount(candidate.mapId, candidate.sourceLayerId));
+
+        // Snapshot first, migrate after — MigratePlayerToLayer -> Player::TeleportTo removes the
+        // player from this same map's player list synchronously (oldmap->RemovePlayerFromMap),
+        // which would otherwise mutate the list DoOnPlayers is iterating.
+        std::vector<Player*> playersToMigrate;
+        map->DoOnPlayers([&playersToMigrate](Player* player)
+        {
+            playersToMigrate.push_back(player);
+        });
+
+        for (Player* player : playersToMigrate)
+            sLayerMgr->MigratePlayerToLayer(player, candidate.targetLayerId);
+    }
+}
+
 bool MapManager::DestroyMap(Map* map)
 {
     map->RemoveAllPlayers();
@@ -378,6 +422,11 @@ bool MapManager::DestroyMap(Map* map)
     sOutdoorPvPMgr->DestroyOutdoorPvPForMap(map);
     sBattlefieldMgr->DestroyBattlefieldsForMap(map);
     sScriptMgr->OnDestroyMap(map);
+
+    // Mirrors the sLayerMgr->RegisterLayer call in CreateWorldMap - only non-instanced world
+    // maps are layered (dungeons/raids/battlegrounds/garrisons use InstanceId, not layerId).
+    if (!map->Instanceable())
+        sLayerMgr->UnregisterLayer(map->GetId(), map->GetWorldLayer());
 
     map->UnloadAll();
 

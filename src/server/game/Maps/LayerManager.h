@@ -48,6 +48,18 @@ class Player;
 constexpr uint32 DEFAULT_LAYER_MAX_PLAYERS       = 400u;   // spawn new layer above this
 constexpr uint32 DEFAULT_LAYER_MIN_PLAYERS       = 80u;    // eligible for merge below this
 constexpr uint32 DEFAULT_LAYER_CHANGE_CD_SECS    = 1800u;  // 30-minute anti-farm cooldown
+constexpr uint32 DEFAULT_LAYER_MERGE_INTERVAL_SECS = 300u; // how often MapManager sweeps for merges
+
+// Result of a merge-eligibility scan: sourceLayerId should be folded into targetLayerId on
+// mapId. Pure bookkeeping — LayerManager has no Map/Player access, so it only decides *what*
+// should merge; the caller is responsible for actually moving players (see
+// LayerManager::GetNextMergeCandidate).
+struct LayerMergeCandidate
+{
+    uint32 mapId         = 0;
+    uint32 sourceLayerId = 0;
+    uint32 targetLayerId = 0;
+};
 
 class TC_GAME_API LayerManager
 {
@@ -111,6 +123,17 @@ public:
     // normal TeleportTo / HandleMoveWorldportAck machinery.
     void MigratePlayerToLayer(Player* player, uint32 targetLayerId);
 
+    // Merge-down: finds at most one layer, across all registered maps, whose population has
+    // dropped to or below GetMinPlayersPerLayer() with a same-map target layer that could
+    // absorb it without exceeding GetMaxPlayersPerLayer(). Layer 0 (the map's permanent base
+    // layer — see the file header) is never a merge source; a source layer prefers folding back
+    // into layer 0 when it has room, otherwise into whichever other layer is least populated.
+    // Returns false when nothing is eligible. Driven by MapManager's own periodic timer, which
+    // then walks the source layer's actual players (this class has no Map/Player access) and
+    // calls MigratePlayerToLayer on each — the same seamless-transfer primitive the group-join
+    // co-location path already uses, so this introduces no new migration mechanism.
+    bool GetNextMergeCandidate(LayerMergeCandidate& out) const;
+
     // Stages a pending migration that AssignLayer will consume exactly once.
     // Use MigratePlayerToLayer for the full migration flow; this is exposed
     // for the group-join path (Step 4) which sets it before TeleportTo.
@@ -121,11 +144,12 @@ public:
     uint32 GenerateLayerId();
 
     // Called by World::LoadConfigSettings on startup and config reload.
-    void Configure(uint32 maxPlayers, uint32 minPlayers, uint32 cooldownSecs);
+    void Configure(uint32 maxPlayers, uint32 minPlayers, uint32 cooldownSecs, uint32 mergeIntervalSecs);
 
     uint32 GetMaxPlayersPerLayer() const { return _maxPlayersPerLayer; }
     uint32 GetMinPlayersPerLayer() const { return _minPlayersPerLayer; }
     uint32 GetChangeCooldownSecs() const { return _changeCooldownSecs; }
+    uint32 GetMergeIntervalSecs() const { return _mergeIntervalSecs; }
 
 private:
     struct PlayerLayerState
@@ -173,6 +197,7 @@ private:
     uint32 _maxPlayersPerLayer = DEFAULT_LAYER_MAX_PLAYERS;
     uint32 _minPlayersPerLayer = DEFAULT_LAYER_MIN_PLAYERS;
     uint32 _changeCooldownSecs = DEFAULT_LAYER_CHANGE_CD_SECS;
+    uint32 _mergeIntervalSecs  = DEFAULT_LAYER_MERGE_INTERVAL_SECS;
 };
 
 #define sLayerMgr LayerManager::instance()
