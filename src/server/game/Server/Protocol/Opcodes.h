@@ -941,7 +941,14 @@ enum OpcodeServer : uint16
     SMSG_CANCEL_SCENE                                 = 0x2654,
     SMSG_CANCEL_SPELL_VISUAL                          = 0x2C44,
     SMSG_CANCEL_SPELL_VISUAL_KIT                      = 0x2C48,
-    SMSG_CAPTURE_POINT_REMOVED                        = 0x9999,
+    SMSG_CAPTURE_POINT_REMOVED                        = 0xBADD, // real value unknown (absent from all 4 reference cores) - was
+                                                                  // colliding with SMSG_SPELL_VISUAL_LOAD_SCREEN's own 0x9999
+                                                                  // placeholder; harmless while this packet is never actually
+                                                                  // constructed anywhere, but a real collision waiting to happen
+                                                                  // the moment it is. Moved to the UNKNOWN_OPCODE sentinel
+                                                                  // (matching SMSG_ITEM_UPGRADE_RESULT's convention) instead of
+                                                                  // guessing a distinct placeholder that could just as easily
+                                                                  // collide with something else undiscovered.
     SMSG_CAST_FAILED                                  = 0x2C56,
     SMSG_CATEGORY_COOLDOWN                            = 0x2C16,
     SMSG_CHALLENGE_MODE_ALL_MAP_STATS                 = 0x2622,
@@ -1667,7 +1674,10 @@ enum OpcodeServer : uint16
     SMSG_SPELL_PERIODIC_AURA_LOG                      = 0x2C1B,
     SMSG_SPELL_PREPARE                                = 0x2C38,
     SMSG_SPELL_START                                  = 0x2C3A,
-    SMSG_SPELL_VISUAL_LOAD_SCREEN                     = 0x9999, // TBD
+    SMSG_SPELL_VISUAL_LOAD_SCREEN                     = 0x9999, // TBD - also absent from all 4 reference cores, so this value
+                                                                  // is unverified too; left as-is (not moved to UNKNOWN_OPCODE)
+                                                                  // because it's actively sent from SpellEffects.cpp and doing
+                                                                  // that would silently disable a currently-working feature.
     SMSG_SPIRIT_HEALER_CONFIRM                        = 0x2754,
     SMSG_STAND_STATE_UPDATE                           = 0x275B,
     SMSG_START_ELAPSED_TIMER                          = 0x261A,
