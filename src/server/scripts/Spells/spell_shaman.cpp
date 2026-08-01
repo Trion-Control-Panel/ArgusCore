@@ -81,7 +81,6 @@ enum ShamanSpells
     // "Earthen Wall Totem" identity instead.
     NPC_SHAMAN_EARTHEN_SHIELD_TOTEM              = 100943,
     SPELL_SHAMAN_ENHANCED_ELEMENTS              = 77223,
-    SPELL_SHAMAN_EXHAUSTION                     = 57723,
     SPELL_SHAMAN_FERAL_LUNGE_DAMAGE             = 215802,
     SPELL_SHAMAN_FIRE_ELEMENTAL_SUMMON          = 188592,
     SPELL_SHAMAN_FLAME_SHOCK                    = 188389,
@@ -95,8 +94,6 @@ enum ShamanSpells
     SPELL_SHAMAN_GATHERING_STORMS               = 198299,
     SPELL_SHAMAN_GATHERING_STORMS_BUFF          = 198300,
     SPELL_SHAMAN_GHOST_WOLF                     = 2645,
-    SPELL_SHAMAN_HEROISM                        = 32182,
-    SPELL_HUNTER_INSANITY                       = 95809,
     SPELL_SHAMAN_HAILSTORM_BUFF                 = 334196,
     SPELL_SHAMAN_HAILSTORM_TALENT               = 334195,
     SPELL_SHAMAN_HEALING_RAIN_VISUAL            = 147490,
@@ -121,7 +118,6 @@ enum ShamanSpells
     SPELL_SHAMAN_LIGHTNING_BOLT_OVERLOAD        = 45284,
     SPELL_SHAMAN_LIGHTNING_BOLT_OVERLOAD_ENERGIZE = 214816,
     SPELL_SHAMAN_LIQUID_MAGMA_HIT               = 192231,
-    SPELL_MAGE_TEMPORAL_DISPLACEMENT            = 80354,
     SPELL_SHAMAN_MAELSTROM_CONTROLLER           = 343725,
     SPELL_SHAMAN_MAELSTROM_WEAPON_MOD_AURA      = 187881,
     SPELL_SHAMAN_MAELSTROM_WEAPON_VISIBLE_AURA  = 344179,
@@ -132,14 +128,12 @@ enum ShamanSpells
     SPELL_SHAMAN_NATURES_GUARDIAN_COOLDOWN      = 445698,
     SPELL_SHAMAN_OVERFLOWING_MAELSTROM_AURA     = 384669,
     SPELL_SHAMAN_OVERFLOWING_MAELSTROM_TALENT   = 384149,
-    SPELL_PET_NETHERWINDS_FATIGUED               = 160455,
     SPELL_SHAMAN_PATH_OF_FLAMES_SPREAD          = 210621,
     SPELL_SHAMAN_PATH_OF_FLAMES_TALENT          = 201909,
     SPELL_SHAMAN_POWER_SURGE                    = 40466,
     SPELL_SHAMAN_RESTORATIVE_MISTS              = 114083,
     SPELL_SHAMAN_RESTORATIVE_MISTS_INITIAL      = 294020,
     SPELL_SHAMAN_RIPTIDE                        = 61295,
-    SPELL_SHAMAN_SATED                          = 57724,
     SPELL_SHAMAN_SPIRIT_LINK_HEAL                = 98021,
     SPELL_SHAMAN_SPIRIT_WOLF_TALENT             = 260878,
     SPELL_SHAMAN_SPIRIT_WOLF_PERIODIC           = 260882,
@@ -408,46 +402,14 @@ class spell_sha_ashen_catalyst : public AuraScript
 };
 
 // 2825 - Bloodlust, 32182 - Heroism
-// Applies this cast's own sister-exhaustion debuff, and excludes anyone already under any of the
-// four (Bloodlust's Sated, Heroism's Exhaustion, Hunter's Insanity, Mage's Temporal Displacement,
-// and the Netherwinds spirit beast's Fatigued) from benefiting again.
-class spell_sha_bloodlust : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_SHAMAN_SATED, SPELL_SHAMAN_EXHAUSTION, SPELL_HUNTER_INSANITY,
-            SPELL_MAGE_TEMPORAL_DISPLACEMENT, SPELL_PET_NETHERWINDS_FATIGUED });
-    }
-
-    void RemoveInvalidTargets(std::list<WorldObject*>& targets) const
-    {
-        targets.remove_if(Trinity::UnitAuraCheck(true, SPELL_SHAMAN_SATED));
-        targets.remove_if(Trinity::UnitAuraCheck(true, SPELL_SHAMAN_EXHAUSTION));
-        targets.remove_if(Trinity::UnitAuraCheck(true, SPELL_HUNTER_INSANITY));
-        targets.remove_if(Trinity::UnitAuraCheck(true, SPELL_MAGE_TEMPORAL_DISPLACEMENT));
-        targets.remove_if(Trinity::UnitAuraCheck(true, SPELL_PET_NETHERWINDS_FATIGUED));
-    }
-
-    void ApplyDebuff() const
-    {
-        Unit* target = GetHitUnit();
-        if (!target)
-            return;
-
-        uint32 debuffId = GetSpellInfo()->Id == SPELL_SHAMAN_HEROISM ? SPELL_SHAMAN_EXHAUSTION : SPELL_SHAMAN_SATED;
-        target->CastSpell(target, debuffId, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
-    }
-
-    void Register() override
-    {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_sha_bloodlust::RemoveInvalidTargets, EFFECT_0, TARGET_UNIT_CASTER_AREA_RAID);
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_sha_bloodlust::RemoveInvalidTargets, EFFECT_1, TARGET_UNIT_CASTER_AREA_RAID);
-        AfterHit += SpellHitFn(spell_sha_bloodlust::ApplyDebuff);
-    }
-};
+// Removed: this class duplicated spell_gen_bloodlust (spell_generic.cpp) and both were
+// registered under the same "spell_sha_bloodlust"/"spell_sha_heroism" names, crashing
+// ScriptMgr::AddScript with a duplicate-registration abort. spell_gen_bloodlust is the one kept -
+// it's reused across specs (shaman Bloodlust/Heroism, mage Time Warp, the Drums item) via a
+// parameterized exhaustion-spell-id constructor, where this class was shaman-only/hardcoded. Its
+// one real advantage (excluding Hunter's Insanity and the Netherwinds spirit beast's Fatigued
+// debuff, which spell_gen_bloodlust's filter was missing) was folded into spell_gen_bloodlust
+// instead of kept here.
 
 // 196884 - Feral Lunge
 class spell_sha_feral_lunge : public SpellScript
@@ -3300,8 +3262,6 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_artifact_gathering_storms);
     RegisterSpellScript(spell_sha_ascendance_restoration);
     RegisterSpellScript(spell_sha_ashen_catalyst);
-    RegisterSpellScript(spell_sha_bloodlust);
-    RegisterSpellScriptWithArgs(spell_sha_bloodlust, "spell_sha_heroism");
     RegisterSpellScript(spell_sha_feral_lunge);
     RegisterSpellScript(spell_sha_spirit_link);
     RegisterSpellScript(spell_sha_chain_lightning_crash_lightning);

@@ -4942,6 +4942,8 @@ enum BloodlustExhaustionSpell : uint32
     SPELL_SHAMAN_SATED               = 57724, // Bloodlust
     SPELL_SHAMAN_EXHAUSTION          = 57723, // Heroism, Drums
     SPELL_MAGE_TEMPORAL_DISPLACEMENT = 80354,
+    SPELL_HUNTER_INSANITY            = 95809,
+    SPELL_PET_NETHERWINDS_FATIGUED   = 160455,
 };
 
 // 2825 - Bloodlust
@@ -4952,6 +4954,14 @@ enum BloodlustExhaustionSpell : uint32
 // 146555 - Drums of Rage
 // 178207 - Drums of Fury
 // 230935 - Drums of the Mountain
+// Also covers Bloodlust/Heroism themselves - a separate, shaman-only spell_sha_bloodlust class in
+// spell_shaman.cpp used to duplicate this exact mechanic and was registered under the same
+// "spell_sha_bloodlust"/"spell_sha_heroism" names as this class, crashing ScriptMgr::AddScript
+// with a duplicate-registration abort (same class of bug as the mage Supernova one fixed
+// earlier). Removed that duplicate rather than this one, since this class is the one actually
+// reused across specs (shaman, mage Time Warp, and the Drums item below); folded in the one real
+// improvement the removed version had - it also excluded Hunter's Insanity and the Netherwinds
+// spirit beast's Fatigued debuff, which this class's target filter was missing.
 class spell_gen_bloodlust : public SpellScript
 {
 public:
@@ -4964,6 +4974,8 @@ public:
             SPELL_SHAMAN_SATED,
             SPELL_SHAMAN_EXHAUSTION,
             SPELL_MAGE_TEMPORAL_DISPLACEMENT,
+            SPELL_HUNTER_INSANITY,
+            SPELL_PET_NETHERWINDS_FATIGUED,
         });
     }
 
@@ -4977,7 +4989,9 @@ public:
 
             return unit->HasAura(SPELL_SHAMAN_SATED)
                 || unit->HasAura(SPELL_SHAMAN_EXHAUSTION)
-                || unit->HasAura(SPELL_MAGE_TEMPORAL_DISPLACEMENT);
+                || unit->HasAura(SPELL_MAGE_TEMPORAL_DISPLACEMENT)
+                || unit->HasAura(SPELL_HUNTER_INSANITY)
+                || unit->HasAura(SPELL_PET_NETHERWINDS_FATIGUED);
         });
     }
 

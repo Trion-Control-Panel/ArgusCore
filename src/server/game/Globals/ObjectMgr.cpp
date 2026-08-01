@@ -7177,7 +7177,7 @@ void ObjectMgr::LoadAreaTriggerTeleports()
 
         ++count;
 
-        uint32 Trigger_ID = fields[0].GetUInt32();
+        int32  Trigger_ID = fields[0].GetInt32();
         uint32 PortLocID  = fields[1].GetUInt32();
 
         WorldSafeLocsEntry const* portLoc = sWorldSafeLocsStore.LookupEntry(PortLocID);
@@ -7195,11 +7195,18 @@ void ObjectMgr::LoadAreaTriggerTeleports()
         at.target_Z           = portLoc->Loc.Z;
         at.target_Orientation = (portLoc->Facing * M_PI) / 180; // Orientation is initially in degrees
 
-        AreaTriggerEntry const* atEntry = sAreaTriggerStore.LookupEntry(Trigger_ID);
-        if (!atEntry)
+        // A negative id has no real client AreaTrigger.dbc volume backing it - it exists purely
+        // as a teleport-destination lookup key (e.g. an instance entrance the client can't yet
+        // walk up to, still queueable through the dungeon finder). Only positive ids need to
+        // resolve against the client's own trigger data.
+        if (Trigger_ID > 0)
         {
-            TC_LOG_ERROR("sql.sql", "Area Trigger (ID: {}) does not exist in AreaTrigger.dbc.", Trigger_ID);
-            continue;
+            AreaTriggerEntry const* atEntry = sAreaTriggerStore.LookupEntry(uint32(Trigger_ID));
+            if (!atEntry)
+            {
+                TC_LOG_ERROR("sql.sql", "Area Trigger (ID: {}) does not exist in AreaTrigger.dbc.", Trigger_ID);
+                continue;
+            }
         }
 
         _areaTriggerStore[Trigger_ID] = at;
@@ -7369,7 +7376,12 @@ AreaTriggerStruct const* ObjectMgr::GetMapEntranceTrigger(uint32 Map) const
     {
         if (itr->second.target_mapId == Map)
         {
-            AreaTriggerEntry const* atEntry = sAreaTriggerStore.LookupEntry(itr->first);
+            // Negative ids are synthetic teleport-only keys with no client AreaTrigger.dbc
+            // entry to re-validate (see LoadAreaTriggerTeleports) - only positive ids need it.
+            if (itr->first <= 0)
+                return &itr->second;
+
+            AreaTriggerEntry const* atEntry = sAreaTriggerStore.LookupEntry(uint32(itr->first));
             if (atEntry)
                 return &itr->second;
         }

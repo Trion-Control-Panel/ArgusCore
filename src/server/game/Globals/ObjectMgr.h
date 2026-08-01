@@ -955,7 +955,10 @@ class TC_GAME_API ObjectMgr
         using QuestContainer = std::unordered_map<uint32, Trinity::unique_trackable_ptr<Quest>>;
         using QuestObjectivesByIdContainer = std::unordered_map<uint32 /*questObjectiveId*/, QuestObjective const*>;
 
-        using AreaTriggerContainer = std::unordered_map<uint32, AreaTriggerStruct>;
+        // Signed: a negative key is a synthetic id for an areatrigger_teleport row with no
+        // matching client AreaTrigger.dbc entry (used for instance entrances that have no
+        // real client-side trigger volume yet). See LoadAreaTriggerTeleports/GetMapEntranceTrigger.
+        using AreaTriggerContainer = std::unordered_map<int32, AreaTriggerStruct>;
 
         using AreaTriggerScriptContainer = std::unordered_map<uint32, uint32>;
 
