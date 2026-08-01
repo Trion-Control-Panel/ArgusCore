@@ -41,9 +41,6 @@ enum DruidSpells
 {
     SPELL_DRUID_ABUNDANCE                      = 207383,
     SPELL_DRUID_ABUNDANCE_EFFECT               = 207640,
-    SPELL_DRUID_ASTRAL_COMMUNION_ENERGIZE      = 450599,
-    SPELL_DRUID_ASTRAL_COMMUNION_TALENT        = 450598,
-    SPELL_DRUID_ASTRAL_SMOLDER_DAMAGE          = 394061,
     SPELL_DRUID_BALANCE_T10_BONUS              = 70718,
     SPELL_DRUID_BALANCE_T10_BONUS_PROC         = 70721,
     SPELL_DRUID_BEAR_FORM                      = 5487,
@@ -66,7 +63,6 @@ enum DruidSpells
     SPELL_DRUID_CULTIVATION                    = 200390,
     SPELL_DRUID_CULTIVATION_HEAL               = 200389,
     SPELL_DRUID_CURIOUS_BRAMBLEPATCH           = 330670,
-    SPELL_DRUID_DREAMSTATE                     = 450346,
     SPELL_DRUID_EARTHWARDEN_AURA               = 203975,
     SPELL_DRUID_ECLIPSE_DUMMY                  = 79577,
     SPELL_DRUID_ECLIPSE_LUNAR_AURA             = 48518,
@@ -78,8 +74,6 @@ enum DruidSpells
     SPELL_DRUID_ECLIPSE_VISUAL_SOLAR           = 93430,
     SPELL_DRUID_EFFLORESCENCE_AURA             = 81262,
     SPELL_DRUID_EFFLORESCENCE_HEAL             = 81269,
-    SPELL_DRUID_EMBRACE_OF_THE_DREAM_EFFECT    = 392146,
-    SPELL_DRUID_EMBRACE_OF_THE_DREAM_HEAL      = 392147,
     SPELL_DRUID_ENTANGLING_ROOTS               = 339,
     SPELL_DRUID_EXHILARATE                     = 28742,
     SPELL_DRUID_FORM_AQUATIC_PASSIVE           = 276012,
@@ -126,10 +120,8 @@ enum DruidSpells
     SPELL_DRUID_MOONFIRE_CAT                   = 155625,
     SPELL_DRUID_MOONFIRE_DAMAGE                = 164812,
     SPELL_DRUID_MOONKIN_FORM                   = 24858,
-    SPELL_DRUID_NATURES_GRACE_TALENT           = 450347,
     SPELL_DRUID_NEW_MOON                       = 274281,
     SPELL_DRUID_NEW_MOON_OVERRIDE              = 274295,
-    SPELL_DRUID_POWER_OF_THE_ARCHDRUID         = 392302,
     SPELL_DRUID_PREDATORY_SWIFTNESS            = 16974,
     SPELL_DRUID_PREDATORY_SWIFTNESS_AURA       = 69369,
     SPELL_DRUID_PROWL                          = 5215,
@@ -202,69 +194,14 @@ class spell_dru_abundance : public AuraScript
     }
 };
 
-// 102560 - Incarnation: Chosen of Elune
-// 194223 - Celestial Alignment
-// 383410 - Celestial Alignment
-// 390414 - Incarnation: Chosen of Elune
-class spell_dru_astral_communion_celestial_alignment : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DRUID_ASTRAL_COMMUNION_TALENT, SPELL_DRUID_ASTRAL_COMMUNION_ENERGIZE });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->HasAura(SPELL_DRUID_ASTRAL_COMMUNION_TALENT);
-    }
-
-    void Energize() const
-    {
-        GetCaster()->CastSpell(GetCaster(), SPELL_DRUID_ASTRAL_COMMUNION_ENERGIZE, CastSpellExtraArgs()
-            .SetTriggeringSpell(GetSpell())
-            .SetTriggerFlags(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR));
-    }
-
-    void Register() override
-    {
-        AfterCast += SpellCastFn(spell_dru_astral_communion_celestial_alignment::Energize);
-    }
-};
-
-// 394058 - Astral Smolder
-class spell_dru_astral_smolder : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellEffect({ { SPELL_DRUID_ASTRAL_SMOLDER_DAMAGE, EFFECT_0 } })
-            && sSpellMgr->AssertSpellInfo(SPELL_DRUID_ASTRAL_SMOLDER_DAMAGE, DIFFICULTY_NONE)->GetMaxTicks();
-    }
-
-    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo) const
-    {
-        return eventInfo.GetProcTarget() != nullptr;
-    }
-
-    void HandleProc(AuraEffect const* aurEff, ProcEventInfo const& eventInfo)
-    {
-        PreventDefaultAction();
-
-        SpellInfo const* astralSmolderDmg = sSpellMgr->AssertSpellInfo(SPELL_DRUID_ASTRAL_SMOLDER_DAMAGE, GetCastDifficulty());
-        int32 pct = aurEff->GetAmount();
-
-        int32 amount = int32(CalculatePct(eventInfo.GetDamageInfo()->GetDamage(), pct) / astralSmolderDmg->GetMaxTicks());
-
-        CastSpellExtraArgs args(aurEff);
-        args.AddSpellMod(SPELLVALUE_BASE_POINT0, amount);
-        GetTarget()->CastSpell(eventInfo.GetProcTarget(), SPELL_DRUID_ASTRAL_SMOLDER_DAMAGE, args);
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dru_astral_smolder::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_dru_astral_smolder::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
+// Confirmed post-Legion forward drift (War Within-era) - the entire mechanic is gated behind
+// SPELL_DRUID_ASTRAL_COMMUNION_TALENT (450598), a modern talent-tree node that doesn't exist in
+// Legion's talent system, and doesn't appear in any of the 4 reference cores. Removed; the
+// genuine Legion Celestial Alignment behavior lives in spell_dru_celestial_alignment below
+// (rebound to the real id, 194223, in the accompanying SQL fix).
+//
+// spell_dru_astral_smolder removed alongside it - "Astral Smolder" (394058/394061) is a
+// Dragonflight-era Balance talent with no Legion equivalent, 0/4 reference corroboration.
 
 class spell_dru_base_transformer : public SpellScript
 {
@@ -721,8 +658,6 @@ class spell_dru_eclipse_dummy : public AuraScript
             SPELL_DRUID_ECLIPSE_LUNAR_SPELL_CNT,
             SPELL_DRUID_ECLIPSE_SOLAR_AURA,
             SPELL_DRUID_ECLIPSE_LUNAR_AURA,
-            SPELL_DRUID_ASTRAL_COMMUNION_TALENT,
-            SPELL_DRUID_ASTRAL_COMMUNION_ENERGIZE
         });
     }
 
@@ -779,9 +714,6 @@ private:
             {
                 // cast eclipse
                 target->CastSpell(target, eclipseAuraSpellId, TRIGGERED_FULL_MASK);
-
-                if (target->HasAura(SPELL_DRUID_ASTRAL_COMMUNION_TALENT))
-                    target->CastSpell(target, SPELL_DRUID_ASTRAL_COMMUNION_ENERGIZE, true);
 
                 // Remove stacks from other one as well
                 // reset remaining power on other spellId
@@ -884,71 +816,9 @@ class spell_dru_efflorescence_heal : public SpellScript
     }
 };
 
-// 392124 - Embrace of the Dream
-class spell_dru_embrace_of_the_dream : public AuraScript
-{
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellInfo ({ SPELL_DRUID_EMBRACE_OF_THE_DREAM_EFFECT })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_2 } });
-    }
-
-    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& /*eventInfo*/) const
-    {
-        return roll_chance_i(GetEffectInfo(EFFECT_2).CalcValue(GetCaster()));
-    }
-
-    void HandleProc(AuraEffect const* aurEff, ProcEventInfo const& eventInfo) const
-    {
-        GetTarget()->CastSpell(GetTarget(), SPELL_DRUID_EMBRACE_OF_THE_DREAM_EFFECT,
-            CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR)
-            .SetTriggeringAura(aurEff)
-            .SetTriggeringSpell(eventInfo.GetProcSpell()));
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dru_embrace_of_the_dream::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_dru_embrace_of_the_dream::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
-
-// 392146 - Embrace of the Dream (Selector)
-class spell_dru_embrace_of_the_dream_effect : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo
-        ({
-            SPELL_DRUID_EMBRACE_OF_THE_DREAM_HEAL,
-            SPELL_DRUID_REGROWTH,
-            SPELL_DRUID_REJUVENATION,
-            SPELL_DRUID_REJUVENATION_GERMINATION
-        });
-    }
-
-    void FilterTargets(std::list<WorldObject*>& targets) const
-    {
-        targets.remove_if([&](WorldObject const* target)
-        {
-            Unit const* unitTarget = target->ToUnit();
-            return !unitTarget || !unitTarget->GetAuraEffect(SPELL_AURA_PERIODIC_HEAL, SPELLFAMILY_DRUID, flag128(0x50, 0, 0, 0), GetCaster()->GetGUID());
-        });
-    }
-
-    void HandleEffect(SpellEffIndex /*effIndex*/) const
-    {
-        GetCaster()->CastSpell(GetHitUnit(), SPELL_DRUID_EMBRACE_OF_THE_DREAM_HEAL,
-            CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR)
-            .SetTriggeringSpell(GetSpell()));
-    }
-
-    void Register() override
-    {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_dru_embrace_of_the_dream_effect::FilterTargets, EFFECT_0, TARGET_UNIT_DEST_AREA_ALLY);
-        OnEffectHitTarget += SpellEffectFn(spell_dru_embrace_of_the_dream_effect::HandleEffect, EFFECT_0, SPELL_EFFECT_DUMMY);
-    }
-};
+// Confirmed post-Legion forward drift - "Embrace of the Dream" (392124/392146/392147) is a
+// Dragonflight-era Restoration talent, 0/4 reference corroboration, no Legion equivalent.
+// Removed (both the proc aura and its effect-selector companion).
 
 // 339 - Entangling Roots
 // 102359 - Mass Entanglement
@@ -1545,43 +1415,8 @@ class spell_dru_lunar_inspiration : public AuraScript
     }
 };
 
-// 392315 - Luxuriant Soil
-class spell_dru_luxuriant_soil : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DRUID_REJUVENATION });
-    }
-
-    static bool CheckProc(AuraScript const&, AuraEffect const* aurEff, ProcEventInfo const& /*eventInfo*/)
-    {
-        return roll_chance_i(aurEff->GetAmount());
-    }
-
-    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo) const
-    {
-        Unit* rejuvCaster = GetTarget();
-
-        // let's use the ProcSpell's max. range.
-        float spellRange = eventInfo.GetSpellInfo()->GetMaxRange();
-
-        std::vector<Unit*> targetList;
-        Trinity::WorldObjectSpellAreaTargetCheck check(spellRange, rejuvCaster, rejuvCaster, rejuvCaster, eventInfo.GetSpellInfo(), TARGET_CHECK_ALLY, nullptr, TARGET_OBJECT_TYPE_UNIT);
-        Trinity::UnitListSearcher searcher(rejuvCaster, targetList, check);
-        Cell::VisitAllObjects(rejuvCaster, searcher, spellRange);
-
-        if (targetList.empty())
-            return;
-
-        rejuvCaster->CastSpell(Trinity::Containers::SelectRandomContainerElement(targetList), SPELL_DRUID_REJUVENATION, TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_POWER_COST | TRIGGERED_IGNORE_CAST_IN_PROGRESS);
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dru_luxuriant_soil::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_dru_luxuriant_soil::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
+// Confirmed post-Legion forward drift - "Luxuriant Soil" (392315) is a Dragonflight-era
+// Restoration talent, 0/4 reference corroboration, no Legion equivalent. Removed.
 
 // 33917 - Mangle
 class spell_dru_mangle : public SpellScript
@@ -1628,60 +1463,11 @@ class spell_dru_moonfire : public SpellScript
     }
 };
 
-// 450347 - Nature's Grace
-class spell_dru_natures_grace : public AuraScript
-{
-public:
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellInfo({ SPELL_DRUID_NATURES_GRACE_TALENT, SPELL_DRUID_DREAMSTATE })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_2 } });
-    }
-
-    static void Trigger(Unit* caster, AuraEffect const* naturesGraceEffect)
-    {
-        caster->CastSpell(caster, SPELL_DRUID_DREAMSTATE, CastSpellExtraArgsInit{
-            .SpellValueOverrides = { { SPELLVALUE_AURA_STACK, naturesGraceEffect->GetAmount() } }
-        });
-
-    }
-
-    void OnOwnerInCombat(bool isNowInCombat) const
-    {
-        if (isNowInCombat)
-            Trigger(GetTarget(), GetEffect(EFFECT_2));
-    }
-
-    void Register() override
-    {
-        OnEnterLeaveCombat += AuraEnterLeaveCombatFn(spell_dru_natures_grace::OnOwnerInCombat);
-    }
-};
-
-// 48517 Eclipse (Solar) + 48518 Eclipse (Lunar)
-class spell_dru_natures_grace_eclipse : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DRUID_DREAMSTATE })
-            && ValidateSpellEffect({ { SPELL_DRUID_NATURES_GRACE_TALENT, EFFECT_2 } });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->HasAuraEffect(SPELL_DRUID_NATURES_GRACE_TALENT, EFFECT_2);
-    }
-
-    void HandleRemoved(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/) const
-    {
-        spell_dru_natures_grace::Trigger(GetTarget(), GetTarget()->GetAuraEffect(SPELL_DRUID_NATURES_GRACE_TALENT, EFFECT_2));
-    }
-
-    void Register() override
-    {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_dru_natures_grace_eclipse::HandleRemoved, EFFECT_0, SPELL_AURA_ADD_PCT_MODIFIER, AURA_EFFECT_HANDLE_REAL);
-    }
-};
+// Confirmed post-Legion forward drift - this "Nature's Grace" (450347, triggering
+// SPELL_DRUID_DREAMSTATE = 450346) is the War Within Balance/Restoration haste-stacking talent,
+// not the unrelated Vanilla-era "Nature's Grace" of the same name (a passive crit->cast-time
+// mechanic). 0/4 reference corroboration, no Legion equivalent. Removed (both the trigger and
+// its Eclipse-removal companion).
 
 // 274283 - Full Moon
 // 274282 - Half Moon
@@ -1773,53 +1559,9 @@ class spell_dru_primal_fury : public AuraScript
     }
 };
 
-// 392303 - Power of the Archdruid
-class spell_dru_power_of_the_archdruid : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellEffect({ { SPELL_DRUID_POWER_OF_THE_ARCHDRUID, EFFECT_0 } });
-    }
-
-    static bool CheckProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo)
-    {
-        return eventInfo.GetActor()->HasAuraEffect(SPELL_DRUID_POWER_OF_THE_ARCHDRUID, EFFECT_0);
-    }
-
-    static void HandleProc(AuraScript const&, AuraEffect const* aurEff, ProcEventInfo const& eventInfo)
-    {
-        Unit* druid = eventInfo.GetActor();
-        Unit const* procTarget = eventInfo.GetActionTarget();
-
-        // range is EFFECT_0's BasePoints.
-        float spellRange = aurEff->GetAmount();
-
-        std::vector<Unit*> targetList;
-        Trinity::WorldObjectSpellAreaTargetCheck checker(spellRange, procTarget, druid, druid, eventInfo.GetSpellInfo(), TARGET_CHECK_ALLY, nullptr, TARGET_OBJECT_TYPE_UNIT);
-        Trinity::UnitListSearcher searcher(procTarget, targetList, checker);
-        Cell::VisitAllObjects(procTarget, searcher, spellRange);
-        std::erase(targetList, procTarget);
-
-        if (targetList.empty())
-            return;
-
-        AuraEffect const* powerOfTheArchdruidEffect = druid->GetAuraEffect(SPELL_DRUID_POWER_OF_THE_ARCHDRUID, EFFECT_0);
-
-        // max. targets is SPELL_DRUID_POWER_OF_THE_ARCHDRUID's EFFECT_0 BasePoints.
-        int32 maxTargets = powerOfTheArchdruidEffect->GetAmount();
-
-        Trinity::Containers::RandomResize(targetList, maxTargets);
-
-        for (Unit* chosenTarget : targetList)
-            druid->CastSpell(chosenTarget, eventInfo.GetProcSpell()->GetSpellInfo()->Id, aurEff);
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dru_power_of_the_archdruid::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_dru_power_of_the_archdruid::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
+// Confirmed post-Legion forward drift - "Power of the Archdruid" (392302/392303) is a
+// Dragonflight-era Restoration talent, 0/4 reference corroboration, no Legion equivalent.
+// Removed.
 
 // 22570 - Maim
 class spell_dru_maim : public SpellScript
@@ -2952,8 +2694,6 @@ class spell_dru_yseras_gift_group_heal : public SpellScript
 void AddSC_druid_spell_scripts()
 {
     RegisterSpellScript(spell_dru_abundance);
-    RegisterSpellScript(spell_dru_astral_communion_celestial_alignment);
-    RegisterSpellScript(spell_dru_astral_smolder);
     RegisterSpellScript(spell_dru_barkskin);
     RegisterSpellScript(spell_dru_berserk);
     RegisterSpellScript(spell_dru_brambles);
@@ -2974,8 +2714,6 @@ void AddSC_druid_spell_scripts()
     RegisterSpellScript(spell_dru_efflorescence);
     RegisterSpellScript(spell_dru_efflorescence_dummy);
     RegisterSpellScript(spell_dru_efflorescence_heal);
-    RegisterSpellScript(spell_dru_embrace_of_the_dream);
-    RegisterSpellScript(spell_dru_embrace_of_the_dream_effect);
     RegisterSpellAndAuraScriptPair(spell_dru_entangling_roots, spell_dru_entangling_roots_aura);
     RegisterSpellScript(spell_dru_ferocious_bite);
     RegisterSpellScript(spell_dru_forms_trinket);
@@ -2996,18 +2734,14 @@ void AddSC_druid_spell_scripts()
     RegisterSpellScript(spell_dru_lifebloom);
     RegisterAreaTriggerAI(at_dru_lunar_beam);
     RegisterSpellScript(spell_dru_lunar_inspiration);
-    RegisterSpellScript(spell_dru_luxuriant_soil);
     RegisterSpellScript(spell_dru_mangle);
     RegisterSpellScript(spell_dru_moonfire);
-    RegisterSpellScript(spell_dru_natures_grace);
-    RegisterSpellScript(spell_dru_natures_grace_eclipse);
     RegisterSpellScriptWithArgs(spell_dru_new_moon, "spell_dru_full_moon", Optional<DruidSpells>(), Optional<DruidSpells>(SPELL_DRUID_HALF_MOON_OVERRIDE));
     RegisterSpellScriptWithArgs(spell_dru_new_moon, "spell_dru_half_moon", Optional<DruidSpells>(SPELL_DRUID_HALF_MOON_OVERRIDE), Optional<DruidSpells>(SPELL_DRUID_NEW_MOON_OVERRIDE));
     RegisterSpellScriptWithArgs(spell_dru_new_moon, "spell_dru_new_moon", Optional<DruidSpells>(SPELL_DRUID_NEW_MOON_OVERRIDE), Optional<DruidSpells>());
     RegisterSpellScript(spell_dru_omen_of_clarity);
     RegisterSpellScript(spell_dru_omen_of_clarity_restoration);
     RegisterSpellScript(spell_dru_primal_fury);
-    RegisterSpellScript(spell_dru_power_of_the_archdruid);
     RegisterSpellScript(spell_dru_maim);
     RegisterSpellScriptWithArgs(spell_dru_predatory_swiftness, "spell_dru_predatory_swiftness_maim");
     RegisterSpellScriptWithArgs(spell_dru_predatory_swiftness, "spell_dru_predatory_swiftness_ferocious_bite");
