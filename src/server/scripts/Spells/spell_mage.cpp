@@ -1501,8 +1501,13 @@ class spell_mage_ice_barrier : public AuraScript
     }
 };
 
-// 157997 - Ice Nova, 157980 - Supernova
-// Shared script: doubles damage against the unit that was the explicit cast target.
+// 157997 - Ice Nova
+// Doubles damage against the unit that was the explicit cast target. (Supernova/157980
+// has its own dedicated spell_mage_supernova script below, reading its bonus from the
+// spell's own effect data instead of a hardcoded multiplier - this class used to also be
+// registered under "spell_mage_supernova", which crashed ScriptMgr::AddScript with a
+// duplicate-registration abort against that other script; removed the duplicate rather
+// than the more idiomatic one.)
 class spell_mage_nova_talent : public SpellScript
 {
     void HandleOnCast()
@@ -2641,7 +2646,6 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_ice_barrier);
     RegisterSpellScript(spell_mage_ice_block);
     RegisterSpellScriptWithArgs(spell_mage_nova_talent, "spell_mage_ice_nova");
-    RegisterSpellScriptWithArgs(spell_mage_nova_talent, "spell_mage_supernova");
     RegisterSpellScript(spell_mage_chilled_to_the_core);
     RegisterSpellScript(spell_mage_ice_lance);
     RegisterSpellScript(spell_mage_frost_bomb_damage);
