@@ -64,6 +64,9 @@ enum WarriorSpells
     SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP              = 159708,
     SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP_BUFF         = 133278,
     SPELL_WARRIOR_HAMSTRING                         = 1715,
+    // Long-lived, stable id (used unchanged from Cataclysm onward per WebSearch/Wowhead patch
+    // history) - corroborated by both DestinyCore and AshamaneCore's own SPELL_WARRIOR_HEROIC_LEAP_DAMAGE.
+    SPELL_WARRIOR_HEROIC_LEAP_DAMAGE                = 52174,
     SPELL_WARRIOR_HEROIC_LEAP_JUMP                  = 178368,
     SPELL_WARRIOR_IGNORE_PAIN                       = 190456,
     SPELL_WARRIOR_IMPROVED_WHIRLWIND                = 12950,
@@ -990,6 +993,16 @@ class spell_warr_heroic_leap : public SpellScript
 };
 
 // Heroic Leap (triggered by Heroic Leap (6544)) - 178368
+// Landing damage (52174) is meant to be data-driven: Spell::EffectJumpDest (SpellEffects.cpp)
+// only runs at SPELL_EFFECT_HANDLE_LAUNCH and hands the actual arrival cast off to
+// MotionMaster::MoveJump's JumpArrivalCastArgs, reading effectInfo->TriggerSpell straight off
+// this spell's own JUMP_DEST effect - no script involvement needed if that field is populated
+// correctly client-side. It evidently isn't here (no landing damage in practice, and there's no
+// sql/TDB_hotfixes_*.sql spell_effect row for 178368 to override it with either), so cast the
+// damage explicitly instead of trusting unverifiable client DBC data. This does mean it fires at
+// the same time as the Glyph/Taunt effects below (launch, not the true visual landing moment a
+// moment later) rather than being frame-perfect with the landing animation - an accepted
+// approximation given the alternative is doing nothing.
 class spell_warr_heroic_leap_jump : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -998,6 +1011,7 @@ class spell_warr_heroic_leap_jump : public SpellScript
         {
             SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP,
             SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP_BUFF,
+            SPELL_WARRIOR_HEROIC_LEAP_DAMAGE,
             SPELL_WARRIOR_IMPROVED_HEROIC_LEAP,
             SPELL_WARRIOR_TAUNT
         });
@@ -1005,6 +1019,8 @@ class spell_warr_heroic_leap_jump : public SpellScript
 
     void AfterJump(SpellEffIndex /*effIndex*/)
     {
+        GetCaster()->CastSpell(GetCaster(), SPELL_WARRIOR_HEROIC_LEAP_DAMAGE, true);
+
         if (GetCaster()->HasAura(SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP))
             GetCaster()->CastSpell(GetCaster(), SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP_BUFF, true);
         if (GetCaster()->HasAura(SPELL_WARRIOR_IMPROVED_HEROIC_LEAP))
