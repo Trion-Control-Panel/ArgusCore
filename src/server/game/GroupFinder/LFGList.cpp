@@ -18,6 +18,7 @@
 #include "LFGList.h"
 #include "LFGListMgr.h"
 #include "Containers.h"
+#include "GameTime.h"
 #include "Group.h"
 #include "GroupFinderPackets.h"
 #include "ObjectAccessor.h"
@@ -59,19 +60,20 @@ LFGListEntry::LFGListEntry() : GroupFinderActivityData(nullptr), ApplicationGrou
     Timeout = CreationTime + LFG_LIST_GROUP_TIMEOUT;
 }
 
-bool LFGListEntry::IsApplied(ObjectGuid::LowType guid) const
+bool LFGListEntry::IsApplied(ObjectGuid::LowType guid)
 {
     return GetApplicantByPlayerGUID(guid) != nullptr;
 }
 
-bool LFGListEntry::IsApplied(Player* player) const
+bool LFGListEntry::IsApplied(Player* player)
 {
     return IsApplied(player->GetGUID().GetCounter());
 }
 
 LFGListEntry::LFGListApplicationEntry* LFGListEntry::GetApplicant(uint32 applicationId)
 {
-    return Trinity::Containers::MapGetValuePtr(ApplicationsContainer, applicationId);
+    auto itr = ApplicationsContainer.find(applicationId);
+    return itr != ApplicationsContainer.end() ? &itr->second : nullptr;
 }
 
 LFGListEntry::LFGListApplicationEntry* LFGListEntry::GetApplicantByPlayerGUID(ObjectGuid::LowType guid)

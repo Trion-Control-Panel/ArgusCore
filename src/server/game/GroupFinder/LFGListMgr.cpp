@@ -230,7 +230,8 @@ std::list<LFGListEntry const*> LFGListMgr::GetFilteredList(uint32 activityCatego
 
 LFGListEntry* LFGListMgr::GetEntrybyGuid(ObjectGuid::LowType guid)
 {
-    return Trinity::Containers::MapGetValuePtr(_lfgListQueue, guid);
+    auto itr = _lfgListQueue.find(guid);
+    return itr != _lfgListQueue.end() ? itr->second : nullptr;
 }
 
 LFGListEntry* LFGListMgr::GetEntryByApplicant(WorldPackets::LFG::RideTicket const& applicant)

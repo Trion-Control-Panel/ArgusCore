@@ -125,8 +125,8 @@ struct LFGListEntry
 
     LFGListEntry();
 
-    bool IsApplied(ObjectGuid::LowType guid) const;
-    bool IsApplied(Player* player) const;
+    bool IsApplied(ObjectGuid::LowType guid);
+    bool IsApplied(Player* player);
 
     void BroadcastApplicantUpdate(LFGListApplicationEntry const* applicant);
 
