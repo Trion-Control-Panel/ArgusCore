@@ -55,3 +55,11 @@ void WorldSession::HandleGarrisonGetMapData(WorldPackets::Garrison::GarrisonGetM
     if (Garrison* garrison = _player->GetGarrison())
         garrison->SendMapData(_player);
 }
+
+void WorldSession::HandleGarrisonRequestScoutingMap(WorldPackets::Garrison::GarrisonRequestScoutingMap& garrisonRequestScoutingMap)
+{
+    WorldPackets::Garrison::GarrisonScoutingMapResult result;
+    result.ID = garrisonRequestScoutingMap.ID;
+    result.Active = true;
+    SendPacket(result.Write());
+}

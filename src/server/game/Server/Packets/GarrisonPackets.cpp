@@ -330,6 +330,20 @@ WorldPacket const* GarrisonMapDataResponse::Write()
     return &_worldPacket;
 }
 
+void GarrisonRequestScoutingMap::Read()
+{
+    _worldPacket >> ID;
+}
+
+WorldPacket const* GarrisonScoutingMapResult::Write()
+{
+    _worldPacket << ID;
+    _worldPacket << Bits<1>(Active);
+    _worldPacket.FlushBits();
+
+    return &_worldPacket;
+}
+
 WorldPacket const* GarrisonPlotPlaced::Write()
 {
     _worldPacket << int32(GarrTypeID);

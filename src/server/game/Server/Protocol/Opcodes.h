@@ -292,6 +292,9 @@ enum OpcodeClient : uint16
     CMSG_GARRISON_GET_MAP_DATA                        = 0x32DC,
     CMSG_GARRISON_GET_MISSION_REWARD                  = 0x3334,
     CMSG_GARRISON_MISSION_BONUS_ROLL                  = 0x3303,
+    CMSG_GARRISON_REQUEST_SCOUTING_MAP                = 0x323B, // 4/4 corroborated, genuinely missing (not a naming
+                                                                  // false positive like its GET_MAP_DATA/GET_BUILDING_
+                                                                  // LANDMARKS sibling above)
     CMSG_GARRISON_PURCHASE_BUILDING                   = 0x32B8,
     CMSG_GARRISON_RECRUIT_FOLLOWER                    = 0x32D0,
     CMSG_GARRISON_REMOVE_FOLLOWER                     = 0x32F8,
@@ -1131,6 +1134,7 @@ enum OpcodeServer : uint16
     SMSG_GARRISON_REMOVE_FOLLOWER_FROM_BUILDING_RESULT = 0x2919,
     SMSG_GARRISON_REMOVE_FOLLOWER_RESULT              = 0x2903,
     SMSG_GARRISON_REQUEST_BLUEPRINT_AND_SPECIALIZATION_DATA_RESULT = 0x28F9,
+    SMSG_GARRISON_SCOUTING_MAP_RESULT                 = 0x283B, // 4/4 corroborated, genuinely missing
     SMSG_GARRISON_START_MISSION_RESULT                = 0x2907,
     SMSG_GARRISON_UNLEARN_BLUEPRINT_RESULT            = 0x28F8,
     SMSG_GARRISON_UPGRADE_RESULT                      = 0x28FD,

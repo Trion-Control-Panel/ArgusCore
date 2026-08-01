@@ -319,6 +319,31 @@ namespace WorldPackets
             std::vector<GarrisonBuildingMapData> Buildings;
         };
 
+        // 4/4 corroborated, genuinely missing (unlike CMSG_GARRISON_GET_MAP_DATA/
+        // SMSG_GARRISON_MAP_DATA_RESPONSE above, which turned out to already cover
+        // CMSG_GARRISON_GET_BUILDING_LANDMARKS/SMSG_GARRISON_BUILDING_LANDMARKS under a
+        // different ArgusCore name at the same wire value).
+        class GarrisonRequestScoutingMap final : public ClientPacket
+        {
+        public:
+            explicit GarrisonRequestScoutingMap(WorldPacket&& packet) : ClientPacket(CMSG_GARRISON_REQUEST_SCOUTING_MAP, std::move(packet)) { }
+
+            void Read() override;
+
+            uint32 ID = 0;
+        };
+
+        class GarrisonScoutingMapResult final : public ServerPacket
+        {
+        public:
+            explicit GarrisonScoutingMapResult() : ServerPacket(SMSG_GARRISON_SCOUTING_MAP_RESULT, 5) { }
+
+            WorldPacket const* Write() override;
+
+            uint32 ID = 0;
+            bool Active = true;
+        };
+
         class GarrisonPlotPlaced final : public ServerPacket
         {
         public:
