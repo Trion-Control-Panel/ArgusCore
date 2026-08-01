@@ -243,8 +243,28 @@ void WorldSession::SendPacket(WorldPacket const* packet, bool forced /*= false*/
 
     if (!m_Socket[conIdx])
     {
-        TC_LOG_ERROR("network.opcode", "Prevented sending of {} to non existent socket {} to {}", GetOpcodeNameForLogging(static_cast<OpcodeServer>(packet->GetOpcode())), uint32(conIdx), GetPlayerInfo());
-        return;
+        // The modern client model expects a second, "instance" socket (opened in response to
+        // SMSG_CONNECT_TO, wired up via AddInstanceConnection) for a large class of opcodes,
+        // including several with real gameplay impact if silently dropped rather than just
+        // deferred - SMSG_PET_SPELLS_MESSAGE/SMSG_PET_MODE/SMSG_PET_LEARNED_SPELLS in particular
+        // meant a summoned pet's action bar, spell list, and react state never reached the
+        // client at all whenever that second socket wasn't up, making the pet look entirely
+        // unresponsive to attack/ability commands - not a class-specific bug, every pet-owning
+        // class hits this whenever the instance socket isn't established. Root-causing exactly
+        // why that socket doesn't get set up in this environment is unresolved (see
+        // ARGUSCORE_FIXES.md), but since CONNECTION_TYPE_REALM is the one connection guaranteed
+        // to exist for any logged-in session, falling back to it here is strictly better than
+        // silently discarding real, gameplay-relevant server->client packets.
+        if (conIdx == CONNECTION_TYPE_INSTANCE && m_Socket[CONNECTION_TYPE_REALM])
+        {
+            TC_LOG_DEBUG("network.opcode", "WorldSession::SendPacket: {} had no instance socket, falling back to realm socket for {}", GetOpcodeNameForLogging(static_cast<OpcodeServer>(packet->GetOpcode())), GetPlayerInfo());
+            conIdx = CONNECTION_TYPE_REALM;
+        }
+        else
+        {
+            TC_LOG_ERROR("network.opcode", "Prevented sending of {} to non existent socket {} to {}", GetOpcodeNameForLogging(static_cast<OpcodeServer>(packet->GetOpcode())), uint32(conIdx), GetPlayerInfo());
+            return;
+        }
     }
 
     if (!forced)
