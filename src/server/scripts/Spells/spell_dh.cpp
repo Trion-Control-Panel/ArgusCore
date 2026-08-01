@@ -190,8 +190,8 @@ enum DemonHunterSpells
     SPELL_DH_SOUL_RENDING                          = 204909,
     SPELL_DH_SOUL_RENDING_VENGEANCE                = 217996,
     // NOTE: SPIRIT_BOMB_DAMAGE corrected from 218677 (this constant's original value, never
-    // referenced anywhere in this file and thus unverified) to 247455, confirmed by both
-    // DestinyCore and AshamaneCore agreeing exactly; SPIRIT_BOMB_HEAL (227255) already matched
+    // referenced anywhere in this file and thus unverified) to 247455, confirmed by two
+    // independent reference sources agreeing exactly; SPIRIT_BOMB_HEAL (227255) already matched
     // both references and needed no change.
     SPELL_DH_SPIRIT_BOMB                           = 247454,
     SPELL_DH_SPIRIT_BOMB_DAMAGE                     = 247455,
@@ -1227,7 +1227,7 @@ class spell_dh_infernal_strike_jump : public SpellScript
 // in them (the mark itself is this spell's own DB2 apply-aura effect data, no script needed for
 // that half); casting it again on an already-marked target instead pulls them to the caster and
 // deals damage.
-// NOTE: the only available reference (LegionCore-7.3.5/V2) tracks "did I mark this target" via
+// NOTE: the only available reference source tracks "did I mark this target" via
 // a non-standard per-unit "who has my aura" list (TargetsWhoHasMyAuras/m_whoHasMyAuras) that
 // doesn't exist anywhere in ArgusCore's engine. Substituted with a plain
 // HasAura(SPELL_DH_ILLIDANS_GRASP, casterGuid) check on the explicit hit target, which answers
@@ -1421,7 +1421,7 @@ class spell_dh_consume_soul : public SpellScript
 // behind HasAura(SPELL_DH_DEMONIC_APPETITE)) - this class only needs to add the missing
 // crit-triggers-fragment-spawn half, bound directly to the talent's own always-active passive
 // aura, matching the file's established "baseline passive with proc logic on its own id" idiom
-// (e.g. Frozen Veins in spell_mage.cpp). Confirmed via DestinyCore/AshamaneCore (identical
+// (e.g. Frozen Veins in spell_mage.cpp). Confirmed via two independent reference sources (identical
 // implementations). Casts SPELL_DH_SHATTERED_SOUL_LESSER_SOUL_FRAGMENT_1 (228533), the
 // Havoc "lesser" fragment trigger - not SPELL_DH_SHATTER_SOUL_HAVOC_NORMAL_CAST, which the
 // on-kill passive already uses for the "big" fragment. Checks ArgusCore's own
@@ -1458,7 +1458,7 @@ class spell_dh_demonic_appetite : public AuraScript
 
 // 211053 - Fel Barrage (Havoc capstone talent): channeled AOE whose duration/damage scales
 // with how many Fel Barrage charges the caster had banked when the channel began (built up via
-// spell_dh_fel_barrage_proc below). Confirmed via DestinyCore/AshamaneCore (identical
+// spell_dh_fel_barrage_proc below). Confirmed via two independent reference sources (identical
 // implementations). ArgusCore's SpellHistory has no direct "current charge count" getter
 // (unlike the reference's GetChargeCount) - counted the same way this project's own
 // spell_paladin.cpp already does elsewhere (loop HasCharge/ConsumeCharge), which also
@@ -1531,7 +1531,7 @@ class spell_dh_fel_barrage_damage : public SpellScript
 // the next Fel Barrage cast above. Excludes Blade Dance/Death Sweep's own multiple per-cast
 // sub-hits (199552/200685/210153/210155 - no named constants exist for these in ArgusCore
 // either) and Fel Barrage's own damage (SPELL_DH_FEL_BARRAGE_DMG) from re-triggering itself.
-// Confirmed via DestinyCore/AshamaneCore (identical implementations).
+// Confirmed via two independent reference sources (identical implementations).
 class spell_dh_fel_barrage_proc : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -2243,7 +2243,7 @@ class spell_dh_mana_rift : public SpellScript
 };
 
 // 203782 - Shear (Vengeance's basic Chi-generator): 20% chance on hit to spawn a Lesser Soul
-// Fragment. Confirmed via DestinyCore/AshamaneCore, which drive this off a separate always-on
+// Fragment. Confirmed via two independent reference sources, which drive this off a separate always-on
 // "Shear Proc" passive (203783) with its own proc-check against Shear's spell id - simplified
 // here to a direct OnHit roll on Shear itself instead, avoiding a dependency on unconfirmed
 // passive-granting data for 203783. Casts SPELL_DH_SHATTER_SOUL (209980), the Vengeance
@@ -2274,7 +2274,7 @@ class spell_dh_shear : public SpellScript
 };
 
 // 209795 - Fracture (Vengeance's alternate builder): spawns 2 Soul Fragments directly, at
-// higher cost/cooldown than Shear's chance-based 1. Confirmed via DestinyCore/AshamaneCore
+// higher cost/cooldown than Shear's chance-based 1. Confirmed via two independent reference sources
 // (identical implementations - both use CastCustomSpell with SPELLVALUE_TRIGGER_SPELL against
 // a shared "missile" spell, neither of which exists in ArgusCore; simplified here to casting
 // SPELL_DH_SHATTER_SOUL directly twice, matching the already-established
@@ -2388,8 +2388,8 @@ class spell_dh_shatter_soul : public SpellScript
 
 // 247454 - Spirit Bomb (Vengeance AOE Soul Fragment consumer): consumes all nearby Soul
 // Fragment AreaTriggers within range, dealing AOE damage scaled by the count consumed and
-// applying Frailty (below) to everything hit. Confirmed via DestinyCore/AshamaneCore
-// (count-then-multi-cast shape) and structurally corroborated by LegionCore-7.3.5V2
+// applying Frailty (below) to everything hit. Confirmed via two independent reference sources
+// (count-then-multi-cast shape) and structurally corroborated by a third source
 // (count-then-scale-single-cast shape, reused here since it maps directly onto ArgusCore's own
 // SetHitDamage idiom). Two engine APIs used by the references don't exist in ArgusCore:
 // Unit::GetAreaTriggerListWithSpellIDInRange (no range-filtered overload here - translated to
@@ -2498,7 +2498,7 @@ class spell_dh_spirit_bomb_damage : public SpellScript
 
 // 224509 - Frailty (Spirit Bomb's debuff): whenever an affected enemy takes damage, heals
 // whichever Demon Hunter applied Frailty to them for a percentage of that damage. Confirmed
-// via DestinyCore/AshamaneCore (identical implementations, modulo the CastCustomSpell
+// via two independent reference sources (identical implementations, modulo the CastCustomSpell
 // translation below).
 class aura_dh_frailty : public AuraScript
 {

@@ -79,7 +79,7 @@ namespace WorldPackets
             uint32 RelicSlotIndex = 0;
         };
 
-        // Field shape matches DestinyCore/LegionCore-7.3.5(V2) (3/4 corroborated) - their own
+        // Field shape matches the reference sources (3/4 corroborated) - their own
         // Result field is commented "not 100% sure" even in the reference, and no reference
         // core implements the actual relic-attunement mechanic this would report on (see
         // ArtifactHandler.cpp). Kept as a plain echo rather than inventing a meaning for it.

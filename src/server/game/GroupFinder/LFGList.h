@@ -16,10 +16,10 @@
  */
 
 // Group Finder ("LFG List" / premade groups) data model. Ported from the shape confirmed by
-// 3/4 references (DestinyCore, LegionCore-7.3.5, LegionCore-7.3.5V2 - AshamaneCore lacks this
-// feature entirely), translated to ArgusCore's own idioms rather than copied verbatim:
+// 3/4 reference sources (one reference core lacks this feature entirely), translated to
+// ArgusCore's own idioms rather than copied verbatim:
 //  - Application ticket ids are a plain incrementing uint32 (LFGListMgr::GenerateApplicationId),
-//    not DestinyCore's ObjectGuid::Create<HighGuid::LFGObject> - ArgusCore's own
+//    not the reference's ObjectGuid::Create<HighGuid::LFGObject> - ArgusCore's own
 //    WorldPackets::LFG::RideTicket::Id is already just a uint32 (LFGPacketsCommon.h), so the
 //    heavier structured-GUID machinery isn't needed here.
 // See ARGUSCORE_FIXES.md for the full investigation (DB2 data layer verification, RideType
@@ -71,7 +71,7 @@ enum LFGListActivityCategory
 };
 
 // Status codes sent to the client to explain why a join/apply/invite request did or didn't
-// succeed. 2/4-corroborated (DestinyCore, LegionCore-7.3.5/V2 agree on the ones checked).
+// succeed. 2/4-corroborated (the sources checked agree on the values verified).
 enum class LFGListStatus : uint8
 {
     None = 0,

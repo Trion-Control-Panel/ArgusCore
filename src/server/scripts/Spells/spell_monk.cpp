@@ -53,7 +53,7 @@ enum MonkSpells
     SPELL_MONK_MEDITATE_VISUAL                          = 124416,
     SPELL_MONK_PLUS_ONE_MANA_TEA                        = 123760,
     SPELL_MONK_TRANSCENDENCE_CLONE_TARGET                = 119051,
-    // Transcendence spirit clone creature entry - confirmed from AshamaneCore's own dedicated
+    // Transcendence spirit clone creature entry - confirmed from a reference source's own dedicated
     // migration (2018_02_05_01_world_spell_transcendence.sql), not independently re-verified
     // beyond that. Guarded at every use site via sObjectMgr->GetCreatureTemplate() so the
     // scripts below simply no-op rather than assuming this blindly.
@@ -67,7 +67,7 @@ enum MonkSpells
     SPELL_MONK_SEF_SUMMON_FIRE                           = 138123,
     SPELL_MONK_SEF_SUMMONS_STATS                         = 138130,
     // DB note: creature_template.ScriptName must be 'npc_monk_sef_spirit' for entries 69791
-    // (Fire) and 69792 (Earth). Confirmed via DestinyCore/AshamaneCore.
+    // (Fire) and 69792 (Earth). Confirmed via two independent reference sources.
     NPC_MONK_SEF_FIRE_SPIRIT                             = 69791,
     NPC_MONK_SEF_EARTH_SPIRIT                            = 69792,
     SPELL_MONK_BURST_OF_LIFE_TALENT                     = 399226,
@@ -241,7 +241,7 @@ class spell_monk_blackout_kick : public SpellScript
 
 // 116095 - Disable (baseline snare): upgrades to a root effect if the target is already
 // snared; the resulting snare/root refreshes its own duration on the caster's subsequent
-// melee hits. Confirmed via DestinyCore and AshamaneCore (identical implementations).
+// melee hits. Confirmed via two independent reference sources (identical implementations).
 class spell_monk_disable : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -311,8 +311,8 @@ class spell_monk_breath_of_fire : public SpellScript
 };
 
 // 117906 - Mastery: Elusive Brawler. Grants a stack of the dodge-chance buff (195630) on
-// Blackout Strike/Breath of Fire hits and on being hit. Confirmed via DestinyCore and
-// AshamaneCore (identical implementations).
+// Blackout Strike/Breath of Fire hits and on being hit. Confirmed via two independent
+// reference sources (identical implementations).
 class spell_monk_elusive_brawler_mastery : public AuraScript
 {
     bool CheckProc(ProcEventInfo& eventInfo)
@@ -333,7 +333,7 @@ class spell_monk_elusive_brawler_mastery : public AuraScript
 
 // 195630 - Elusive Brawler: the stacking dodge-chance buff itself. Consumed (duration zeroed,
 // letting the normal expiry pipeline remove it) on a successful dodge. Confirmed via
-// DestinyCore and AshamaneCore (identical implementations).
+// two independent reference sources (identical implementations).
 class spell_monk_elusive_brawler_stacks : public AuraScript
 {
     bool CheckProc(ProcEventInfo& eventInfo)
@@ -354,7 +354,7 @@ class spell_monk_elusive_brawler_stacks : public AuraScript
 };
 
 // 115072 - Expel Harm (baseline, level 26): heals the caster and discharges half the amount
-// healed as damage to nearby attackable enemies. Confirmed via DestinyCore and AshamaneCore
+// healed as damage to nearby attackable enemies. Confirmed via two independent reference sources
 // (identical implementations). Id corrected from 322101 (this doc's originally-recorded id,
 // which is a much later/modern-retail id per Wowhead) to 115072, the id both reference cores
 // agree on and the one that has existed since Mists of Pandaria through Legion.
@@ -393,8 +393,8 @@ class spell_monk_expel_harm : public SpellScript
 
 // 115294 - Mana Tea (channel): duration scales with the caster's current Mana Tea stack
 // count (1 sec channeled per stack), consuming 1 stack per tick rather than the whole stack
-// at once (so cancelling early doesn't waste unconsumed stacks). Confirmed via DestinyCore and
-// AshamaneCore (identical implementations), but both drive the variable duration by injecting
+// at once (so cancelling early doesn't waste unconsumed stacks). Confirmed via two independent
+// reference sources (identical implementations), but both drive the variable duration by injecting
 // a raw SpellModifier with hand-set flag128 mask bits before the cast - the same pre-refactor
 // pattern this project's CLAUDE.md already flags as unsafe to guess (see the Fire Mage
 // Passive precedent). Reused this session's own established alternative instead: apply the
@@ -479,7 +479,7 @@ class spell_monk_mana_tea_stacks : public AuraScript
 };
 
 // 101643 - Transcendence: summons a spirit clone, positions swappable with the caster via
-// Transcendence: Transfer (119996) below. Confirmed via DestinyCore/AshamaneCore, but
+// Transcendence: Transfer (119996) below. Confirmed via two independent reference sources, but
 // redesigned: neither Unit::OnEffectSummon (the hook the references use) nor Object::Variables
 // (used to cache the spirit's GUID across hooks) exist anywhere in ArgusCore. Uses this
 // project's own established idioms instead - GetSpell()->GetExecuteLogEffectTargets(
@@ -534,7 +534,7 @@ class spell_monk_transcendence : public SpellScript
 };
 
 // 119996 - Transcendence: Transfer: swaps the caster and their Transcendence spirit's
-// positions, if the spirit is within range. Confirmed via DestinyCore/AshamaneCore.
+// positions, if the spirit is within range. Confirmed via two independent reference sources.
 class spell_monk_transcendence_transfer : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -2862,8 +2862,8 @@ class spell_monk_zen_pulse : public SpellScript
 };
 
 // 137639 - Storm, Earth, and Fire (Windwalker signature cooldown): summons a Fire and an Earth
-// spirit clone that mirror the caster's offensive casts. Confirmed via DestinyCore/AshamaneCore
-// (identical implementations) - this turned out to be much smaller than the doc's original
+// spirit clone that mirror the caster's offensive casts. Confirmed via two independent reference
+// sources (identical implementations) - this turned out to be much smaller than the doc's original
 // "large creature-AI undertaking" assessment suggested: one AuraScript for
 // summon/cleanup, one small ScriptedAI struct with a single IsSummonedBy hook (no bespoke
 // combat AI needed - the base ScriptedAI's default melee behavior handles the rest, matching

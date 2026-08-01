@@ -747,7 +747,7 @@ class spell_sha_crash_lightning : public SpellScript
 // 197211 - Fury of Air (Enhancement talent): periodic AOE wind damage, draining 5 Maelstrom
 // per tick and cancelling itself once Maelstrom runs out. The damage tick itself is the
 // aura's own SPELL_AURA_PERIODIC_TRIGGER_SPELL effect data, needing no script. Confirmed via
-// DestinyCore/AshamaneCore (identical implementations).
+// two independent reference sources (identical implementations).
 class spell_sha_fury_of_air : public AuraScript
 {
     void HandlePeriodic(AuraEffect const* /*aurEff*/)
@@ -770,7 +770,7 @@ class spell_sha_fury_of_air : public AuraScript
 
 // 201633 - Earthen Shield Totem (redirect-absorb buff): applied to nearby allies by the
 // totem's own AI (npc_pet_shaman_earthen_shield_totem in pet_shaman.cpp). Confirmed via
-// DestinyCore/AshamaneCore (identical implementations) - the absorb cap is the totem's own
+// two independent reference sources (identical implementations) - the absorb cap is the totem's own
 // current health (self-limiting: the totem soaks damage until it runs out), and each hit's
 // redirected amount is separately capped by the shaman's spell power before being dealt back
 // to the totem as real damage. Unlike the reference, this does not rely on the buff's own
@@ -2550,7 +2550,7 @@ class spell_sha_stormflurry_damage : public SpellScript
 // own DB2 data, not scripted). Confirmed genuine Legion content via web search - a distinct
 // trait from the removed WoD-era "Stormlash Totem," the same reused-name-across-eras pattern
 // already confirmed this session for Doom Winds/Stormflurry/Death's Embrace. Confirmed via
-// DestinyCore/AshamaneCore (identical implementations).
+// two independent reference sources (identical implementations).
 class spell_sha_stormlash : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override

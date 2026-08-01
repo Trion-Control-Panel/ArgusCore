@@ -15,7 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-// Group Finder manager. Business logic translated from DestinyCore's LFGListMgr (3/4-corroborated
+// Group Finder manager. Business logic translated from the reference LFGListMgr (3/4-corroborated
 // feature) to ArgusCore's own APIs - notably GetAverageItemLevel() (no PvP-offset overload exists
 // in ArgusCore's AvgItemLevelCategory system; the plain accessor is the same idiom already used by
 // the real LFG dungeon matchmaker in LFGMgr.cpp) and Group::GetMembers() range-for iteration

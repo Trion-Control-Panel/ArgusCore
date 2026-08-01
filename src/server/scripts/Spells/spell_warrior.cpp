@@ -65,7 +65,7 @@ enum WarriorSpells
     SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP_BUFF         = 133278,
     SPELL_WARRIOR_HAMSTRING                         = 1715,
     // Long-lived, stable id (used unchanged from Cataclysm onward per WebSearch/Wowhead patch
-    // history) - corroborated by both DestinyCore and AshamaneCore's own SPELL_WARRIOR_HEROIC_LEAP_DAMAGE.
+    // history) - corroborated by two independent reference sources' own SPELL_WARRIOR_HEROIC_LEAP_DAMAGE.
     SPELL_WARRIOR_HEROIC_LEAP_DAMAGE                = 52174,
     SPELL_WARRIOR_HEROIC_LEAP_JUMP                  = 178368,
     SPELL_WARRIOR_IGNORE_PAIN                       = 190456,

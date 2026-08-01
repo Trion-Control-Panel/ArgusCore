@@ -614,7 +614,7 @@ class spell_rog_relentless_strikes : public AuraScript
 // (per community guides - "up to 25 times"), generic across all finishers via
 // Spell::GetPowerTypeCostAmount, the same idiom as spell_rog_relentless_strikes above.
 // Implemented as its own standalone proc rather than duplicated inside every finisher script
-// (AshamaneCore's reference inlines this same roll separately inside its Nightblade and
+// (the reference source inlines this same roll separately inside its Nightblade and
 // Enveloping Shadows classes - this avoids that duplication).
 class spell_rog_alacrity : public AuraScript
 {
@@ -1076,7 +1076,7 @@ class spell_rog_shadowstrike : public SpellScript
     // Strike from the Shadows (level 75 talent, patch 7.0.3-8.0.1): applies a snare to players,
     // a stun to NPCs (a common Blizzard PvP-balance split for on-hit CC talents).
     // NOTE: hooked to EFFECT_0/SPELL_EFFECT_WEAPON_PERCENT_DAMAGE, inferred from this file's own
-    // already-confirmed EFFECT_1 == SPELL_EFFECT_ENERGIZE above (AshamaneCore's reference used
+    // already-confirmed EFFECT_1 == SPELL_EFFECT_ENERGIZE above (the reference source used
     // EFFECT_1 for this piece too, which would collide with the energize effect here - ArgusCore's
     // actual effect layout for this spell differs from the reference's). If this hook doesn't
     // fire, the effect index is the first thing to check.
@@ -1166,7 +1166,7 @@ class spell_rog_shuriken_storm : public SpellScript
 
 // 51723 - Fan of Knives
 // Assassination's AoE builder - generates 1 combo point per cast (not per target hit).
-// AshamaneCore's reference also clears old Killing Spree debuffs by hardcoded id on this cast,
+// The reference source also clears old Killing Spree debuffs by hardcoded id on this cast,
 // which looks like stale drift from a much older Killing Spree shape - dropped rather than
 // ported.
 class spell_rog_fan_of_knives : public SpellScript

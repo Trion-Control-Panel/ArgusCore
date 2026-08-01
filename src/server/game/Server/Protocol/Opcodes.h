@@ -805,16 +805,16 @@ enum OpcodeServer : uint16
     SMSG_ARENA_CROWD_CONTROL_SPELLS                   = 0x264E,
     SMSG_ARENA_ERROR                                  = 0x2711,
     SMSG_ARENA_PREP_OPPONENT_SPECIALIZATIONS          = 0x2665,
-    // 3/4 references agree (DestinyCore, LegionCore-7.3.5, LegionCore-7.3.5V2; AshamaneCore
-    // lacks this opcode entirely). Response to CMSG_ARTIFACT_ATTUNE_SOCKETED_RELIC, which
+    // 3/4 reference sources agree (one lacks this opcode entirely). Response to
+    // CMSG_ARTIFACT_ATTUNE_SOCKETED_RELIC, which
     // ArgusCore already declared but routed to Handle_NULL - see the ArtifactHandler.cpp
     // writeup in ARGUSCORE_FIXES.md for why the actual relic-attunement game mechanic (relics
     // permanently unlocking artifact minor traits) is intentionally NOT implemented here.
     SMSG_ARTIFACT_ATTUNE_SOCKETED_RELIC_DATA          = 0x27E9,
     SMSG_ARTIFACT_KNOWLEDGE                           = 0x27EA,
     // Was "SMSG_ARTIFACT_RESPEC_PROMPT" - value (0x27E5) was already correct (4-source
-    // corroborated: DestinyCore, AshamaneCore, LegionCore-7.3.5, LegionCore-7.3.5V2 all agree),
-    // but the name and STATUS_UNHANDLED marked it disabled/unwired - see the [DONE] writeup in
+    // corroborated - all 4 reference sources agree), but the name and STATUS_UNHANDLED marked
+    // it disabled/unwired - see the [DONE] writeup in
     // ARGUSCORE_FIXES.md for HandleConfirmArtifactRespec, which never sent any ack at all.
     SMSG_ARTIFACT_RESPEC_CONFIRM                      = 0x27E5,
     SMSG_ARTIFACT_TRAITS_REFUNDED                     = 0x27E6,
@@ -1259,7 +1259,7 @@ enum OpcodeServer : uint16
     SMSG_LFG_DISABLED                                 = 0x2A33,
     SMSG_LFG_INSTANCE_SHUTDOWN_COUNTDOWN              = 0x2A25,
     SMSG_LFG_JOIN_RESULT                              = 0x2A1C,
-    SMSG_LFG_LIST_APPLICATION_UPDATE                  = 0x2A2B, // 3/3 corroborated (DestinyCore, LegionCore-7.3.5, LegionCore-7.3.5V2)
+    SMSG_LFG_LIST_APPLICATION_UPDATE                  = 0x2A2B, // 3/3 corroborated
     SMSG_LFG_LIST_APPLY_TO_GROUP_RESPONCE             = 0x2A29, // 3/3 corroborated
     SMSG_LFG_LIST_INVITE_APPLICANT_RESPONSE           = 0x2A27, // 3/3 corroborated
     SMSG_LFG_LIST_INVITE_RESPONCE                     = 0x2A28, // 3/3 corroborated
@@ -1767,9 +1767,9 @@ enum OpcodeServer : uint16
     SMSG_ZONE_UNDER_ATTACK                            = 0x2BB5,
 
     // Opcodes that are not generated automatically
-    // Corroborated by 3 independent Legion 7.3.5 references (DestinyCore, LegionCore-7.3.5,
-    // LegionCore-7.3.5V2, all agreeing on 0x25C5) - the 0xBADD placeholder was inherited from
-    // AshamaneCore, the only reference that also left this unresolved. Fixes a live bug: this
+    // Corroborated by 3 independent Legion 7.3.5 reference sources (all agreeing on 0x25C5) -
+    // the 0xBADD placeholder was inherited from the one reference that also left this
+    // unresolved. Fixes a live bug: this
     // packet is unconditionally sent on every login (Player.cpp's SendInitialPacketsAfterAddToMap-
     // adjacent heirloom sync), so it silently collided with the UNKNOWN_OPCODE sentinel
     // (Opcodes.h:43) and got dropped by WorldSession::SendPacket every time.

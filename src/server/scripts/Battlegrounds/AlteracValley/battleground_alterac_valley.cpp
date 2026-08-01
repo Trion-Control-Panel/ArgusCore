@@ -29,8 +29,8 @@
 #include "Player.h"
 #include "ScriptMgr.h"
 
-// 600, not 700 - confirmed via unanimous agreement across DestinyCore, AshamaneCore, and
-// LegionCore-7.3.5 (all three independently define BG_AV_SCORE_INITIAL_POINTS as 600).
+// 600, not 700 - confirmed via unanimous agreement across 3 reference sources (all three
+// independently define BG_AV_SCORE_INITIAL_POINTS as 600).
 // See ARGUSCORE_FIXES.md for the corroboration writeup.
 constexpr uint32 BG_AV_SCORE_INITIAL_POINTS = 600;
 constexpr uint32 BG_AV_EVENT_START_BATTLE = 9166; // Achievement: The Alterac Blitz
@@ -579,7 +579,7 @@ struct battleground_alterac_valley : BattlegroundScript
                 _teamQuestStatus[i][j] = 0;
 
             // *60000, not *60 - unit-conversion bug inherited verbatim from upstream TrinityCore
-            // (present identically in DestinyCore/AshamaneCore/LegionCore-7.3.5). The periodic
+            // (present identically across the reference sources). The periodic
             // re-seed further down in OnUpdate() already uses the correct *60000; this initial
             // seed didn't, making the first captain buff fire at a fixed ~2:00 instead of
             // randomized 2:00-6:00 like every subsequent one.

@@ -35,8 +35,8 @@ enum WarlockPetSpells
 // enemy affected by Doom - the actual damage/refresh targeting is entirely handled by
 // spell_warl_eye_laser's own area-target-select override in spell_warlock.cpp (clears the
 // default target list and refills it with every Doom-afflicted enemy within range), so this
-// AI only needs to find one valid Doom target to trigger the cast. Confirmed via DestinyCore/
-// AshamaneCore (identical implementations). Deliberately does not call PetAI::UpdateAI() -
+// AI only needs to find one valid Doom target to trigger the cast. Confirmed via two
+// independent reference sources (identical implementations). Deliberately does not call PetAI::UpdateAI() -
 // Darkglare has no melee/movement behavior in either reference, it only ever casts.
 // Translated Unit::GetAttackableUnitListInRange (doesn't exist in ArgusCore) to the
 // established Trinity::AnyUnfriendlyUnitInObjectRangeCheck/UnitListSearcher idiom already used

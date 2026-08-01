@@ -1942,7 +1942,7 @@ protected:
 // Dash (1850) and Displacer Beast (102280) - Prowl (5215, above) already gets this for free
 // via its own dedicated spell_dru_prowl/spell_dru_base_transformer subclass. Reuses the
 // already-existing, already-proven spell_dru_base_transformer mechanism (the same one Prowl
-// and the Incarnation talents already use) rather than porting AshamaneCore's separate
+// and the Incarnation talents already use) rather than porting the reference's separate
 // one-off SpellScript, since ArgusCore already has a generic solution for exactly this need.
 class spell_dru_activate_cat_form : public spell_dru_base_transformer
 {

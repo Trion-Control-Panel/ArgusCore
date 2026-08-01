@@ -290,8 +290,8 @@ class spell_warl_call_dreadstalkers : public SpellScript
 };
 
 // 205145 - Demonic Calling (Demonology talent): Shadow Bolt/Demonbolt hits have a 20% chance
-// to grant a buff making the next Call Dreadstalkers free/instant. Confirmed via DestinyCore/
-// AshamaneCore (identical implementations) - both also carry an apparently-erroneous second
+// to grant a buff making the next Call Dreadstalkers free/instant. Confirmed via two
+// independent reference sources (identical implementations) - both also carry an apparently-erroneous second
 // copy of this exact check inside their unrelated Demonwrath class, which was not ported here
 // since it reads as leftover/copy-paste drift rather than a genuine second trigger (Demonic
 // Calling's real tooltip is specifically about Shadow Bolt/Demonbolt). Only grants the buff -
@@ -328,8 +328,8 @@ class spell_warl_demonic_calling : public AuraScript
 // 111771 - Demonic Gateway: summons a green gateway at the target destination (despawning any
 // pre-existing gateway pair the caster already owns first). The matching purple gateway is
 // summoned automatically by this spell's own second effect at the caster's position - not
-// scripted, since it needs no destination resolution. Confirmed via DestinyCore/AshamaneCore
-// (identical implementations). Translated the raw CastSpell(x, y, z, spellId, ...) float-triple
+// scripted, since it needs no destination resolution. Confirmed via two independent reference
+// sources (identical implementations). Translated the raw CastSpell(x, y, z, spellId, ...) float-triple
 // overload (this project's own CLAUDE.md already documents this doesn't exist in ArgusCore) to
 // CastSpell(Position const&, ...), and Creature::GetOwner() (unreliable for temp summons that
 // aren't guardian-type) to TempSummon::GetSummonerUnit(), the dedicated accessor for exactly
@@ -372,7 +372,7 @@ class spell_warl_demonic_gateway : public SpellScript
 // gateway itself is the caster and the clicking player is the target - letting this script
 // know both which gate was clicked and who to teleport). Finds the nearest matching
 // opposite-color gateway belonging to the same owner and jumps the player there. Confirmed via
-// DestinyCore/AshamaneCore, but substantially redesigned: the references drive the whole
+// two independent reference sources, but substantially redesigned: the references drive the whole
 // interaction through a legacy raw UNIT_FIELD_INTERACT_SPELLID field plus a manual
 // CreatureAI::OnSpellClick override with a `bool&` result parameter - ArgusCore's actual
 // CreatureAI::OnSpellClick takes `bool spellClickHandled` by value (an already-resolved
@@ -534,8 +534,8 @@ class spell_warl_chaos_bolt : public SpellScript
     }
 
     // 196412/196414 - Eradication (Destruction talent): Chaos Bolt applies a damage-taken
-    // debuff to the target if the caster has the talent. Confirmed via DestinyCore/
-    // AshamaneCore; the references' own standalone "Eradication" AuraScript does nothing
+    // debuff to the target if the caster has the talent. Confirmed via two independent
+    // reference sources; the references' own standalone "Eradication" AuraScript does nothing
     // (its CheckProc always returns false) - the actual debuff application already lives on
     // Chaos Bolt's own hit handler in both references, matched here.
     void HandleDummy(SpellEffIndex /*effIndex*/)
@@ -1020,7 +1020,7 @@ class spell_warl_hand_of_guldan : public SpellScript
 };
 
 // 196277 - Implosion (Demonology): commands all active Wild Imp pets to fly to the target and
-// explode, dealing damage. Both DestinyCore and AshamaneCore have this ability's real logic
+// explode, dealing damage. Both independent reference sources have this ability's real logic
 // entirely commented out (dead code referencing an undefined PET_ENTRY_WILD_IMP that never
 // compiled even in the reference) - the intended design is clear from the comment though, and
 // was used to inform this implementation: iterate Unit::m_Controlled (the established idiom
@@ -1823,8 +1823,8 @@ class spell_warl_soul_swap_exhale : public SpellScript
 };
 
 // 228974 - Soul Leech (baseline passive, all specs): dealing damage grants an absorb shield
-// scaled by the damage dealt, capped at 15% max health. Confirmed via DestinyCore/AshamaneCore
-// (identical implementations), but simplified: the reference also raises the cap to 20% if the
+// scaled by the damage dealt, capped at 15% max health. Confirmed via two independent
+// reference sources (identical implementations), but simplified: the reference also raises the cap to 20% if the
 // caster has "Demonskin" (a separate talent) - not ported, since Demonskin itself isn't
 // implemented in ArgusCore yet either (left as a documented follow-up rather than guessed at).
 // The reference's own separate "Soul Leach appliers" system (137046/137044/137043, cast on pet
@@ -1870,7 +1870,7 @@ class spell_warl_soul_leech : public AuraScript
 
 // 219272 - Demonskin (PvP Honor Talent, lower priority): periodically tops up the Soul Leech
 // absorb shield by 1% max health per tick, capped at this talent's own (higher) threshold.
-// Confirmed via DestinyCore/AshamaneCore (identical implementations). Translated
+// Confirmed via two independent reference sources (identical implementations). Translated
 // `CastCustomSpell` (doesn't exist in ArgusCore) to `CastSpellExtraArgs`/`AddSpellMod`, and the
 // raw `GetSpellInfo()->GetEffect(EFFECT_1)->BasePoints` pointer access (`SpellEffectInfo` has
 // no `operator->`) to `GetEffectInfo(EFFECT_1).CalcValue()`.
@@ -1909,7 +1909,7 @@ class spell_warl_demonskin : public AuraScript
 // target selection to hit every enemy within 100 yards currently afflicted by Doom, refreshing
 // it on each. The Darkglare pet AI (npc_pet_warlock_darkglare in pet_warlock.cpp) only needs
 // to find one valid Doom target to trigger this cast - this override does the real work of
-// finding and hitting all of them. Confirmed via DestinyCore/AshamaneCore (identical
+// finding and hitting all of them. Confirmed via two independent reference sources (identical
 // implementations). Translated Trinity::AllWorldObjectsInRange/WorldObjectListSearcher (the
 // latter doesn't exist in ArgusCore) to the established
 // Trinity::AnyUnfriendlyUnitInObjectRangeCheck/UnitListSearcher idiom used elsewhere this
@@ -1942,7 +1942,7 @@ class spell_warl_eye_laser : public SpellScript
 };
 
 // 215941 - Soul Conduit (talent, all specs): each Soul Shard spent has a chance to be
-// refunded. Confirmed via DestinyCore/AshamaneCore, but corrected a bug shared by both: they
+// refunded. Confirmed via two independent reference sources, but corrected a bug shared by both: they
 // check `POWER_MANA` instead of `POWER_SOUL_SHARDS` when looking up how much was just spent -
 // a mana-refund formula that was never adapted for what should be a Soul Shard refund.
 // Translated `CastCustomSpell` (doesn't exist in ArgusCore) to

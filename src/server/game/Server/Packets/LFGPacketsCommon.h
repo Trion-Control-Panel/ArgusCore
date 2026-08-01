@@ -26,8 +26,8 @@ namespace WorldPackets
     namespace LFG
     {
         // Values 3 (PvPPetBattle) and 5 (PetBattle) are real client-protocol values too (2/4
-        // corroborated: DestinyCore has all 7, AshamaneCore only had the first 3 like ArgusCore
-        // did before this) - left declared for numeric-gap correctness even though ArgusCore
+        // corroborated: one reference source has all 7, another only had the first 3 like
+        // ArgusCore did before this) - left declared for numeric-gap correctness even though ArgusCore
         // has no pet battle system to use them, so a future implementation doesn't have to
         // renumber this client-facing enum.
         enum class RideType : uint32

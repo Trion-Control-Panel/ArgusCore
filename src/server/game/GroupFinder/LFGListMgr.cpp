@@ -346,7 +346,7 @@ void LFGListMgr::ChangeApplicantStatus(LFGListEntry::LFGListApplicationEntry* ap
 
 void LFGListMgr::RemoveAllApplicationsByPlayer(ObjectGuid::LowType playerGuid, bool notify /* = false */)
 {
-    // DestinyCore's own reference is marked "@TODO: totally wrong" here - it looks applications up
+    // The reference source is marked "@TODO: totally wrong" here - it looks applications up
     // by application ID instead of player GUID. Fixed to actually collect this player's
     // applications across every open listing before changing their status.
     std::vector<LFGListEntry::LFGListApplicationEntry*> applications;
@@ -438,13 +438,13 @@ bool LFGListMgr::IsActivityPvP(GroupFinderActivityEntry const* activity) const
         case LFG_LIST_ACTIVITY_CATEGORY_OUTDOOR_PVP:
             return true;
         default:
-            return activity->ID == 17; // Custom PvP category (2/4 corroborated: DestinyCore, LegionCore-7.3.5/V2).
+            return activity->ID == 17; // Custom PvP category (2/4 corroborated).
     }
 }
 
 float LFGListMgr::GetPlayerItemLevelForActivity(GroupFinderActivityEntry const* /*activity*/, Player* player) const
 {
-    // DestinyCore adds a PvP/PvE offset (PlayerAvgItemLevelOffsets::PLAYER_AVG_ITEM_LEVEL_UNK3/4)
+    // The reference source adds a PvP/PvE offset (PlayerAvgItemLevelOffsets::PLAYER_AVG_ITEM_LEVEL_UNK3/4)
     // on top of GetAverageItemLevelEquipped() - ArgusCore has no equivalent overload or offset
     // table for that; its own real LFG matchmaker (LFGMgr.cpp) compares requiredItemLevel against
     // the plain Player::GetAverageItemLevel() accessor, so that's the idiom used here too.
@@ -542,7 +542,7 @@ void LFGListMgr::SendLfgListApplyForGroupResult(LFGListEntry const* lfgEntry, LF
     responce.SearchResult.ApplicationTicket.Type = WorldPackets::LFG::RideType::LfgListApplication;
     responce.SearchResult.ApplicationTicket.Time = lfgEntry->CreationTime;
 
-    // Unverified (see GroupFinderPackets.h) - DestinyCore's own reference fills all 4 of the
+    // Unverified (see GroupFinderPackets.h) - the reference source fills all 4 of the
     // known Unk guid slots with the group leader's guid; left as-is since no better source exists.
     responce.SearchResult.UnkGuid1 = group->GetLeaderGUID();
     responce.SearchResult.UnkGuid2 = group->GetLeaderGUID();

@@ -16,7 +16,7 @@
  */
 
 // Group Finder (LFG List / premade groups) opcode handlers. Business logic translated from
-// DestinyCore's LFGListHandler.cpp (3/4-corroborated feature). Two deviations from the reference,
+// reference-core sources (3/4-corroborated feature). Two deviations from the reference,
 // both defensive/correctness fixes rather than reinterpretation:
 //  - HandleLfgListJoin deletes the new LFGListEntry when LFGListMgr::Insert() rejects it - the
 //    reference leaks it on every rejected join.
@@ -73,7 +73,7 @@ void WorldSession::HandleLfgListSearch(WorldPackets::GroupFinder::LfgListSearch&
         result.ApplicationTicket.Type = WorldPackets::LFG::RideType::LfgListApplication;
         result.ApplicationTicket.Time = lfgEntry->CreationTime;
 
-        // Unverified (see GroupFinderPackets.h) - DestinyCore's own reference fills all 4 of the
+        // Unverified (see GroupFinderPackets.h) - the reference source fills all 4 of the
         // known Unk guid slots with the group leader's guid.
         result.UnkGuid1 = group->GetLeaderGUID();
         result.UnkGuid2 = group->GetLeaderGUID();

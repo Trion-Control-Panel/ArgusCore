@@ -116,6 +116,7 @@ namespace WorldPackets
     namespace Artifact
     {
         class ArtifactAddPower;
+        class ArtifactAttuneSocketedRelic;
         class ArtifactSetAppearance;
         class ConfirmArtifactRespec;
     }

@@ -273,7 +273,7 @@ void WorldSession::HandleConfirmArtifactRespec(WorldPackets::Artifact::ConfirmAr
 // attunement requires - permanently unlocking the relic's minor trait on this artifact even
 // after the relic is later removed. That mechanic doesn't exist anywhere in this codebase
 // (HandleSocketGems, ItemHandler.cpp, has no relic/artifact-power-specific logic at all), and
-// neither DestinyCore nor any other reference core implements it either - their own
+// no reference core implements it either - their own
 // HandleArtifactAttuneSocketedRelic is the same bare echo this is, with a "//or result" comment
 // on the Result field showing they weren't sure what it should contain either. Left as a
 // confirmed gap rather than guessed at - see ARGUSCORE_FIXES.md.

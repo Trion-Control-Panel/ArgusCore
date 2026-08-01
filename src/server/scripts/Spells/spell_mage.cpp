@@ -769,7 +769,7 @@ class spell_mage_chain_reaction : public AuraScript
 };
 
 // 195345 - Frozen Veins (Frost artifact trait): Frostbolt casts reduce Icy Veins' cooldown.
-// Confirmed via DestinyCore/AshamaneCore. `SpellHistory::ModifyCooldown` needs a
+// Confirmed via two independent reference sources. `SpellHistory::ModifyCooldown` needs a
 // `Milliseconds` argument (documented gotcha in this project's own CLAUDE.md) - the
 // reference's raw `aurEff->GetAmount()` int would fail to compile without the wrap.
 class spell_mage_frozen_veins : public AuraScript
@@ -1437,8 +1437,8 @@ class spell_mage_hyper_impact : public AuraScript
 
 // 45438 - Ice Block: applies Hypothermia on activation (long-standing anti-spam debuff,
 // relevant since Cold Snap above can reset Ice Block's cooldown), and converts into Ice
-// Barrier on removal if the Glacial Insulation talent is active. Confirmed via DestinyCore and
-// AshamaneCore (identical implementations). Neither reference implements any explicit
+// Barrier on removal if the Glacial Insulation talent is active. Confirmed via two independent
+// reference sources (identical implementations). Neither reference implements any explicit
 // cast-blocking check for Hypothermia itself - relies on the debuff's own DB2 data, matching
 // this project's established pattern of data-driven mechanics needing no script at all.
 class spell_mage_ice_block : public AuraScript
@@ -1597,8 +1597,8 @@ class spell_mage_ice_lance : public SpellScript
 
         // Frost Bomb: detonates on the primary target when either the target is frozen or the
         // caster has Fingers of Frost up - a broader condition than Thermal Void above (which
-        // requires frozen specifically), so checked separately. Confirmed via DestinyCore and
-        // AshamaneCore (identical implementations).
+        // requires frozen specifically), so checked separately. Confirmed via two independent
+        // reference sources (identical implementations).
         if (index == 0 && target->HasAura(SPELL_MAGE_FROST_BOMB_AURA)
             && (target->HasAuraState(AURA_STATE_FROZEN, GetSpellInfo(), caster) || caster->HasAura(SPELL_MAGE_FINGERS_OF_FROST)))
         {
@@ -1626,8 +1626,8 @@ class spell_mage_ice_lance : public SpellScript
 // 113092 - Frost Bomb (damage): explicit target takes more damage than the splash targets.
 // The exact 1.84275/1.15128 spell-power ratios are ported verbatim from the reference -
 // unlike most hardcoded-formula cases this project is cautious about, these match to 5
-// decimal places across two independently-written reference cores (DestinyCore and
-// AshamaneCore), which is corroboration for genuine data rather than a shared guess.
+// decimal places across two independently-written reference cores, which is corroboration
+// for genuine data rather than a shared guess.
 class spell_mage_frost_bomb_damage : public SpellScript
 {
     void HandleDamage(SpellEffIndex /*effIndex*/)

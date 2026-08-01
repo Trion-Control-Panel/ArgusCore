@@ -1595,8 +1595,8 @@ struct GlyphRequiredSpecEntry
 
 // Field order/types verified byte-for-byte against this project's own real
 // GroupFinderActivity.db2 (WDC1, LayoutHash 0x3EF2F3BD) - not ported blind from a reference
-// core. DestinyCore's equivalent struct has the same field order but declares OrderIndex as
-// uint8; the real file's column metadata marks that field signed, confirmed by manually
+// core. The reference source's equivalent struct has the same field order but declares
+// OrderIndex as uint8; the real file's column metadata marks that field signed, confirmed by manually
 // decoding raw records (e.g. id 2 "Teldrassil"/"Teldrassil", MapID 1, AreaID 141; id 22
 // "Siege of Orgrimmar (Normal)"/"Normal", MapID 1136, MinGearLevelSuggestion 520, category 3 =
 // Raid - all independently correct against known real values), so it's declared int8 here.

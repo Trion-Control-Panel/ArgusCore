@@ -115,8 +115,8 @@ enum DeathKnightSpells
     SPELL_DK_PURGATORY_MARKER                   = 123981,
     SPELL_DK_DESECRATED_GROUND_IMMUNE           = 115018,
     // NOTE: 215711 (the id this constant previously held) does not exist as a real spell
-    // (confirmed 404 on Wowhead); corrected to 91342, corroborated by both DestinyCore and
-    // AshamaneCore's independently-written spell_dk_dark_transformation_form, which consume
+    // (confirmed 404 on Wowhead); corrected to 91342, corroborated by two independent
+    // reference sources' independently-written spell_dk_dark_transformation_form, which consume
     // this exact id from both player and pet. Pre-existing bug, not introduced this session.
     SPELL_DK_DARK_INFUSION                      = 91342,
     SPELL_DK_DARK_TRANSFORMATION                = 63560,
@@ -1551,7 +1551,7 @@ private:
 // across all Runic-Power-costing spells via Spell::GetPowerTypeCostAmount, the same "any
 // X-costing spell" idiom already used elsewhere in this codebase (e.g.
 // spell_rog_relentless_strikes in spell_rogue.cpp). ArgusCore has no
-// PlayerScript::OnModifyPower hook - AshamaneCore's reference used one that does not exist
+// PlayerScript::OnModifyPower hook - the reference source used one that does not exist
 // in this engine - so this is a standard proc-aura instead, which also composes correctly
 // with the rest of the proc system rather than needing a new engine-level hook.
 class spell_dk_runic_empowerment : public AuraScript
@@ -1722,7 +1722,7 @@ class spell_dk_chilblains : public SpellScript
 };
 
 // 194913 - Glacial Advance: casts a spreading line of ice damage away from the caster.
-// Both DestinyCore and AshamaneCore schedule the staggered casts via Unit::GetScheduler(),
+// Both independent reference sources schedule the staggered casts via Unit::GetScheduler(),
 // which does not exist on ArgusCore's Unit (previously logged here as blocked for exactly
 // this reason) - resolved using the same Unit::m_Events/AddEventAtOffset lambda idiom already
 // used for Hunter's Throwing Axes and matching spell_mage_flurry's established pattern.
@@ -2280,8 +2280,8 @@ class spell_dk_vampiric_aura : public SpellScript
 // 199721 - Decomposing Aura (PvP Honor Talent)
 // Stacking debuff that decays by 1 stack per tick once the caster strays more than 10 yards
 // from the target. Originally documented as blocked on missing AreaTrigger client data
-// (DestinyCore's implementation ties this to a personal-zone AreaTrigger that doesn't exist in
-// this repo's areatrigger_create_properties table), but LegionCore-7.3.5V2 implements the same
+// (one reference source's implementation ties this to a personal-zone AreaTrigger that doesn't exist in
+// this repo's areatrigger_create_properties table), but another reference source implements the same
 // ability as a plain debuff with this distance-based stack decay instead - no AreaTrigger
 // needed at all, so the missing-data blocker doesn't actually apply here.
 class spell_dk_decomposing_aura : public AuraScript
@@ -2519,9 +2519,9 @@ class spell_dk_corpse_shield : public AuraScript
 
 // 206977 - Blood Mirror (Blood PvP talent): absorbs a percentage of damage taken and
 // redirects that same amount as damage onto the enemy the caster had targeted when Blood
-// Mirror was applied. Corroborated by DestinyCore and AshamaneCore (identical
+// Mirror was applied. Corroborated by two independent reference sources (identical
 // implementations, both id 206977 with a companion 221847 redirect-damage spell), and
-// structurally agreed on by LegionCore-7.3.5V2 independently. All three references persist
+// structurally agreed on by a third independently. All three references persist
 // the marked enemy's GUID via an `Aura::Variables` generic scratch store that has no
 // equivalent in ArgusCore's `Aura` class - captured instead via the caster's own
 // currently-selected target at the moment this aura applies (functionally equivalent for an
@@ -2579,7 +2579,7 @@ class spell_dk_blood_mirror : public AuraScript
 
 // 114851 - Blood Charge accumulation (Blood Tap's Legion 7.0.3 redesign): every 15 Runic
 // Power spent generates 1 Blood Charge stack (capped at 12 by the buff's own DB2 MaxStack).
-// DestinyCore and AshamaneCore both still carry Blood Tap's pre-7.0.3 mechanic verbatim (2
+// Two independent reference sources both still carry Blood Tap's pre-7.0.3 mechanic verbatim (2
 // Blood Charges per damaging Death Coil/Frost Strike/Rune Strike hit) - confirmed via
 // Warcraft Wiki patch history this is stale/backward drift for Legion 7.3.5, not the
 // redesigned RP-accumulator version that was actually live for all of Legion (7.0.3 through
@@ -2798,7 +2798,7 @@ class spell_dk_festering_wound : public SpellScript
 
 // 63560 - Dark Transformation: consumes the Dark Infusion stack (granted above by
 // spell_dk_festering_wound) from both player and pet when it hits the pet, matching the
-// corroborated implementation shared by DestinyCore and AshamaneCore.
+// corroborated implementation shared by two independent reference sources.
 class spell_dk_dark_transformation_form : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override

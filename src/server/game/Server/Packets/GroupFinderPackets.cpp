@@ -121,7 +121,7 @@ ByteBuffer& operator<<(ByteBuffer& data, ListSearchResult const& listSearch)
     for (ObjectGuid const& guid : listSearch.NumGuildMateGuids)
         data << guid;
 
-    // Unverified (see GroupFinderPackets.h) - DestinyCore's own reference writes 5 more guids
+    // Unverified (see GroupFinderPackets.h) - the reference source writes 5 more guids
     // here whose purpose isn't documented in any available source.
     data << listSearch.UnkGuid1;
     data << listSearch.UnkGuid2;
@@ -234,7 +234,7 @@ WorldPacket const* LfgListApplicationUpdate::Write()
             _worldPacket << uint8(member.SelectedRoleMask);
             _worldPacket << Size<uint32>(member.AcStat);
 
-            // Unverified (see GroupFinderPackets.h) - DestinyCore's own reference has this
+            // Unverified (see GroupFinderPackets.h) - the reference source has this
             // unexplained per-member stat-pair list.
             for (ApplicantMember::ACStatInfo const& stat : member.AcStat)
             {

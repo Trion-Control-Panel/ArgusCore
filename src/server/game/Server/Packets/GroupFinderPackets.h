@@ -15,13 +15,13 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-// Group Finder ("LFG List" / premade groups) network packets. Ported from DestinyCore
-// (3/4-corroborated feature - LegionCore-7.3.5/V2 also have it, AshamaneCore doesn't) at the
-// user's explicit direction to port everything including fields the reference itself was
-// never certain about, rather than silently omit them. Every field below prefixed "Unk" is
-// UNVERIFIED - DestinyCore's own source didn't know what these contain either (not an
-// ArgusCore naming gap, a genuine wire-format unknown in the best available reference). See
-// ARGUSCORE_FIXES.md for the full writeup before relying on any Unk* field.
+// Group Finder ("LFG List" / premade groups) network packets. Ported from reference-core
+// sources (3/4-corroborated feature) at the user's explicit direction to port everything
+// including fields the reference itself was never certain about, rather than silently omit
+// them. Every field below prefixed "Unk" is UNVERIFIED - the reference source didn't know what
+// these contain either (not an ArgusCore naming gap, a genuine wire-format unknown in the best
+// available reference). See ARGUSCORE_FIXES.md for the full writeup before relying on any Unk*
+// field.
 
 #ifndef ARGUSCORE_GROUP_FINDER_PACKETS_H
 #define ARGUSCORE_GROUP_FINDER_PACKETS_H
@@ -79,7 +79,7 @@ namespace WorldPackets
             GuidList BNetFriendsGuids;
             GuidList NumCharFriendsGuids;
             GuidList NumGuildMateGuids;
-            // Unverified (see file header) - DestinyCore's own reference has 5 unexplained guids here.
+            // Unverified (see file header) - the reference source has 5 unexplained guids here.
             ObjectGuid UnkGuid1;
             ObjectGuid UnkGuid2;
             ObjectGuid UnkGuid3;
@@ -103,7 +103,7 @@ namespace WorldPackets
 
         struct ApplicantMember
         {
-            // Unverified (see file header) - DestinyCore's own reference has this unexplained
+            // Unverified (see file header) - the reference source has this unexplained
             // per-member stat-pair list, name and fields both guessed.
             struct ACStatInfo
             {
