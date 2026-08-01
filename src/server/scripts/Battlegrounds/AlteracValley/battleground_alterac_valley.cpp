@@ -29,7 +29,10 @@
 #include "Player.h"
 #include "ScriptMgr.h"
 
-constexpr uint32 BG_AV_SCORE_INITIAL_POINTS = 700;
+// 600, not 700 - confirmed via unanimous agreement across DestinyCore, AshamaneCore, and
+// LegionCore-7.3.5 (all three independently define BG_AV_SCORE_INITIAL_POINTS as 600).
+// See ARGUSCORE_FIXES.md for the corroboration writeup.
+constexpr uint32 BG_AV_SCORE_INITIAL_POINTS = 600;
 constexpr uint32 BG_AV_EVENT_START_BATTLE = 9166; // Achievement: The Alterac Blitz
 
 enum BG_AV_BroadcastTexts
@@ -575,7 +578,12 @@ struct battleground_alterac_valley : BattlegroundScript
             for (uint8 j = 0; j < 9; j++)
                 _teamQuestStatus[i][j] = 0;
 
-            _captainBuffTimer[i].Reset(120000 + urand(0, 4) * 60); //as far as i could see, the buff is randomly so i make 2minutes (thats the duration of the buff itself) + 0-4minutes @todo get the right times
+            // *60000, not *60 - unit-conversion bug inherited verbatim from upstream TrinityCore
+            // (present identically in DestinyCore/AshamaneCore/LegionCore-7.3.5). The periodic
+            // re-seed further down in OnUpdate() already uses the correct *60000; this initial
+            // seed didn't, making the first captain buff fire at a fixed ~2:00 instead of
+            // randomized 2:00-6:00 like every subsequent one.
+            _captainBuffTimer[i].Reset(120000 + urand(0, 4) * 60000); //as far as i could see, the buff is randomly so i make 2minutes (thats the duration of the buff itself) + 0-4minutes @todo get the right times
         }
 
         _mineInfo[uint8(AlteracValleyMine::North)] = { TEAM_OTHER, { AV_WS_IRONDEEP_MINE_OWNER, AV_WS_IRONDEEP_MINE_ALLIANCE_CONTROLLED, AV_WS_IRONDEEP_MINE_HORDE_CONTROLLED, AV_WS_IRONDEEP_MINE_TROGG_CONTROLLED, TEXT_IRONDEEP_MINE_ALLIANCE_TAKEN, TEXT_IRONDEEP_MINE_HORDE_TAKEN } };

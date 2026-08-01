@@ -30,7 +30,10 @@
 #include "TransportMgr.h"
 #include "Vehicle.h"
 
-inline constexpr uint16 MAX_REINFORCEMENTS = 400;
+// 300, not 400 - confirmed via unanimous agreement across DestinyCore, AshamaneCore, and
+// LegionCore-7.3.5/V2 (all four independently define MAX_REINFORCEMENTS/BG_IC_MAX_REINFORCEMENTS
+// as 300). See ARGUSCORE_FIXES.md for the corroboration writeup.
+inline constexpr uint16 MAX_REINFORCEMENTS = 300;
 
 enum BannersTypes
 {
