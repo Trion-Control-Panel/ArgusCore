@@ -1593,6 +1593,47 @@ struct GlyphRequiredSpecEntry
     uint16 GlyphPropertiesID;
 };
 
+// Field order/types verified byte-for-byte against this project's own real
+// GroupFinderActivity.db2 (WDC1, LayoutHash 0x3EF2F3BD) - not ported blind from a reference
+// core. DestinyCore's equivalent struct has the same field order but declares OrderIndex as
+// uint8; the real file's column metadata marks that field signed, confirmed by manually
+// decoding raw records (e.g. id 2 "Teldrassil"/"Teldrassil", MapID 1, AreaID 141; id 22
+// "Siege of Orgrimmar (Normal)"/"Normal", MapID 1136, MinGearLevelSuggestion 520, category 3 =
+// Raid - all independently correct against known real values), so it's declared int8 here.
+struct GroupFinderActivityEntry
+{
+    uint32 ID;
+    LocalizedString FullName;
+    LocalizedString ShortName;
+    uint16 MinGearLevelSuggestion;
+    uint16 MapID;
+    uint16 AreaID;
+    uint8 GroupFinderCategoryID;
+    uint8 GroupFinderActivityGrpID;
+    int8 OrderIndex;
+    uint8 MinLevel;
+    uint8 MaxLevelSuggestion;
+    uint8 DifficultyID;
+    uint8 Flags;
+    uint8 DisplayType;
+    uint8 MaxPlayers;
+};
+
+struct GroupFinderActivityGrpEntry
+{
+    uint32 ID;
+    LocalizedString Name;
+    uint8 OrderIndex;
+};
+
+struct GroupFinderCategoryEntry
+{
+    uint32 ID;
+    LocalizedString Name;
+    uint8 Unknown1;
+    uint8 Unknown2;
+};
+
 struct GuildColorBackgroundEntry
 {
     uint32 ID;

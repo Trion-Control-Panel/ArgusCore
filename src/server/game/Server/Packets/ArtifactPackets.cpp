@@ -49,6 +49,21 @@ void ConfirmArtifactRespec::Read()
     _worldPacket >> NpcGUID;
 }
 
+void ArtifactAttuneSocketedRelic::Read()
+{
+    _worldPacket >> ArtifactGUID;
+    _worldPacket >> ForgeGUID;
+    _worldPacket >> RelicSlotIndex;
+}
+
+WorldPacket const* ArtifactAttuneSocketedRelicData::Write()
+{
+    _worldPacket << ArtifactGUID;
+    _worldPacket << Result;
+
+    return &_worldPacket;
+}
+
 WorldPacket const* OpenArtifactForge::Write()
 {
     _worldPacket << ArtifactGUID;

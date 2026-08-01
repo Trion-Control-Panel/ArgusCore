@@ -265,3 +265,29 @@ void WorldSession::HandleConfirmArtifactRespec(WorldPackets::Artifact::ConfirmAr
     artifactRespecConfirm.NpcGUID = confirmArtifactRespec.NpcGUID;
     SendPacket(artifactRespecConfirm.Write());
 }
+
+// This CMSG previously existed but routed to Handle_NULL, silently ignoring the request - a
+// player clicking a not-yet-attuned relic in the forge saw nothing happen at all. Wired up the
+// request validation (matching HandleArtifactAddPower's ForgeGUID/ArtifactGUID checks above)
+// and the response echo, but deliberately NOT the underlying game mechanic real relic
+// attunement requires - permanently unlocking the relic's minor trait on this artifact even
+// after the relic is later removed. That mechanic doesn't exist anywhere in this codebase
+// (HandleSocketGems, ItemHandler.cpp, has no relic/artifact-power-specific logic at all), and
+// neither DestinyCore nor any other reference core implements it either - their own
+// HandleArtifactAttuneSocketedRelic is the same bare echo this is, with a "//or result" comment
+// on the Result field showing they weren't sure what it should contain either. Left as a
+// confirmed gap rather than guessed at - see ARGUSCORE_FIXES.md.
+void WorldSession::HandleArtifactAttuneSocketedRelic(WorldPackets::Artifact::ArtifactAttuneSocketedRelic& artifactAttuneSocketedRelic)
+{
+    if (!_player->GetGameObjectIfCanInteractWith(artifactAttuneSocketedRelic.ForgeGUID, GAMEOBJECT_TYPE_ARTIFACT_FORGE))
+        return;
+
+    Item* artifact = _player->GetItemByGuid(artifactAttuneSocketedRelic.ArtifactGUID);
+    if (!artifact || artifact->IsArtifactDisabled())
+        return;
+
+    WorldPackets::Artifact::ArtifactAttuneSocketedRelicData artifactAttuneSocketedRelicData;
+    artifactAttuneSocketedRelicData.ArtifactGUID = artifactAttuneSocketedRelic.ArtifactGUID;
+    artifactAttuneSocketedRelicData.Result = artifactAttuneSocketedRelic.RelicSlotIndex;
+    SendPacket(artifactAttuneSocketedRelicData.Write());
+}

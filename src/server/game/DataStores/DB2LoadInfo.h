@@ -1845,6 +1845,55 @@ struct GlyphRequiredSpecLoadInfo
     static constexpr DB2LoadInfo Instance{ Fields, 3, &GlyphRequiredSpecMeta::Instance, HOTFIX_SEL_GLYPH_REQUIRED_SPEC };
 };
 
+struct GroupFinderActivityLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[15] =
+    {
+        { .IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        { .IsSigned = false, .Type = FT_STRING, .Name = "FullName" },
+        { .IsSigned = false, .Type = FT_STRING, .Name = "ShortName" },
+        { .IsSigned = false, .Type = FT_SHORT, .Name = "MinGearLevelSuggestion" },
+        { .IsSigned = false, .Type = FT_SHORT, .Name = "MapID" },
+        { .IsSigned = false, .Type = FT_SHORT, .Name = "AreaID" },
+        { .IsSigned = false, .Type = FT_BYTE, .Name = "GroupFinderCategoryID" },
+        { .IsSigned = false, .Type = FT_BYTE, .Name = "GroupFinderActivityGrpID" },
+        { .IsSigned = true, .Type = FT_BYTE, .Name = "OrderIndex" },
+        { .IsSigned = false, .Type = FT_BYTE, .Name = "MinLevel" },
+        { .IsSigned = false, .Type = FT_BYTE, .Name = "MaxLevelSuggestion" },
+        { .IsSigned = false, .Type = FT_BYTE, .Name = "DifficultyID" },
+        { .IsSigned = false, .Type = FT_BYTE, .Name = "Flags" },
+        { .IsSigned = false, .Type = FT_BYTE, .Name = "DisplayType" },
+        { .IsSigned = false, .Type = FT_BYTE, .Name = "MaxPlayers" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 15, &GroupFinderActivityMeta::Instance, HOTFIX_SEL_GROUP_FINDER_ACTIVITY };
+};
+
+struct GroupFinderActivityGrpLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[3] =
+    {
+        { .IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        { .IsSigned = false, .Type = FT_STRING, .Name = "Name" },
+        { .IsSigned = false, .Type = FT_BYTE, .Name = "OrderIndex" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 3, &GroupFinderActivityGrpMeta::Instance, HOTFIX_SEL_GROUP_FINDER_ACTIVITY_GRP };
+};
+
+struct GroupFinderCategoryLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[4] =
+    {
+        { .IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        { .IsSigned = false, .Type = FT_STRING, .Name = "Name" },
+        { .IsSigned = false, .Type = FT_BYTE, .Name = "Unknown1" },
+        { .IsSigned = false, .Type = FT_BYTE, .Name = "Unknown2" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 4, &GroupFinderCategoryMeta::Instance, HOTFIX_SEL_GROUP_FINDER_CATEGORY };
+};
+
 struct GuildColorBackgroundLoadInfo
 {
     static constexpr DB2FieldMeta Fields[4] =

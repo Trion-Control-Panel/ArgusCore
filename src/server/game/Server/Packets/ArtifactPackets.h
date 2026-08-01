@@ -67,6 +67,33 @@ namespace WorldPackets
             ObjectGuid NpcGUID;
         };
 
+        class ArtifactAttuneSocketedRelic final : public ClientPacket
+        {
+        public:
+            explicit ArtifactAttuneSocketedRelic(WorldPacket&& packet) : ClientPacket(CMSG_ARTIFACT_ATTUNE_SOCKETED_RELIC, std::move(packet)) { }
+
+            void Read() override;
+
+            ObjectGuid ArtifactGUID;
+            ObjectGuid ForgeGUID;
+            uint32 RelicSlotIndex = 0;
+        };
+
+        // Field shape matches DestinyCore/LegionCore-7.3.5(V2) (3/4 corroborated) - their own
+        // Result field is commented "not 100% sure" even in the reference, and no reference
+        // core implements the actual relic-attunement mechanic this would report on (see
+        // ArtifactHandler.cpp). Kept as a plain echo rather than inventing a meaning for it.
+        class ArtifactAttuneSocketedRelicData final : public ServerPacket
+        {
+        public:
+            explicit ArtifactAttuneSocketedRelicData() : ServerPacket(SMSG_ARTIFACT_ATTUNE_SOCKETED_RELIC_DATA, 16 + 4) { }
+
+            WorldPacket const* Write() override;
+
+            ObjectGuid ArtifactGUID;
+            uint32 Result = 0;
+        };
+
         class OpenArtifactForge final : public ServerPacket
         {
         public:
