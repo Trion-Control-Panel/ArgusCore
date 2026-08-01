@@ -806,7 +806,11 @@ enum OpcodeServer : uint16
     SMSG_ARENA_ERROR                                  = 0x2711,
     SMSG_ARENA_PREP_OPPONENT_SPECIALIZATIONS          = 0x2665,
     SMSG_ARTIFACT_KNOWLEDGE                           = 0x27EA,
-    SMSG_ARTIFACT_RESPEC_PROMPT                       = 0x27E5,
+    // Was "SMSG_ARTIFACT_RESPEC_PROMPT" - value (0x27E5) was already correct (4-source
+    // corroborated: DestinyCore, AshamaneCore, LegionCore-7.3.5, LegionCore-7.3.5V2 all agree),
+    // but the name and STATUS_UNHANDLED marked it disabled/unwired - see the [DONE] writeup in
+    // ARGUSCORE_FIXES.md for HandleConfirmArtifactRespec, which never sent any ack at all.
+    SMSG_ARTIFACT_RESPEC_CONFIRM                      = 0x27E5,
     SMSG_ARTIFACT_TRAITS_REFUNDED                     = 0x27E6,
     SMSG_ARTIFACT_XP_GAIN                             = 0x282D,
     SMSG_ATTACK_START                                 = 0x266D,

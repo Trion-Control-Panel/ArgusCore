@@ -78,10 +78,10 @@ namespace WorldPackets
             ObjectGuid ForgeGUID;
         };
 
-        class ArtifactRespecPrompt final : public ServerPacket
+        class ArtifactRespecConfirm final : public ServerPacket
         {
         public:
-            explicit ArtifactRespecPrompt() : ServerPacket(SMSG_ARTIFACT_RESPEC_PROMPT, 16 + 16) { }
+            explicit ArtifactRespecConfirm() : ServerPacket(SMSG_ARTIFACT_RESPEC_CONFIRM, 16 + 16) { }
 
             WorldPacket const* Write() override;
 

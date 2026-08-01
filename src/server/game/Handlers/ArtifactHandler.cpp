@@ -259,4 +259,9 @@ void WorldSession::HandleConfirmArtifactRespec(WorldPackets::Artifact::ConfirmAr
 
     artifact->SetUInt64Value(ITEM_FIELD_ARTIFACT_XP, newAmount);
     artifact->SetState(ITEM_CHANGED, _player);
+
+    WorldPackets::Artifact::ArtifactRespecConfirm artifactRespecConfirm;
+    artifactRespecConfirm.ArtifactGUID = confirmArtifactRespec.ArtifactGUID;
+    artifactRespecConfirm.NpcGUID = confirmArtifactRespec.NpcGUID;
+    SendPacket(artifactRespecConfirm.Write());
 }

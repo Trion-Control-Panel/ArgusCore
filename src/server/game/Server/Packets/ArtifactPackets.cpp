@@ -57,7 +57,7 @@ WorldPacket const* OpenArtifactForge::Write()
     return &_worldPacket;
 }
 
-WorldPacket const* ArtifactRespecPrompt::Write()
+WorldPacket const* ArtifactRespecConfirm::Write()
 {
     _worldPacket << ArtifactGUID;
     _worldPacket << NpcGUID;
