@@ -1752,7 +1752,13 @@ enum OpcodeServer : uint16
     SMSG_ZONE_UNDER_ATTACK                            = 0x2BB5,
 
     // Opcodes that are not generated automatically
-    SMSG_ACCOUNT_HEIRLOOM_UPDATE                      = 0xBADD, // no client handler
+    // Corroborated by 3 independent Legion 7.3.5 references (DestinyCore, LegionCore-7.3.5,
+    // LegionCore-7.3.5V2, all agreeing on 0x25C5) - the 0xBADD placeholder was inherited from
+    // AshamaneCore, the only reference that also left this unresolved. Fixes a live bug: this
+    // packet is unconditionally sent on every login (Player.cpp's SendInitialPacketsAfterAddToMap-
+    // adjacent heirloom sync), so it silently collided with the UNKNOWN_OPCODE sentinel
+    // (Opcodes.h:43) and got dropped by WorldSession::SendPacket every time.
+    SMSG_ACCOUNT_HEIRLOOM_UPDATE                      = 0x25C5,
     SMSG_ITEM_UPGRADE_RESULT                          = 0xBADD, // no client handler
     SMSG_COMPRESSED_PACKET                            = 0x3052,
     SMSG_MULTIPLE_PACKETS                             = 0x3051,
