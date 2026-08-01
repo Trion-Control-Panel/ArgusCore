@@ -63,6 +63,7 @@
 #include "IPLocation.h"
 #include "InstanceLockMgr.h"
 #include "ItemBonusMgr.h"
+#include "LFGListMgr.h"
 #include "LFGMgr.h"
 #include "Language.h"
 #include "LanguageMgr.h"
@@ -2346,6 +2347,11 @@ void World::Update(uint32 diff)
     {
         TC_METRIC_TIMER("world_update_time", TC_METRIC_TAG("type", "Update LFG"));
         sLFGMgr->Update(diff);
+    }
+
+    {
+        TC_METRIC_TIMER("world_update_time", TC_METRIC_TAG("type", "Update LFG List"));
+        sLFGListMgr->Update(diff);
     }
 
     {

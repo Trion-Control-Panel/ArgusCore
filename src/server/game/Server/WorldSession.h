@@ -460,6 +460,21 @@ namespace WorldPackets
         class DFGetJoinStatus;
     }
 
+    namespace GroupFinder
+    {
+        class LfgListApplyToGroup;
+        class LfgListCancelApplication;
+        class LfgListDeclineApplicant;
+        class LfgListGetStatus;
+        class LfgListInviteApplicant;
+        class LfgListInviteResponse;
+        class LfgListJoin;
+        class LfgListLeave;
+        class LfgListSearch;
+        class LfgListUpdateRequest;
+        class RequestLfgListBlacklist;
+    }
+
     namespace Loot
     {
         class LootUnit;
@@ -1633,6 +1648,19 @@ class TC_GAME_API WorldSession
         void SendLfgDisabled();
         void SendLfgOfferContinue(uint32 dungeonEntry);
         void SendLfgTeleportError(lfg::LfgTeleportResult err);
+
+        // Group Finder (LFG List / premade groups)
+        void HandleLfgListApplyToGroup(WorldPackets::GroupFinder::LfgListApplyToGroup& lfgListApplyToGroup);
+        void HandleLfgListCancelApplication(WorldPackets::GroupFinder::LfgListCancelApplication& lfgListCancelApplication);
+        void HandleLfgListDeclineApplicant(WorldPackets::GroupFinder::LfgListDeclineApplicant& lfgListDeclineApplicant);
+        void HandleLfgListGetStatus(WorldPackets::GroupFinder::LfgListGetStatus& lfgListGetStatus);
+        void HandleLfgListInviteApplicant(WorldPackets::GroupFinder::LfgListInviteApplicant& lfgListInviteApplicant);
+        void HandleLfgListInviteResponse(WorldPackets::GroupFinder::LfgListInviteResponse& lfgListInviteResponse);
+        void HandleLfgListJoin(WorldPackets::GroupFinder::LfgListJoin& lfgListJoin);
+        void HandleLfgListLeave(WorldPackets::GroupFinder::LfgListLeave& lfgListLeave);
+        void HandleLfgListSearch(WorldPackets::GroupFinder::LfgListSearch& lfgListSearch);
+        void HandleLfgListUpdateRequest(WorldPackets::GroupFinder::LfgListUpdateRequest& lfgListUpdateRequest);
+        void HandleRequestLfgListBlacklist(WorldPackets::GroupFinder::RequestLfgListBlacklist& requestLfgListBlacklist);
 
         void HandleSelfResOpcode(WorldPackets::Spells::SelfRes& selfRes);
         void HandleRequestPetInfo(WorldPackets::Pet::RequestPetInfo& requestPetInfo);

@@ -1259,7 +1259,12 @@ enum OpcodeServer : uint16
     SMSG_LFG_DISABLED                                 = 0x2A33,
     SMSG_LFG_INSTANCE_SHUTDOWN_COUNTDOWN              = 0x2A25,
     SMSG_LFG_JOIN_RESULT                              = 0x2A1C,
+    SMSG_LFG_LIST_APPLICATION_UPDATE                  = 0x2A2B, // 3/3 corroborated (DestinyCore, LegionCore-7.3.5, LegionCore-7.3.5V2)
+    SMSG_LFG_LIST_APPLY_TO_GROUP_RESPONCE             = 0x2A29, // 3/3 corroborated
+    SMSG_LFG_LIST_INVITE_APPLICANT_RESPONSE           = 0x2A27, // 3/3 corroborated
+    SMSG_LFG_LIST_INVITE_RESPONCE                     = 0x2A28, // 3/3 corroborated
     SMSG_LFG_LIST_JOIN_RESULT                         = 0x2A1D,
+    SMSG_LFG_LIST_SEARCH_RESULT_UPDATE                = 0x2A2C, // 3/3 corroborated
     SMSG_LFG_LIST_SEARCH_RESULTS                      = 0x2A1E,
     SMSG_LFG_LIST_SEARCH_STATUS                       = 0x2A1F,
     SMSG_LFG_LIST_UPDATE_BLACKLIST                    = 0x2A2A,
