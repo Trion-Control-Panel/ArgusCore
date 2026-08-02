@@ -62,7 +62,6 @@ enum DruidSpells
     SPELL_DRUID_CAT_FORM                       = 768,
     SPELL_DRUID_CULTIVATION                    = 200390,
     SPELL_DRUID_CULTIVATION_HEAL               = 200389,
-    SPELL_DRUID_CURIOUS_BRAMBLEPATCH           = 330670,
     SPELL_DRUID_EARTHWARDEN_AURA               = 203975,
     SPELL_DRUID_ECLIPSE_DUMMY                  = 79577,
     SPELL_DRUID_ECLIPSE_LUNAR_AURA             = 48518,
@@ -76,7 +75,7 @@ enum DruidSpells
     SPELL_DRUID_EFFLORESCENCE_HEAL             = 81269,
     SPELL_DRUID_ENTANGLING_ROOTS               = 339,
     SPELL_DRUID_EXHILARATE                     = 28742,
-    SPELL_DRUID_FORM_AQUATIC_PASSIVE           = 276012,
+    SPELL_DRUID_FORM_AQUATIC_PASSIVE           = 5421, // real id "Aquatic Form Passive" (276012 is a later-expansion remake id)
     SPELL_DRUID_FORM_AQUATIC                   = 1066,
     SPELL_DRUID_FORM_FLIGHT                    = 33943,
     SPELL_DRUID_FORM_STAG                      = 165961,
@@ -143,7 +142,7 @@ enum DruidSpells
     SPELL_DRUID_SPRING_BLOSSOMS_HEAL           = 207386,
     SPELL_DRUID_STAMPEDING_ROAR                = 106898,
     SPELL_DRUID_STAMPEDING_ROAR_BEAR_OVERRIDE  = 106899,
-    SPELL_DRUID_STAR_BURST                     = 356474,
+    SPELL_DRUID_STAR_BURST                     = 205486, // real id "Starburst" (356474 is a later-expansion remake id)
     SPELL_DRUID_SUNFIRE_DAMAGE                 = 164815,
     SPELL_DRUID_SURVIVAL_INSTINCTS             = 50322,
     SPELL_DRUID_TRAVEL_FORM                    = 783,
@@ -822,32 +821,11 @@ class spell_dru_efflorescence_heal : public SpellScript
 
 // 339 - Entangling Roots
 // 102359 - Mass Entanglement
-class spell_dru_entangling_roots : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DRUID_CURIOUS_BRAMBLEPATCH });
-    }
-
-    void HandleCuriousBramblepatch(WorldObject*& target)
-    {
-        if (!GetCaster()->HasAura(SPELL_DRUID_CURIOUS_BRAMBLEPATCH))
-            target = nullptr;
-    }
-
-    void HandleCuriousBramblepatchAOE(std::list<WorldObject*>& targets)
-    {
-        if (!GetCaster()->HasAura(SPELL_DRUID_CURIOUS_BRAMBLEPATCH))
-            targets.clear();
-    }
-
-    void Register() override
-    {
-        OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_dru_entangling_roots::HandleCuriousBramblepatch, EFFECT_1, TARGET_UNIT_TARGET_ENEMY);
-        if (m_scriptSpellId == SPELL_DRUID_MASS_ENTANGLEMENT)
-            OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_dru_entangling_roots::HandleCuriousBramblepatchAOE, EFFECT_1, TARGET_UNIT_DEST_AREA_ENEMY);
-    }
-};
+// spell_dru_entangling_roots removed - its sole job was gating the spell's own targeting behind
+// HasAura(SPELL_DRUID_CURIOUS_BRAMBLEPATCH), which was confirmed absent from Spell.db2 under
+// any id/name in 7.3.5.26972. That meant Entangling Roots/Mass Entanglement (339/102359) could
+// never actually hit anything - removing the whole class restores normal targeting behavior
+// (base spell/DB2 target selection handles it without a script). See ARGUSCORE_FIXES.md.
 
 class spell_dru_entangling_roots_aura : public AuraScript
 {
@@ -2714,7 +2692,7 @@ void AddSC_druid_spell_scripts()
     RegisterSpellScript(spell_dru_efflorescence);
     RegisterSpellScript(spell_dru_efflorescence_dummy);
     RegisterSpellScript(spell_dru_efflorescence_heal);
-    RegisterSpellAndAuraScriptPair(spell_dru_entangling_roots, spell_dru_entangling_roots_aura);
+    RegisterSpellScript(spell_dru_entangling_roots_aura);
     RegisterSpellScript(spell_dru_ferocious_bite);
     RegisterSpellScript(spell_dru_forms_trinket);
     RegisterSpellScript(spell_dru_galactic_guardian);
