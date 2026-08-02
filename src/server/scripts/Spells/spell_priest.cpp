@@ -52,7 +52,6 @@ enum PriestSpells
     SPELL_PRIEST_ATONEMENT_EFFECT                   = 194384,
     SPELL_PRIEST_ATONEMENT_HEAL                     = 81751,
     SPELL_PRIEST_BENEDICTION                        = 193157,
-    SPELL_PRIEST_BENEVOLENCE                        = 415416,
     SPELL_PRIEST_BLAZE_OF_LIGHT                     = 215768,
     SPELL_PRIEST_BLAZE_OF_LIGHT_INCREASE            = 355851,
     SPELL_PRIEST_BLAZE_OF_LIGHT_DECREASE            = 356084,
@@ -71,8 +70,6 @@ enum PriestSpells
     SPELL_PRIEST_DARK_REPRIMAND_DAMAGE              = 373130,
     SPELL_PRIEST_DARK_REPRIMAND_HEALING             = 400187,
     SPELL_PRIEST_DAZZLING_LIGHT                     = 196810,
-    SPELL_PRIEST_DIVINE_AEGIS                       = 47515,
-    SPELL_PRIEST_DIVINE_AEGIS_ABSORB                = 47753,
     SPELL_PRIEST_DIVINE_BLESSING                    = 40440,
     SPELL_PRIEST_DIVINE_HYMN_HEAL                   = 64844,
     SPELL_PRIEST_DIVINE_IMAGE_SUMMON                = 392990,
@@ -87,8 +84,10 @@ enum PriestSpells
     SPELL_PRIEST_DIVINE_STAR_SHADOW_HEAL            = 390981,
     SPELL_PRIEST_DIVINE_WRATH                       = 40441,
     SPELL_PRIEST_EMPOWERED_RENEW_HEAL               = 391359,
-    SPELL_PRIEST_EPIPHANY                           = 414553,
-    SPELL_PRIEST_EPIPHANY_HIGHLIGHT                 = 414556,
+    // SPELL_PRIEST_EPIPHANY / EPIPHANY_HIGHLIGHT removed - 414553/414556 is a Shadowlands-era
+    // Discipline talent (Power Word: Radiance/Prayer of Mending free-cast proc), confirmed
+    // forward drift: no "Epiphany" spell of any id in the real 7.3.5.26972 client data fits
+    // this mechanic. See ARGUSCORE_FIXES.md.
     SPELL_PRIEST_ESSENCE_DEVOURER                   = 415479,
     SPELL_PRIEST_ESSENCE_DEVOURER_SHADOWFIEND_HEAL  = 415673,
     SPELL_PRIEST_ESSENCE_DEVOURER_MINDBENDER_HEAL   = 415676,
@@ -117,7 +116,6 @@ enum PriestSpells
     SPELL_PRIEST_HOLY_10_1_CLASS_SET_2P_CHOOSER     = 411097,
     SPELL_PRIEST_HOLY_10_1_CLASS_SET_4P             = 405556,
     SPELL_PRIEST_HOLY_10_1_CLASS_SET_4P_EFFECT      = 409479,
-    SPELL_PRIEST_INDEMNITY                          = 373049,
     SPELL_PRIEST_ITEM_EFFICIENCY                    = 37595,
     SPELL_PRIEST_LEAP_OF_FAITH_EFFECT               = 92832,
     SPELL_PRIEST_LEVITATE_EFFECT                    = 111759,
@@ -126,7 +124,6 @@ enum PriestSpells
     SPELL_PRIEST_LINGERING_INSANITY                 = 197937,
     SPELL_PRIEST_MASOCHISM_TALENT                   = 193063,
     SPELL_PRIEST_MASOCHISM_PERIODIC_HEAL            = 193065,
-    SPELL_PRIEST_MASTERY_GRACE                      = 271534,
     SPELL_PRIEST_MIND_DEVOURER                      = 373202,
     SPELL_PRIEST_MIND_DEVOURER_AURA                 = 373204,
     SPELL_PRIEST_MINDBENDER_DISC                    = 123040,
@@ -177,8 +174,8 @@ enum PriestSpells
     SPELL_PRIEST_SHADOW_COVENANT                    = 314867,
     SPELL_PRIEST_SHADOW_COVENANT_EFFECT             = 322105,
     SPELL_PRIEST_RHAPSODY_PROC                      = 390636,
-    SPELL_PRIEST_SAY_YOUR_PRAYERS                   = 391186,
-    SPELL_PRIEST_SCHISM                             = 424509,
+    SPELL_PRIEST_SAY_YOUR_PRAYERS                   = 196358, // real Legion Honor Talent id (391186 is a later-expansion remake id)
+    SPELL_PRIEST_SCHISM                             = 214621, // Legion's real Schism has no separate "known" marker id in client data; script relies on this passive-copy pattern
     SPELL_PRIEST_SCHISM_AURA                        = 214621,
     SPELL_PRIEST_SEARING_LIGHT                      = 196811,
     SPELL_PRIEST_SHADOW_MEND_DAMAGE                 = 186439,
@@ -191,7 +188,7 @@ enum PriestSpells
     SPELL_PRIEST_SHIELD_DISCIPLINE                  = 197045,
     SPELL_PRIEST_SHIELD_DISCIPLINE_EFFECT           = 47755,
     SPELL_PRIEST_SIN_AND_PUNISHMENT                 = 87204,
-    SPELL_PRIEST_SINS_OF_THE_MANY                   = 280398,
+    SPELL_PRIEST_SINS_OF_THE_MANY                   = 198076, // real Legion id (198074 is the talent-tooltip parent; 198076 is the stacking aura this script casts/removes)
     SPELL_PRIEST_SMITE                              = 585,
     SPELL_PRIEST_SPIRIT_OF_REDEMPTION               = 27827,
     SPELL_PRIEST_STRENGTH_OF_SOUL                   = 197535,
@@ -463,8 +460,7 @@ class spell_pri_atonement_effect : public SpellScript
             SPELL_PRIEST_POWER_WORD_RADIANCE,
             SPELL_PRIEST_POWER_WORD_SHIELD
         }) && ValidateSpellEffect({
-            { SPELL_PRIEST_POWER_WORD_RADIANCE, EFFECT_3 },
-            { SPELL_PRIEST_INDEMNITY, EFFECT_0 }
+            { SPELL_PRIEST_POWER_WORD_RADIANCE, EFFECT_3 }
         });
     }
 
@@ -496,13 +492,6 @@ class spell_pri_atonement_effect : public SpellScript
 
         switch (GetSpellInfo()->Id)
         {
-            case SPELL_PRIEST_POWER_WORD_SHIELD:
-                if (AuraEffect const* indemnity = caster->GetAuraEffect(SPELL_PRIEST_INDEMNITY, EFFECT_0))
-                    args.AddSpellMod(SPELLVALUE_DURATION,
-                        (Seconds(indemnity->GetAmount())
-                            + Milliseconds(Aura::CalcMaxDuration(sSpellMgr->AssertSpellInfo(_effectSpellId, GetCastDifficulty()),
-                                caster, &GetSpell()->GetPowerCost()))).count());
-                break;
             case SPELL_PRIEST_POWER_WORD_RADIANCE:
                 // Power Word: Radiance applies Atonement at 60 % (without modifiers) of its total duration.
                 args.AddSpellMod(SPELLVALUE_DURATION_PCT, GetEffectInfo(EFFECT_3).CalcValue(caster));
@@ -936,26 +925,31 @@ struct areatrigger_pri_power_word_barrier : AreaTriggerAI
     }
 };
 
-// 63733 - Holy Words
+// 63733 - Serendipity ("Holy Words")
 class spell_pri_holy_words : public AuraScript
 {
-    bool Validate(SpellInfo const* /*spellInfo*/) override
+    bool Validate(SpellInfo const* spellInfo) override
     {
+        // Note: the cooldown-reduction magnitudes live on Serendipity's (this aura's) own
+        // effects (EFFECT_0-2 = Heal/Flash Heal->Serenity, Prayer of Healing->Sanctify,
+        // Smite->Chastise), not on the target spells - Sanctify/Chastise/Serenity don't carry
+        // matching effect slots for this in 7.3.5.26972. Renew triggering a Sanctify cd
+        // reduction (present in older code) isn't part of Serendipity's real tooltip/effect
+        // layout in this build and was dropped. See ARGUSCORE_FIXES.md.
         return ValidateSpellInfo(
         {
             SPELL_PRIEST_HEAL,
             SPELL_PRIEST_FLASH_HEAL,
             SPELL_PRIEST_PRAYER_OF_HEALING,
-            SPELL_PRIEST_RENEW,
             SPELL_PRIEST_SMITE,
             SPELL_PRIEST_HOLY_WORD_CHASTISE,
             SPELL_PRIEST_HOLY_WORD_SANCTIFY,
             SPELL_PRIEST_HOLY_WORD_SERENITY
         }) && ValidateSpellEffect(
         {
-            { SPELL_PRIEST_HOLY_WORD_SERENITY, EFFECT_1 },
-            { SPELL_PRIEST_HOLY_WORD_SANCTIFY, EFFECT_3 },
-            { SPELL_PRIEST_HOLY_WORD_CHASTISE, EFFECT_1 }
+            { spellInfo->Id, EFFECT_0 },
+            { spellInfo->Id, EFFECT_1 },
+            { spellInfo->Id, EFFECT_2 }
         });
     }
 
@@ -970,22 +964,17 @@ class spell_pri_holy_words : public AuraScript
         switch (spellInfo->Id)
         {
             case SPELL_PRIEST_HEAL:
-            case SPELL_PRIEST_FLASH_HEAL: // reduce Holy Word: Serenity cd by 6 seconds
+            case SPELL_PRIEST_FLASH_HEAL: // reduce Holy Word: Serenity cd
                 targetSpellId = SPELL_PRIEST_HOLY_WORD_SERENITY;
+                cdReductionEffIndex = EFFECT_0;
+                break;
+            case SPELL_PRIEST_PRAYER_OF_HEALING: // reduce Holy Word: Sanctify cd
+                targetSpellId = SPELL_PRIEST_HOLY_WORD_SANCTIFY;
                 cdReductionEffIndex = EFFECT_1;
-                // cdReduction = sSpellMgr->GetSpellInfo(SPELL_PRIEST_HOLY_WORD_SERENITY, GetCastDifficulty())->GetEffect(EFFECT_1)->CalcValue(player);
                 break;
-            case SPELL_PRIEST_PRAYER_OF_HEALING: // reduce Holy Word: Sanctify cd by 6 seconds
-                targetSpellId = SPELL_PRIEST_HOLY_WORD_SANCTIFY;
-                cdReductionEffIndex = EFFECT_2;
-                break;
-            case SPELL_PRIEST_RENEW: // reuce Holy Word: Sanctify cd by 2 seconds
-                targetSpellId = SPELL_PRIEST_HOLY_WORD_SANCTIFY;
-                cdReductionEffIndex = EFFECT_3;
-                break;
-            case SPELL_PRIEST_SMITE: // reduce Holy Word: Chastise cd by 4 seconds
+            case SPELL_PRIEST_SMITE: // reduce Holy Word: Chastise cd
                 targetSpellId = SPELL_PRIEST_HOLY_WORD_CHASTISE;
-                cdReductionEffIndex = EFFECT_1;
+                cdReductionEffIndex = EFFECT_2;
                 break;
             default:
                 TC_LOG_WARN("spells.priest", "HolyWords aura has been proced by an unknown spell: {}", GetSpellInfo()->Id);
@@ -993,7 +982,7 @@ class spell_pri_holy_words : public AuraScript
         }
 
         SpellInfo const* targetSpellInfo = sSpellMgr->AssertSpellInfo(targetSpellId, GetCastDifficulty());
-        int32 cdReduction = targetSpellInfo->GetEffect(cdReductionEffIndex).CalcValue(GetTarget());
+        int32 cdReduction = GetSpellInfo()->GetEffect(cdReductionEffIndex).CalcValue(GetTarget());
         GetTarget()->GetSpellHistory()->ModifyCooldown(targetSpellInfo, Seconds(-cdReduction), true);
     }
 
@@ -1459,10 +1448,7 @@ class spell_pri_power_word_shield : public AuraScript
             SPELL_PRIEST_SHIELD_DISCIPLINE_EFFECT,
             SPELL_PVP_RULES_ENABLED_HARDCODED
         }) && ValidateSpellEffect({
-            { SPELL_PRIEST_MASTERY_GRACE, EFFECT_0 },
-            { SPELL_PRIEST_RAPTURE, EFFECT_1 },
-            { SPELL_PRIEST_BENEVOLENCE, EFFECT_0 },
-            { SPELL_PRIEST_DIVINE_AEGIS, EFFECT_1 }
+            { SPELL_PRIEST_RAPTURE, EFFECT_1 }
         });
     }
 
@@ -1477,11 +1463,6 @@ class spell_pri_power_word_shield : public AuraScript
             if (Player* player = caster->ToPlayer())
             {
                 AddPct(modifiedAmount, player->GetRatingBonusValue(CR_VERSATILITY_DAMAGE_DONE));
-
-                // Mastery: Grace (TBD: move into DoEffectCalcDamageAndHealing hook with a new SpellScript and AuraScript).
-                if (AuraEffect const* masteryGraceEffect = caster->GetAuraEffect(SPELL_PRIEST_MASTERY_GRACE, EFFECT_0))
-                    if (GetUnitOwner()->HasAura(SPELL_PRIEST_ATONEMENT_EFFECT) || GetUnitOwner()->HasAura(SPELL_PRIEST_TRINITY_EFFECT))
-                        AddPct(modifiedAmount, masteryGraceEffect->GetAmount());
 
                 switch (player->GetPrimarySpecialization())
                 {
@@ -1502,21 +1483,11 @@ class spell_pri_power_word_shield : public AuraScript
             float critChanceTaken = GetUnitOwner()->SpellCritChanceTaken(caster, nullptr, auraEffect, GetSpellInfo()->GetSchoolMask(), critChanceDone, GetSpellInfo()->GetAttackType());
 
             if (roll_chance_f(critChanceTaken))
-            {
                 modifiedAmount *= 2;
-
-                // Divine Aegis
-                if (AuraEffect const* divineEff = caster->GetAuraEffect(SPELL_PRIEST_DIVINE_AEGIS, EFFECT_1))
-                    AddPct(modifiedAmount, divineEff->GetAmount());
-            }
 
             // Rapture talent (TBD: move into DoEffectCalcDamageAndHealing hook).
             if (AuraEffect const* raptureEffect = caster->GetAuraEffect(SPELL_PRIEST_RAPTURE, EFFECT_1))
                 AddPct(modifiedAmount, raptureEffect->GetAmount());
-
-            // Benevolence talent
-            if (AuraEffect const* benevolenceEffect = caster->GetAuraEffect(SPELL_PRIEST_BENEVOLENCE, EFFECT_0))
-                AddPct(modifiedAmount, benevolenceEffect->GetAmount());
 
             amount = modifiedAmount;
         }
@@ -1551,38 +1522,10 @@ class spell_pri_power_word_shield : public AuraScript
     }
 };
 
-// 47515 - Divine Aegis
-class spell_pri_divine_aegis : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellEffect({ { SPELL_PRIEST_DIVINE_AEGIS_ABSORB, EFFECT_0 } });
-    }
-
-    static bool CheckProc(AuraScript const&, ProcEventInfo const& eventInfo)
-    {
-        return eventInfo.GetHealInfo() != nullptr;
-    }
-
-    static void HandleProc(AuraScript const&, AuraEffect const* aurEff, ProcEventInfo const& eventInfo)
-    {
-        Unit* caster = eventInfo.GetActor();
-        if (!caster)
-            return;
-
-        int32 aegisAmount = CalculatePct(eventInfo.GetHealInfo()->GetHeal(), aurEff->GetAmount());
-
-        CastSpellExtraArgs args(aurEff);
-        args.SetTriggerFlags(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
-        args.AddSpellMod(SPELLVALUE_BASE_POINT0, aegisAmount);
-        caster->CastSpell(eventInfo.GetProcTarget(), SPELL_PRIEST_DIVINE_AEGIS_ABSORB, args);
-    }
-
-    void Register() override
-    {
-        OnEffectProc += AuraEffectProcFn(spell_pri_divine_aegis::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
+// spell_pri_divine_aegis removed - bound to spell 47515, which doesn't exist in 7.3.5.26972's
+// client data under any id or name. Divine Aegis (Cata/MoP/WoD heal-crit shield proc) was
+// removed from the game in Legion's Discipline Priest redesign in favor of Atonement. See
+// ARGUSCORE_FIXES.md.
 
 // 129250 - Power Word: Solace
 class spell_pri_power_word_solace : public SpellScript
@@ -1652,9 +1595,7 @@ class spell_pri_prayer_of_mending_dummy : public spell_pri_prayer_of_mending_Spe
     {
         return ValidateSpellInfo
         ({
-            SPELL_PRIEST_PRAYER_OF_MENDING_AURA,
-            SPELL_PRIEST_EPIPHANY,
-            SPELL_PRIEST_EPIPHANY_HIGHLIGHT
+            SPELL_PRIEST_PRAYER_OF_MENDING_AURA
         });
     }
 
@@ -1667,10 +1608,6 @@ class spell_pri_prayer_of_mending_dummy : public spell_pri_prayer_of_mending_Spe
         uint8 stackAmount = target->HasAura(SPELL_PRIEST_PRAYER_OF_MENDING_AURA, caster->GetGUID()) ? GetEffectValue() : GetEffectValue() + 1;
 
         CastPrayerOfMendingAura(caster, target, caster, stackAmount, true);
-
-        // Note: Epiphany talent.
-        if (caster->HasAura(SPELL_PRIEST_EPIPHANY))
-            caster->RemoveAurasDueToSpell(SPELL_PRIEST_EPIPHANY_HIGHLIGHT);
     }
 
     void Register() override
@@ -2847,7 +2784,6 @@ void AddSC_priest_spell_scripts()
     RegisterSpellScript(spell_pri_atonement_passive);
     RegisterSpellScript(spell_pri_benediction);
     RegisterSpellScript(spell_pri_circle_of_healing);
-    RegisterSpellScript(spell_pri_divine_aegis);
     RegisterSpellScript(spell_pri_divine_star_shadow);
     RegisterAreaTriggerAI(areatrigger_pri_divine_star);
     RegisterSpellScript(spell_pri_evangelism);

@@ -1210,6 +1210,15 @@ char const* GetCascFilenamePart(char const* cascPath)
     return cascPath;
 }
 
+int64 GetDB2FileDataSize(uint32 fileDataId)
+{
+    DB2CascFileSource source(CascStorage, fileDataId, false);
+    if (!source.IsOpen())
+        return -1;
+
+    return source.GetFileSize();
+}
+
 void ExtractDBFilesClient(int l)
 {
     printf("Extracting dbc/db2 files...\n");
@@ -1226,7 +1235,17 @@ void ExtractDBFilesClient(int l)
     {
         boost::filesystem::path filePath = localePath / db2.Name;
 
-        if (!boost::filesystem::exists(filePath))
+        // Mere on-disk presence isn't proof the file is complete or current - re-verify
+        // against CASC's currently-reported size before skipping, instead of trusting bare
+        // path existence.
+        bool needsExtract = !boost::filesystem::exists(filePath);
+        if (!needsExtract)
+        {
+            int64 cascFileSize = GetDB2FileDataSize(db2.FileDataId);
+            needsExtract = cascFileSize < 0 || boost::filesystem::file_size(filePath) != uint64(cascFileSize);
+        }
+
+        if (needsExtract)
             if (ExtractDB2File(db2.FileDataId, db2.Name, l, filePath.string()))
                 ++count;
     }

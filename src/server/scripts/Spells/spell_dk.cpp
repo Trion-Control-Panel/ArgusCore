@@ -106,7 +106,6 @@ enum DeathKnightSpells
     SPELL_DK_RUNIC_RETURN                       = 61258,
     SPELL_DK_SLUDGE_BELCHER                     = 207313,
     SPELL_DK_SLUDGE_BELCHER_SUMMON              = 212027,
-    SPELL_DK_SOUL_REAPER                        = 114866,
     SPELL_DK_SOUL_REAPER_DAMAGE                 = 114867,
     SPELL_DK_UNHOLY                             = 137007,
     SPELL_DK_UNHOLY_VIGOR                       = 196263,
@@ -1502,7 +1501,11 @@ public:
 
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_DK_SOUL_REAPER, SPELL_DK_SOUL_REAPER_DAMAGE, SPELL_DK_RUNIC_CORRUPTION });
+        // Note: SPELL_DK_SOUL_REAPER (114866) is an older per-expansion copy id not present in
+        // 7.3.5.26972's client data; it isn't otherwise referenced by this class (only
+        // SPELL_DK_SOUL_REAPER_DAMAGE is actually cast), so it's dropped from this check rather
+        // than blocking registration for the real Legion copy (130736). See ARGUSCORE_FIXES.md.
+        return ValidateSpellInfo({ SPELL_DK_SOUL_REAPER_DAMAGE, SPELL_DK_RUNIC_CORRUPTION });
     }
 
     void HandleOnTick(AuraEffect const* aurEff) const
