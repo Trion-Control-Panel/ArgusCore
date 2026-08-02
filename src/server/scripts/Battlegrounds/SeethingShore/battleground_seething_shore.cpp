@@ -138,7 +138,7 @@ namespace SeethingShore
         static constexpr uint32 RocketParachute2 = 250921;
 
         static constexpr uint32 NoFallingDamage = 262359;
-        static constexpr uint32 Parachute = 269779;
+        static constexpr uint32 Parachute = 250922; // real id ("Protects the caster from falling damage"), numerically adjacent to the already-correct RocketParachute (250917/250921)
 
         static constexpr std::array<uint32, 3> SummonAzeriteCaptureNodeSpells = { SummonAzeriteCaptureNode1, SummonAzeriteCaptureNode2, SummonAzeriteCaptureNode3 };
 

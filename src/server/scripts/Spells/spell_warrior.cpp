@@ -61,8 +61,6 @@ enum WarriorSpells
     SPELL_WARRIOR_FUELED_BY_VIOLENCE_HEAL           = 383104,
     SPELL_WARRIOR_FURIOUS_SLASH                     = 100130,
     SPELL_WARRIOR_GLYPH_OF_THE_BLAZING_TRAIL        = 123779,
-    SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP              = 159708,
-    SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP_BUFF         = 133278,
     SPELL_WARRIOR_HAMSTRING                         = 1715,
     // Long-lived, stable id (used unchanged from Cataclysm onward per WebSearch/Wowhead patch
     // history) - corroborated by two independent reference sources' own SPELL_WARRIOR_HEROIC_LEAP_DAMAGE.
@@ -74,7 +72,6 @@ enum WarriorSpells
     SPELL_WARRIOR_IN_FOR_THE_KILL_HASTE             = 248622,
     SPELL_WARRIOR_IMPENDING_VICTORY                 = 202168,
     SPELL_WARRIOR_IMPENDING_VICTORY_HEAL            = 202166,
-    SPELL_WARRIOR_IMPROVED_HEROIC_LEAP              = 157449,
     SPELL_WARRIOR_INSPIRING_PRESENCE                = 222944,
     SPELL_WARRIOR_LAST_STAND_TRIGGERED              = 12976,
     SPELL_WARRIOR_MASSACRE                          = 206315,
@@ -119,7 +116,7 @@ enum WarriorSpells
     SPELL_WARRIOR_UNRIVALED_STRENGTH_EFFECT         = 200977,
     SPELL_WARRIOR_VICTORIOUS                        = 32216,
     SPELL_WARRIOR_VICTORY_RUSH_HEAL                 = 118779,
-    SPELL_WARRIOR_WARBREAKER                        = 262161,
+    SPELL_WARRIOR_WARBREAKER                        = 209577, // real Legion Artifact ability id (262161 is a later-expansion remake id)
     SPELL_WARRIOR_WEAKENED_BLOWS                    = 115798,
     SPELL_WARRIOR_WHIRLWIND_ARMS                    = 1680,
     SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA             = 85739,
@@ -1007,24 +1004,19 @@ class spell_warr_heroic_leap_jump : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
+        // Note: Glyph of Heroic Leap / Glyph of Heroic Leap Buff / Improved Heroic Leap
+        // (159708 / 133278 / 157449) removed - confirmed absent from Spell.db2 under any id
+        // or name in 7.3.5.26972 (the old active-glyph system these belonged to was removed
+        // from the game before Legion). See ARGUSCORE_FIXES.md.
         return ValidateSpellInfo(
         {
-            SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP,
-            SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP_BUFF,
-            SPELL_WARRIOR_HEROIC_LEAP_DAMAGE,
-            SPELL_WARRIOR_IMPROVED_HEROIC_LEAP,
-            SPELL_WARRIOR_TAUNT
+            SPELL_WARRIOR_HEROIC_LEAP_DAMAGE
         });
     }
 
     void AfterJump(SpellEffIndex /*effIndex*/)
     {
         GetCaster()->CastSpell(GetCaster(), SPELL_WARRIOR_HEROIC_LEAP_DAMAGE, true);
-
-        if (GetCaster()->HasAura(SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP))
-            GetCaster()->CastSpell(GetCaster(), SPELL_WARRIOR_GLYPH_OF_HEROIC_LEAP_BUFF, true);
-        if (GetCaster()->HasAura(SPELL_WARRIOR_IMPROVED_HEROIC_LEAP))
-            GetCaster()->GetSpellHistory()->ResetCooldown(SPELL_WARRIOR_TAUNT, true);
     }
 
     void Register() override

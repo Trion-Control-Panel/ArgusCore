@@ -4364,7 +4364,10 @@ class spell_gen_vehicle_control_link : public AuraScript
 enum FreezingCircleMisc
 {
     SPELL_FREEZING_CIRCLE_PIT_OF_SARON_NORMAL = 69574,
-    SPELL_FREEZING_CIRCLE_PIT_OF_SARON_HEROIC = 70276,
+    // 70276 (a distinct Heroic-only id) doesn't exist in this build - difficulty scaling for
+    // this era is per-DifficultyID SpellEffect rows on a single spell id, not separate spell
+    // ids; GetSpellInfo(spellId, GetCastDifficulty()) already resolves the right values.
+    SPELL_FREEZING_CIRCLE_PIT_OF_SARON_HEROIC = SPELL_FREEZING_CIRCLE_PIT_OF_SARON_NORMAL,
     SPELL_FREEZING_CIRCLE                     = 34787,
     SPELL_FREEZING_CIRCLE_SCENARIO            = 141383,
     MAP_ID_BLOOD_IN_THE_SNOW_SCENARIO         = 1130

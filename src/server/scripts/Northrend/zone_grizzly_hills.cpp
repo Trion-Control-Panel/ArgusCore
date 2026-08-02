@@ -818,7 +818,7 @@ private:
 enum WarheadSpells
 {
     SPELL_WARHEAD_Z_CHECK               = 61678,
-    SPELL_WARHEAD_SEEKING_LUMBERSHIP    = 49331,
+    SPELL_WARHEAD_SEEKING_LUMBERSHIP    = 49332, // real id is "Warhead Seeking Mine" (49331 is off by one, doesn't exist)
     SPELL_WARHEAD_FUSE                  = 49181
 };
 // 49107 - Vehicle: Warhead Fuse
