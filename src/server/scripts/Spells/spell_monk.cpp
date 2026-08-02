@@ -83,7 +83,6 @@ enum MonkSpells
     SPELL_MONK_CHI_WAVE_TARGET_SELECTOR                 = 132466,
     SPELL_MONK_COMBAT_CONDITIONING                      = 128595,
     SPELL_MONK_CRACKLING_JADE_LIGHTNING_CHANNEL         = 117952,
-    SPELL_MONK_CRACKLING_JADE_LIGHTNING_CHI_PROC        = 123333,
     SPELL_MONK_CRACKLING_JADE_LIGHTNING_KNOCKBACK       = 117962,
     SPELL_MONK_CRACKLING_JADE_LIGHTNING_KNOCKBACK_CD    = 117953,
     SPELL_MONK_DIZZYING_HAZE                            = 116330,
@@ -141,7 +140,6 @@ enum MonkSpells
     SPELL_MONK_SOOTHING_MIST_VISUAL                     = 125955,
     SPELL_MONK_SPIRIT_OF_THE_CRANE_AURA                 = 210802,
     SPELL_MONK_SPIRIT_OF_THE_CRANE_MANA                 = 210803,
-    SPELL_MONK_STANCE_OF_THE_SPIRITED_CRANE             = 154436,
     SPELL_MONK_STAGGER_DAMAGE_AURA                      = 124255,
     SPELL_MONK_STAGGER_HEAVY                            = 124273,
     SPELL_MONK_STAGGER_LIGHT                            = 124275,
@@ -898,30 +896,12 @@ class spell_monk_chi_wave_target_selector : public SpellScript
     bool _shouldHeal = true;
 };
 
-// 117952 - Crackling Jade Lightning
-class spell_monk_crackling_jade_lightning : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo(
-        {
-            SPELL_MONK_STANCE_OF_THE_SPIRITED_CRANE,
-            SPELL_MONK_CRACKLING_JADE_LIGHTNING_CHI_PROC
-        });
-    }
-
-    void OnTick(AuraEffect const* /*aurEff*/)
-    {
-        if (Unit* caster = GetCaster())
-            if (caster->HasAura(SPELL_MONK_STANCE_OF_THE_SPIRITED_CRANE))
-                caster->CastSpell(caster, SPELL_MONK_CRACKLING_JADE_LIGHTNING_CHI_PROC, TRIGGERED_FULL_MASK);
-    }
-
-    void Register() override
-    {
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_monk_crackling_jade_lightning::OnTick, EFFECT_0, SPELL_AURA_PERIODIC_DAMAGE);
-    }
-};
+// spell_monk_crackling_jade_lightning removed - its only job was granting a chi proc while
+// "Stance of the Spirited Crane" was active. That stance (and Mistweaver's whole dual-stance
+// system) was removed from the game before Legion; SPELL_MONK_STANCE_OF_THE_SPIRITED_CRANE
+// (154436) doesn't exist under any id/name in 7.3.5.26972's client data, and the class had no
+// other function - Crackling Jade Lightning's actual periodic damage is handled by the base
+// engine's own SpellEffect processing, not this script. See ARGUSCORE_FIXES.md.
 
 // 117959 - Crackling Jade Lightning
 class spell_monk_crackling_jade_lightning_knockback_proc_aura : public AuraScript
@@ -2978,7 +2958,6 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_chi_wave_damage_missile);
     RegisterSpellScript(spell_monk_chi_wave_heal_missile);
     RegisterSpellScript(spell_monk_chi_wave_target_selector);
-    RegisterSpellScript(spell_monk_crackling_jade_lightning);
     RegisterSpellScript(spell_monk_crackling_jade_lightning_knockback_proc_aura);
     RegisterSpellScript(spell_monk_dampen_harm);
     RegisterSpellScript(spell_monk_energizing_brew);
