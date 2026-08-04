@@ -307,8 +307,9 @@ class spell_dh_annihilation_damage : public SpellScript
 
     void Register() override
     {
+        // real Annihilation (201428/227518) EFFECT_1 is SPELL_EFFECT_WEAPON_PERCENT_DAMAGE, not WEAPON_DAMAGE
         OnEffectHitTarget += SpellEffectFn(spell_dh_annihilation_damage::HandleHit, EFFECT_0, SPELL_EFFECT_NORMALIZED_WEAPON_DMG);
-        OnEffectHitTarget += SpellEffectFn(spell_dh_annihilation_damage::HandleHit, EFFECT_1, SPELL_EFFECT_WEAPON_DAMAGE);
+        OnEffectHitTarget += SpellEffectFn(spell_dh_annihilation_damage::HandleHit, EFFECT_1, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
     }
 };
 
@@ -385,6 +386,9 @@ class spell_dh_charred_warblades : public AuraScript
     {
         DoCheckProc += AuraCheckProcFn(spell_dh_charred_warblades::CheckProc);
         AfterProc += AuraProcFn(spell_dh_charred_warblades::HandleAfterProc);
+        // FIXME: real Charred Warblades (213010) EFFECT_0 is a plain (non-periodic - no
+        // amplitude set) SPELL_AURA_DUMMY, not PERIODIC_DUMMY - this build's version doesn't
+        // accumulate-then-release on a timer; left unresolved rather than guess the real trigger.
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_dh_charred_warblades::HandleDummyTick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
 
@@ -588,7 +592,8 @@ class spell_dh_demon_blades : public AuraScript
 
     void Register() override
     {
-        OnEffectProc += AuraEffectProcFn(spell_dh_demon_blades::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+        // real Demon Blades (203555) EFFECT_0 is SPELL_AURA_PROC_TRIGGER_SPELL, not DUMMY
+        OnEffectProc += AuraEffectProcFn(spell_dh_demon_blades::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
     }
 };
 
@@ -613,7 +618,8 @@ class spell_dh_vengeful_retreat : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_dh_vengeful_retreat::HandleOnHit, EFFECT_0, SPELL_EFFECT_TRIGGER_SPELL);
+        // real Vengeful Retreat (198813) EFFECT_0 is SPELL_EFFECT_APPLY_AURA (a snare), not TRIGGER_SPELL
+        OnEffectHitTarget += SpellEffectFn(spell_dh_vengeful_retreat::HandleOnHit, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
     }
 };
 
@@ -646,26 +652,11 @@ class spell_dh_vengeful_retreat_trigger : public SpellScript
 
 // 203650 - Prepared (Fury refiller)
 // While active, periodically refunds Fury.
-class spell_dh_vengeful_retreat_fury_refiller : public AuraScript
-{
-    void Energize(AuraEffect const* /*aurEff*/)
-    {
-        PreventDefaultAction();
-
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
-
-        int32 fury = caster->GetPower(POWER_FURY);
-        int32 maxFury = caster->GetMaxPower(POWER_FURY);
-        caster->SetPower(POWER_FURY, std::min(fury + 4, maxFury));
-    }
-
-    void Register() override
-    {
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dh_vengeful_retreat_fury_refiller::Energize, EFFECT_0, SPELL_AURA_PERIODIC_ENERGIZE);
-    }
-};
+// Removed spell_dh_vengeful_retreat_fury_refiller: real 203650 EFFECT_0 is a plain
+// SPELL_AURA_MOD_POWER_REGEN (not a periodic-tick aura at all) - already implemented natively by
+// the engine (AuraEffect::HandleModPowerRegen, "implemented in Player::Regenerate"), so this
+// script's manual "every tick, add 4 Fury" logic was modeling the wrong mechanism entirely and
+// is redundant with what the base engine already does for this aura type.
 
 // 198013 - Eye Beam
 class spell_dh_eye_beam : public AuraScript
@@ -999,6 +990,10 @@ class spell_dh_fiery_brand_absorb : public AuraScript
             absorbAmount = CalculatePct(dmgInfo.GetDamage(), 40);
     }
 
+    // FIXME: real Fiery Brand (204022) EFFECT_0 is SPELL_AURA_PERIODIC_DUMMY, not SCHOOL_ABSORB -
+    // its own tooltip in this build ("Branded enemies deal X% less damage to you") describes a
+    // flat damage-taken reduction, not a self-absorb shield. This class's mechanic doesn't match
+    // the real spell; left unresolved rather than guess at a redesign.
     void Register() override
     {
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dh_fiery_brand_absorb::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
@@ -1093,7 +1088,8 @@ class spell_dh_fel_rush_charge : public SpellScript
 
     void Register() override
     {
-        OnEffectHit += SpellEffectFn(spell_dh_fel_rush_charge::HandleDamage, EFFECT_0, SPELL_EFFECT_CHARGE_DEST);
+        // real Fel Rush (197922/197923) EFFECT_0 is SPELL_EFFECT_JUMP_CHARGE, not CHARGE_DEST
+        OnEffectHit += SpellEffectFn(spell_dh_fel_rush_charge::HandleDamage, EFFECT_0, SPELL_EFFECT_JUMP_CHARGE);
     }
 };
 
@@ -1218,7 +1214,8 @@ class spell_dh_infernal_strike_jump : public SpellScript
 
     void Register() override
     {
-        OnEffectHit += SpellEffectFn(spell_dh_infernal_strike_jump::HandleImpact, EFFECT_0, SPELL_EFFECT_CHARGE_DEST);
+        // real Infernal Strike (189111) EFFECT_0 is SPELL_EFFECT_JUMP_CHARGE, not CHARGE_DEST
+        OnEffectHit += SpellEffectFn(spell_dh_infernal_strike_jump::HandleImpact, EFFECT_0, SPELL_EFFECT_JUMP_CHARGE);
     }
 };
 
@@ -1565,7 +1562,8 @@ class spell_dh_fel_barrage_proc : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_dh_fel_barrage_proc::CheckProc);
-        OnEffectProc += AuraEffectProcFn(spell_dh_fel_barrage_proc::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+        // real Fel Barrage Proc (222703) EFFECT_0 is SPELL_AURA_DUMMY, not PROC_TRIGGER_SPELL
+        OnEffectProc += AuraEffectProcFn(spell_dh_fel_barrage_proc::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -2046,7 +2044,8 @@ class spell_dh_nemesis : public AuraScript
 
     void Register() override
     {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_dh_nemesis::OnRemove, EFFECT_0, SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN, AURA_EFFECT_HANDLE_REAL);
+        // real Nemesis (206491) EFFECT_0 is SPELL_AURA_MOD_SCHOOL_MASK_DAMAGE_FROM_CASTER, not MOD_DAMAGE_PERCENT_TAKEN
+        AfterEffectRemove += AuraEffectRemoveFn(spell_dh_nemesis::OnRemove, EFFECT_0, SPELL_AURA_MOD_SCHOOL_MASK_DAMAGE_FROM_CASTER, AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -2738,10 +2737,14 @@ class spell_dh_metamorphosis_immunity : public SpellScript
             PreventHitEffect(effIndex);
     }
 
+    // real 201453 EFFECT_0 (not EFFECT_1) is the APPLY_AURA effect carrying SCHOOL_IMMUNITY;
+    // the second SpellEffectFn arg needs a SPELL_EFFECT_x effect-type value, not an aura type -
+    // SPELL_AURA_SCHOOL_IMMUNITY's numeric value (39) coincidentally matched SPELL_EFFECT_LANGUAGE
+    // instead of the real APPLY_AURA(6) effect type here.
     void Register() override
     {
-        OnEffectLaunch += SpellEffectFn(spell_dh_metamorphosis_immunity::PreventImmunity, EFFECT_1, SPELL_AURA_SCHOOL_IMMUNITY);
-        OnEffectHit += SpellEffectFn(spell_dh_metamorphosis_immunity::PreventImmunity, EFFECT_1, SPELL_AURA_SCHOOL_IMMUNITY);
+        OnEffectLaunch += SpellEffectFn(spell_dh_metamorphosis_immunity::PreventImmunity, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
+        OnEffectHit += SpellEffectFn(spell_dh_metamorphosis_immunity::PreventImmunity, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
     }
 };
 
@@ -2844,7 +2847,6 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_demon_spikes_buff);
     RegisterSpellScript(spell_dh_vengeful_retreat);
     RegisterSpellScript(spell_dh_vengeful_retreat_trigger);
-    RegisterSpellScript(spell_dh_vengeful_retreat_fury_refiller);
     RegisterSpellScript(spell_dh_razor_spikes);
     RegisterSpellScript(spell_dh_master_of_the_glaive);
     RegisterSpellScript(spell_dh_bloodlet);

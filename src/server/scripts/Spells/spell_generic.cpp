@@ -149,7 +149,8 @@ class spell_gen_adaptive_warding : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_gen_adaptive_warding::CheckProc);
-        OnEffectProc += AuraEffectProcFn(spell_gen_adaptive_warding::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+        // real Adaptive Warding (28764) EFFECT_0 is SPELL_AURA_MOD_STAT, not DUMMY
+        OnEffectProc += AuraEffectProcFn(spell_gen_adaptive_warding::HandleProc, EFFECT_0, SPELL_AURA_MOD_STAT);
     }
 };
 
@@ -878,18 +879,18 @@ class spell_gen_clone : public SpellScript
         GetHitUnit()->CastSpell(GetCaster(), uint32(GetEffectValue()), true);
     }
 
+    // This scriptname is bound to several unrelated clone-type spells (per spell_script_names),
+    // each with its own SCRIPT_EFFECT/DUMMY landing on a different effect index in this build's
+    // SpellEffect data - hardcoding EFFECT_1/EFFECT_2 per spell drifted independently for each
+    // binding. EFFECT_ALL matches whichever index actually holds the right effect type per spell
+    // (and simply doesn't fire, without erroring, for bindings like 49889 whose cloning is now
+    // handled entirely by the native SPELL_AURA_CLONE_CASTER aura instead of a script effect).
     void Register() override
     {
         if (m_scriptSpellId == SPELL_NIGHTMARE_FIGMENT_MIRROR_IMAGE)
-        {
-            OnEffectHitTarget += SpellEffectFn(spell_gen_clone::HandleScriptEffect, EFFECT_1, SPELL_EFFECT_DUMMY);
-            OnEffectHitTarget += SpellEffectFn(spell_gen_clone::HandleScriptEffect, EFFECT_2, SPELL_EFFECT_DUMMY);
-        }
+            OnEffectHitTarget += SpellEffectFn(spell_gen_clone::HandleScriptEffect, EFFECT_ALL, SPELL_EFFECT_DUMMY);
         else
-        {
-            OnEffectHitTarget += SpellEffectFn(spell_gen_clone::HandleScriptEffect, EFFECT_1, SPELL_EFFECT_SCRIPT_EFFECT);
-            OnEffectHitTarget += SpellEffectFn(spell_gen_clone::HandleScriptEffect, EFFECT_2, SPELL_EFFECT_SCRIPT_EFFECT);
-        }
+            OnEffectHitTarget += SpellEffectFn(spell_gen_clone::HandleScriptEffect, EFFECT_ALL, SPELL_EFFECT_SCRIPT_EFFECT);
     }
 };
 
@@ -1015,8 +1016,8 @@ class spell_gen_clone_weapon_aura : public AuraScript
 
     void Register() override
     {
-        OnEffectApply += AuraEffectApplyFn(spell_gen_clone_weapon_aura::OnApply, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
-        OnEffectRemove += AuraEffectRemoveFn(spell_gen_clone_weapon_aura::OnRemove, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
+        OnEffectApply += AuraEffectApplyFn(spell_gen_clone_weapon_aura::OnApply, EFFECT_0, SPELL_AURA_MOD_DISARM, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
+        OnEffectRemove += AuraEffectRemoveFn(spell_gen_clone_weapon_aura::OnRemove, EFFECT_0, SPELL_AURA_MOD_DISARM, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
     }
 
     uint32 prevItem = 0;
@@ -5124,12 +5125,7 @@ enum MajorHealingCooldownSpell
     SPELL_DRUID_TRANQUILITY              = 740,
     SPELL_DRUID_TRANQUILITY_HEAL         = 157982,
     SPELL_PRIEST_DIVINE_HYMN             = 64843,
-    SPELL_PRIEST_DIVINE_HYMN_HEAL        = 64844,
-    SPELL_PRIEST_LUMINOUS_BARRIER        = 271466,
-    SPELL_SHAMAN_HEALING_TIDE_TOTEM      = 108280,
-    SPELL_SHAMAN_HEALING_TIDE_TOTEM_HEAL = 114942,
-    SPELL_MONK_REVIVAL                   = 115310,
-    SPELL_EVOKER_REWIND                  = 363534
+    SPELL_PRIEST_DIVINE_HYMN_HEAL        = 64844
 };
 
 namespace MajorPlayerHealingCooldownHelpers
@@ -5151,22 +5147,15 @@ float GetBonusMultiplier(Unit const* unit, uint32 spellId)
                 bonusSpellId = SPELL_PRIEST_DIVINE_HYMN;
                 effIndex = EFFECT_1;
                 break;
-            case SPELL_PRIEST_LUMINOUS_BARRIER:
-                bonusSpellId = spellId;
-                effIndex = EFFECT_1;
-                break;
-            case SPELL_SHAMAN_HEALING_TIDE_TOTEM_HEAL:
-                bonusSpellId = SPELL_SHAMAN_HEALING_TIDE_TOTEM;
-                effIndex = EFFECT_2;
-                break;
-            case SPELL_MONK_REVIVAL:
-                bonusSpellId = spellId;
-                effIndex = EFFECT_4;
-                break;
-            case SPELL_EVOKER_REWIND:
-                bonusSpellId = spellId;
-                effIndex = EFFECT_3;
-                break;
+            // Healing Tide Totem (108280 - "heals all party or raid members... for X") and
+            // Revival (115310 - "heals all party and raid members... for X and clears...") don't
+            // mention an out-of-raid healing bonus anywhere in their real Legion tooltips, unlike
+            // Tranquility/Divine Hymn (both explicitly say "Healing increased by X% when not in a
+            // raid") - this mechanic doesn't apply to them in this expansion, so they were removed
+            // from this switch rather than kept pointing at a nonexistent effect. Priest's
+            // "Luminous Barrier" and Evoker's "Rewind" are both confirmed absent from this build's
+            // Spell.db2 under any id - Evoker itself didn't exist before Dragonflight - removed
+            // for the same reason as the rest of this pass's forward-drift cleanup.
             default:
                 return 0.0f;
         }
@@ -5192,9 +5181,7 @@ class spell_gen_major_healing_cooldown_modifier : public SpellScript
         return ValidateSpellEffect
         ({
             { SPELL_DRUID_TRANQUILITY,         EFFECT_2 },
-            { SPELL_PRIEST_DIVINE_HYMN,        EFFECT_1 },
-            { SPELL_SHAMAN_HEALING_TIDE_TOTEM, EFFECT_2 },
-            { SPELL_MONK_REVIVAL,              EFFECT_4 }
+            { SPELL_PRIEST_DIVINE_HYMN,        EFFECT_1 }
         });
     }
 
@@ -5210,17 +5197,13 @@ class spell_gen_major_healing_cooldown_modifier : public SpellScript
 };
 
 // 157982 - Tranquility (Heal)
-// 271466 - Luminous Barrier (Absorb)
-// 363534 - Rewind (Heal)
 class spell_gen_major_healing_cooldown_modifier_aura : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellEffect
         ({
-            { SPELL_DRUID_TRANQUILITY,         EFFECT_2 },
-            { SPELL_PRIEST_LUMINOUS_BARRIER,   EFFECT_1 },
-            { SPELL_EVOKER_REWIND,             EFFECT_3 }
+            { SPELL_DRUID_TRANQUILITY, EFFECT_2 }
         });
     }
 

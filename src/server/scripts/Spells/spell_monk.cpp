@@ -1405,7 +1405,8 @@ class spell_monk_power_strike_periodic : public AuraScript
 
     void Register() override
     {
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_monk_power_strike_periodic::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+        // real 121817 EFFECT_0 is SPELL_AURA_PERIODIC_TRIGGER_SPELL, not PERIODIC_DUMMY
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_monk_power_strike_periodic::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
     }
 };
 
@@ -1726,6 +1727,10 @@ class spell_monk_roll_aura : public AuraScript
         // Values need manual correction
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_monk_roll_aura::CalcMovementAmount, EFFECT_0, SPELL_AURA_MOD_SPEED_NO_CONTROL);
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_monk_roll_aura::CalcMovementAmount, EFFECT_2, SPELL_AURA_MOD_MINIMUM_SPEED);
+        // FIXME: real Roll (this class is bound to both 107427/109131) only has 5 effects
+        // (EFFECT_0-4: MOD_SPEED_NO_CONTROL, DISABLE_CASTING_EXCEPT_ABILITIES, MOD_MINIMUM_SPEED,
+        // WATER_WALK, USE_NORMAL_MOVEMENT_SPEED) - no MECHANIC_IMMUNITY effect anywhere, so these
+        // two hooks (EFFECT_5/6) have nothing to bind to in this build's data. Left unresolved.
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_monk_roll_aura::CalcImmunityAmount, EFFECT_5, SPELL_AURA_MECHANIC_IMMUNITY);
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_monk_roll_aura::CalcImmunityAmount, EFFECT_6, SPELL_AURA_MECHANIC_IMMUNITY);
 
@@ -1925,7 +1930,8 @@ class spell_monk_healing_elixirs_aura : public AuraScript
 
     void Register() override
     {
-        OnEffectProc += AuraEffectProcFn(spell_monk_healing_elixirs_aura::OnProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+        // real 122280 EFFECT_0 is SPELL_AURA_DUMMY, not PROC_TRIGGER_SPELL
+        OnEffectProc += AuraEffectProcFn(spell_monk_healing_elixirs_aura::OnProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -2162,8 +2168,11 @@ class spell_monk_mastery_combo_strikes_periodic_auras : public AuraScript
         }
         else
         {
-            AfterEffectApply += AuraEffectApplyFn(spell_monk_mastery_combo_strikes_periodic_auras::HandleApply, EFFECT_1, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
-            AfterEffectRemove += AuraEffectRemoveFn(spell_monk_mastery_combo_strikes_periodic_auras::HandleRemove, EFFECT_1, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+            // this branch covers several different spells sharing this scriptname; EFFECT_1 is
+            // wrong for at least 152175 (its real PERIODIC_DUMMY effect is at EFFECT_0) - use
+            // EFFECT_ALL so it matches whichever index actually holds it per spell
+            AfterEffectApply += AuraEffectApplyFn(spell_monk_mastery_combo_strikes_periodic_auras::HandleApply, EFFECT_ALL, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+            AfterEffectRemove += AuraEffectRemoveFn(spell_monk_mastery_combo_strikes_periodic_auras::HandleRemove, EFFECT_ALL, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
         }
     }
 };
@@ -2514,7 +2523,8 @@ class spell_monk_stagger : public AuraScript
 
     void Register() override
     {
-        OnEffectAbsorb += AuraEffectAbsorbFn(spell_monk_stagger::AbsorbNormal, EFFECT_1);
+        // real Stagger (115069) has only 1 SCHOOL_ABSORB effect (EFFECT_2), not one at EFFECT_1
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_monk_stagger::AbsorbNormal, EFFECT_2);
         OnEffectAbsorb += AuraEffectAbsorbFn(spell_monk_stagger::AbsorbMagic, EFFECT_2);
     }
 };
@@ -2775,13 +2785,16 @@ class spell_monk_whirling_dragon_punch : public AuraScript
 // 126892 - Zen Pilgrimage, 126895 - Zen Pilgrimage: Return
 // Hearthstone-style pair: teleports to the class order hall (or Peak of Serenity below level
 // 98, before Order Halls unlock) and saves a recall position, then teleports back and clears
-// the travel-form aura on return. One shared class bound to both spell ids - each hook only
-// fires for the effect index/type present on its own spell's data, so no cross-firing risk.
+// the travel-form aura on return. Split into two classes (previously one shared class bound to
+// both spell ids) - a single class registering both a TELEPORT_UNITS and a SCRIPT_EFFECT hook at
+// EFFECT_0 gets each hook checked against both bound spells' real data at load time, producing a
+// benign-but-noisy mismatch warning for whichever hook doesn't apply to a given spell, even
+// though only the matching hook actually fires at runtime either way.
 class spell_monk_zen_pilgrimage : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_MONK_ZEN_PILGRIMAGE, SPELL_MONK_ZEN_PILGRIMAGE_RETURN });
+        return ValidateSpellInfo({ SPELL_MONK_ZEN_PILGRIMAGE });
     }
 
     void HandleTeleport(SpellEffIndex effIndex)
@@ -2800,6 +2813,20 @@ class spell_monk_zen_pilgrimage : public SpellScript
             player->TeleportTo(870, 3818.55f, 1793.18f, 950.35f, player->GetOrientation());
     }
 
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_monk_zen_pilgrimage::HandleTeleport, EFFECT_0, SPELL_EFFECT_TELEPORT_UNITS);
+    }
+};
+
+// 126895 - Zen Pilgrimage: Return
+class spell_monk_zen_pilgrimage_return : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_ZEN_PILGRIMAGE_RETURN, SPELL_MONK_ZEN_PILGRIMAGE_RETURN_AURA });
+    }
+
     void HandleReturn(SpellEffIndex effIndex)
     {
         PreventHitDefaultEffect(effIndex);
@@ -2815,8 +2842,7 @@ class spell_monk_zen_pilgrimage : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_monk_zen_pilgrimage::HandleTeleport, EFFECT_0, SPELL_EFFECT_TELEPORT_UNITS);
-        OnEffectHitTarget += SpellEffectFn(spell_monk_zen_pilgrimage::HandleReturn, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+        OnEffectHitTarget += SpellEffectFn(spell_monk_zen_pilgrimage_return::HandleReturn, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
     }
 };
 
@@ -3013,6 +3039,7 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_touch_of_karma);
     RegisterSpellScript(spell_monk_whirling_dragon_punch);
     RegisterSpellScript(spell_monk_zen_pilgrimage);
+    RegisterSpellScript(spell_monk_zen_pilgrimage_return);
     RegisterSpellScript(spell_monk_zen_pulse);
     RegisterSpellScript(spell_monk_storm_earth_and_fire);
     RegisterCreatureAI(npc_monk_sef_spirit);

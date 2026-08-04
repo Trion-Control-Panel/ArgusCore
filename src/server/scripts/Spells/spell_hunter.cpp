@@ -551,6 +551,10 @@ class spell_hun_explosive_shot : public AuraScript
 
     void Register() override
     {
+        // FIXME: real Explosive Shot (212431) EFFECT_0 is SPELL_AURA_OVERRIDE_ACTIONBAR_SPELLS
+        // (an action-bar UI swap to "Explosive Shot: Detonate!", base value 212679 is that
+        // spell's own id) - not a periodic damage tick at all in this build. The real DoT
+        // delivery mechanism isn't confirmed from local data; left unresolved.
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_hun_explosive_shot::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
@@ -1230,8 +1234,8 @@ class spell_hun_misdirection : public AuraScript
 
     void Register() override
     {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_hun_misdirection::OnRemove, EFFECT_1, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
-        OnEffectProc += AuraEffectProcFn(spell_hun_misdirection::HandleProc, EFFECT_1, SPELL_AURA_DUMMY);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_hun_misdirection::OnRemove, EFFECT_1, SPELL_AURA_MOD_SCALE, AURA_EFFECT_HANDLE_REAL); // real 34477 EFFECT_1 is MOD_SCALE, not DUMMY
+        OnEffectProc += AuraEffectProcFn(spell_hun_misdirection::HandleProc, EFFECT_1, SPELL_AURA_MOD_SCALE);
     }
 };
 
@@ -1501,7 +1505,8 @@ class spell_hun_rangers_net : public AuraScript
 
     void Register() override
     {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_hun_rangers_net::HandleEffectRemove, EFFECT_0, SPELL_AURA_MOD_ROOT, AURA_EFFECT_HANDLE_REAL);
+        // real Ranger's Net (200108) EFFECT_0 is SPELL_AURA_MOD_ROOT_2, not MOD_ROOT
+        AfterEffectRemove += AuraEffectRemoveFn(spell_hun_rangers_net::HandleEffectRemove, EFFECT_0, SPELL_AURA_MOD_ROOT_2, AURA_EFFECT_HANDLE_REAL);
     }
 };
 

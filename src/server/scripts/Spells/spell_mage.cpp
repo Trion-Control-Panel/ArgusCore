@@ -349,15 +349,17 @@ class spell_mage_arcane_charge_clear : public SpellScript
 // 1449 - Arcane Explosion
 class spell_mage_arcane_explosion : public SpellScript
 {
+    // real Arcane Explosion (1449) only has 2 effects (EFFECT_0 SCHOOL_DAMAGE, EFFECT_1 ENERGIZE)
+    // - Validate() was checking the wrong index for SCHOOL_DAMAGE, and Reverberate
+    // (SPELL_MAGE_REVERBERATE, 281482) is confirmed absent from this build's Spell.db2 under any
+    // id or name - a Dragonflight Arcane Mage talent, not Legion content. Removed the whole
+    // HandleReverberate proc-chance branch; the real baseline "3+ targets + Arcane Mage talent"
+    // energize gate (CheckRequiredAuraForBaselineEnergize) is genuine and kept, rebound to EFFECT_1.
     bool Validate(SpellInfo const* spellInfo) override
     {
-        if (!ValidateSpellInfo({ SPELL_MAGE_ARCANE_MAGE, SPELL_MAGE_REVERBERATE }))
-            return false;
-
-        if (!ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 } }))
-            return false;
-
-        return spellInfo->GetEffect(EFFECT_1).IsEffect(SPELL_EFFECT_SCHOOL_DAMAGE);
+        return ValidateSpellInfo({ SPELL_MAGE_ARCANE_MAGE })
+            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_0 } })
+            && spellInfo->GetEffect(EFFECT_0).IsEffect(SPELL_EFFECT_SCHOOL_DAMAGE);
     }
 
     void CheckRequiredAuraForBaselineEnergize(SpellEffIndex effIndex)
@@ -366,30 +368,9 @@ class spell_mage_arcane_explosion : public SpellScript
             PreventHitDefaultEffect(effIndex);
     }
 
-    void HandleReverberate(SpellEffIndex effIndex)
-    {
-        bool procTriggered = [&]()
-        {
-            Unit const* caster = GetCaster();
-            AuraEffect const* triggerChance = caster->GetAuraEffect(SPELL_MAGE_REVERBERATE, EFFECT_0);
-            if (!triggerChance)
-                return false;
-
-            AuraEffect const* requiredTargets = caster->GetAuraEffect(SPELL_MAGE_REVERBERATE, EFFECT_1);
-            if (!requiredTargets)
-                return false;
-
-            return GetUnitTargetCountForEffect(EFFECT_1) >= requiredTargets->GetAmount() && roll_chance_i(triggerChance->GetAmount());
-        }();
-
-        if (!procTriggered)
-            PreventHitDefaultEffect(effIndex);
-    }
-
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_mage_arcane_explosion::CheckRequiredAuraForBaselineEnergize, EFFECT_0, SPELL_EFFECT_ENERGIZE);
-        OnEffectHitTarget += SpellEffectFn(spell_mage_arcane_explosion::HandleReverberate, EFFECT_2, SPELL_EFFECT_ENERGIZE);
+        OnEffectHitTarget += SpellEffectFn(spell_mage_arcane_explosion::CheckRequiredAuraForBaselineEnergize, EFFECT_1, SPELL_EFFECT_ENERGIZE);
     }
 };
 
@@ -2161,7 +2142,8 @@ class spell_mage_living_bomb_periodic : public AuraScript
 
     void Register() override
     {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_mage_living_bomb_periodic::AfterRemove, EFFECT_2, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        // real Living Bomb Periodic (217694) only has 2 effects - the DUMMY is at EFFECT_1, not EFFECT_2
+        AfterEffectRemove += AuraEffectRemoveFn(spell_mage_living_bomb_periodic::AfterRemove, EFFECT_1, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
     }
 };
 

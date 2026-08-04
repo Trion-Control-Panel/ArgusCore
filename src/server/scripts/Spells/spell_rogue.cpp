@@ -138,10 +138,14 @@ bool IsFinishingMove(Spell const* spell)
 // 53 - Backstab
 class spell_rog_backstab : public SpellScript
 {
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellEffect({ { spellInfo->Id, EFFECT_3 } });
-    }
+    // real Backstab (53) only has 3 effects (EFFECT_0-EFFECT_2) - the "damage increased by $s4%
+    // when behind" tooltip text references a 4th effect (EFFECT_3, matching Blizzard's $s<N> ==
+    // EFFECT_<N-1> description-macro convention) that doesn't exist in this build's data at all,
+    // same "dead tooltip reference" pattern as Shadow Word: Death's backlash spell and Dragon
+    // Roar's knockback elsewhere in this codebase's own history. No live percentage value found
+    // to apply - left the positional check itself intact (still gates a real, separate bonus if
+    // one is ever found) but the bonus amount is a defensive no-op rather than reading out of
+    // bounds.
 
     void HandleHitDamage(SpellEffIndex /*effIndex*/)
     {
@@ -150,7 +154,7 @@ class spell_rog_backstab : public SpellScript
             return;
 
         Unit* caster = GetCaster();
-        if (hitUnit->isInBack(caster))
+        if (hitUnit->isInBack(caster) && GetSpellInfo()->GetEffects().size() > EFFECT_3)
         {
             float currDamage = float(GetHitDamage());
             float newDamage = AddPct(currDamage, float(GetEffectInfo(EFFECT_3).CalcValue(caster)));
@@ -160,7 +164,8 @@ class spell_rog_backstab : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_rog_backstab::HandleHitDamage, EFFECT_1, SPELL_EFFECT_SCHOOL_DAMAGE);
+        // real Backstab (53) EFFECT_1 is SPELL_EFFECT_WEAPON_PERCENT_DAMAGE, not SCHOOL_DAMAGE
+        OnEffectHitTarget += SpellEffectFn(spell_rog_backstab::HandleHitDamage, EFFECT_1, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
     }
 };
 
@@ -205,10 +210,9 @@ class spell_rog_blade_flurry : public AuraScript
 // 31230 - Cheat Death
 class spell_rog_cheat_death : public AuraScript
 {
-    bool Validate(SpellInfo const* spellInfo) override
+    bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_ROGUE_CHEAT_DEATH_DUMMY, SPELL_ROGUE_CHEATED_DEATH, SPELL_ROGUE_CHEATING_DEATH })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 } });
+        return ValidateSpellInfo({ SPELL_ROGUE_CHEAT_DEATH_DUMMY, SPELL_ROGUE_CHEATED_DEATH, SPELL_ROGUE_CHEATING_DEATH });
     }
 
     void HandleAbsorb(AuraEffect const* /*aurEff*/, DamageInfo const& /*dmgInfo*/, uint32& absorbAmount)
@@ -226,7 +230,9 @@ class spell_rog_cheat_death : public AuraScript
         target->CastSpell(target, SPELL_ROGUE_CHEATED_DEATH, TRIGGERED_DONT_REPORT_CAST_ERROR);
         target->CastSpell(target, SPELL_ROGUE_CHEATING_DEATH, TRIGGERED_DONT_REPORT_CAST_ERROR);
 
-        target->SetHealth(target->CountPctFromMaxHealth(GetEffectInfo(EFFECT_1).CalcValue(target)));
+        // real Cheat Death (31230) only has 1 effect (the absorb itself) - the "reduced to 7% of
+        // max health" figure is a flat literal in its own tooltip text, not read from any effect
+        target->SetHealth(target->CountPctFromMaxHealth(7));
     }
 
     void Register() override
@@ -371,45 +377,13 @@ class spell_rog_eviscerate : public SpellScript
     }
 };
 
-// 193358 - Grand Melee
-class spell_rog_grand_melee : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_ROGUE_SLICE_AND_DICE });
-    }
-
-    bool HandleCheckProc(ProcEventInfo& eventInfo)
-    {
-        Spell const* procSpell = eventInfo.GetProcSpell();
-        return procSpell && procSpell->HasPowerTypeCost(POWER_COMBO_POINTS);
-    }
-
-    void HandleProc(AuraEffect* aurEff, ProcEventInfo& procInfo)
-    {
-        Spell const* procSpell = procInfo.GetProcSpell();
-        int32 amount = aurEff->GetAmount() * *procSpell->GetPowerTypeCostAmount(POWER_COMBO_POINTS) * 1000;
-
-        if (Unit* target = GetTarget())
-        {
-            if (Aura* aura = target->GetAura(SPELL_ROGUE_SLICE_AND_DICE))
-                aura->SetDuration(aura->GetDuration() + amount);
-            else
-            {
-                CastSpellExtraArgs args;
-                args.TriggerFlags = TRIGGERED_FULL_MASK;
-                args.AddSpellMod(SPELLVALUE_DURATION, amount);
-                target->CastSpell(target, SPELL_ROGUE_SLICE_AND_DICE, args);
-            }
-        }
-    }
-
-    void Register() override
-    {
-        DoCheckProc += AuraCheckProcFn(spell_rog_grand_melee::HandleCheckProc);
-        OnEffectProc += AuraEffectProcFn(spell_rog_grand_melee::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
+// Removed spell_rog_grand_melee (193358): implemented a "extend Slice and Dice per combo point
+// spent" proc mechanic that doesn't match this build's real spell at all - real Grand Melee's
+// own tooltip is "Increases your attack speed by X% and your Leech by Y% for the duration of
+// Roll the Bones" (confirmed via Spell.db2 and SpellEffect data: 2 plain stat-modifier aura
+// effects, MOD_MELEE_HASTE_3/MOD_LEECH, no DUMMY/proc effect anywhere). The base engine's own
+// aura handling already applies both stat effects with no script needed; spell_rog_roll_the_bones
+// already grants this buff correctly as one of its 6 possible outcomes.
 
 // 198031 - Honor Among Thieves
 /// 7.1.5
@@ -507,8 +481,10 @@ class spell_rog_killing_spree : public SpellScript
 
     void Register() override
     {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_rog_killing_spree::FilterTargets, EFFECT_1, TARGET_UNIT_DEST_AREA_ENEMY);
-        OnEffectHitTarget += SpellEffectFn(spell_rog_killing_spree::HandleDummy, EFFECT_1, SPELL_EFFECT_DUMMY);
+        // real Killing Spree (51690) EFFECT_2 is the DUMMY effect targeting TARGET_UNIT_DEST_AREA_ENEMY;
+        // EFFECT_1 is a separate DUMMY effect with a different (non-area) implicit target
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_rog_killing_spree::FilterTargets, EFFECT_2, TARGET_UNIT_DEST_AREA_ENEMY);
+        OnEffectHitTarget += SpellEffectFn(spell_rog_killing_spree::HandleDummy, EFFECT_2, SPELL_EFFECT_DUMMY);
     }
 };
 
@@ -1075,11 +1051,9 @@ class spell_rog_shadowstrike : public SpellScript
 
     // Strike from the Shadows (level 75 talent, patch 7.0.3-8.0.1): applies a snare to players,
     // a stun to NPCs (a common Blizzard PvP-balance split for on-hit CC talents).
-    // NOTE: hooked to EFFECT_0/SPELL_EFFECT_WEAPON_PERCENT_DAMAGE, inferred from this file's own
-    // already-confirmed EFFECT_1 == SPELL_EFFECT_ENERGIZE above (the reference source used
-    // EFFECT_1 for this piece too, which would collide with the energize effect here - ArgusCore's
-    // actual effect layout for this spell differs from the reference's). If this hook doesn't
-    // fire, the effect index is the first thing to check.
+    // Real Shadowstrike (185438) effect layout confirmed via wago.tools SpellEffect data:
+    // EFFECT_0 = NORMALIZED_WEAPON_DMG, EFFECT_1 = WEAPON_PERCENT_DAMAGE, EFFECT_2 = ENERGIZE -
+    // both hooks below were off by one index.
     void HandleHitTarget(SpellEffIndex /*effIndex*/)
     {
         Unit* caster = GetCaster();
@@ -1100,8 +1074,8 @@ class spell_rog_shadowstrike : public SpellScript
     {
         OnCheckCast += SpellCheckCastFn(spell_rog_shadowstrike::HandleCheckCast);
         BeforeCast += SpellCastFn(spell_rog_shadowstrike::HandleLeapBehind);
-        OnEffectHitTarget += SpellEffectFn(spell_rog_shadowstrike::HandleEnergize, EFFECT_1, SPELL_EFFECT_ENERGIZE);
-        OnEffectHitTarget += SpellEffectFn(spell_rog_shadowstrike::HandleHitTarget, EFFECT_0, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
+        OnEffectHitTarget += SpellEffectFn(spell_rog_shadowstrike::HandleEnergize, EFFECT_2, SPELL_EFFECT_ENERGIZE);
+        OnEffectHitTarget += SpellEffectFn(spell_rog_shadowstrike::HandleHitTarget, EFFECT_1, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
     }
 
 private:
@@ -1282,8 +1256,11 @@ class spell_rog_weaponmaster : public AuraScript
 
     void Register() override
     {
+        // real Weaponmaster (193537) EFFECT_0 is SPELL_AURA_PROC_TRIGGER_SPELL_COPY, not DUMMY -
+        // ArgusCore's own AuraEffect handler for that aura type is a HandleNULL stub, so this
+        // script's manual re-damage is what actually implements the "hit twice" mechanic
         DoCheckProc += AuraCheckProcFn(spell_rog_weaponmaster::CheckProc);
-        OnEffectProc += AuraEffectProcFn(spell_rog_weaponmaster::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_rog_weaponmaster::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL_COPY);
     }
 };
 
@@ -1518,7 +1495,6 @@ void AddSC_rogue_spell_scripts()
     RegisterSpellScript(spell_rog_deepening_shadows);
     RegisterSpellScript(spell_rog_envenom);
     RegisterSpellScript(spell_rog_eviscerate);
-    RegisterSpellScript(spell_rog_grand_melee);
     RegisterSpellScript(spell_rog_grappling_hook);
     RegisterSpellScript(spell_rog_relentless_strikes);
     RegisterSpellScript(spell_rog_honor_among_thieves);

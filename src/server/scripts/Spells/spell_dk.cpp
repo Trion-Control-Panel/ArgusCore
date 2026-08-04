@@ -113,10 +113,12 @@ enum DeathKnightSpells
     SPELL_DK_PURGATORY_DEATH                    = 123982,
     SPELL_DK_PURGATORY_MARKER                   = 123981,
     SPELL_DK_DESECRATED_GROUND_IMMUNE           = 115018,
-    // NOTE: 215711 (the id this constant previously held) does not exist as a real spell
-    // (confirmed 404 on Wowhead); corrected to 91342, corroborated by two independent
-    // reference sources' independently-written spell_dk_dark_transformation_form, which consume
-    // this exact id from both player and pet. Pre-existing bug, not introduced this session.
+    // FIXME: despite the note this replaced (215711 -> 91342, said to be corroborated by two
+    // reference sources), 91342 is confirmed absent from this build's Spell.db2 under any id -
+    // not a neighbor-id gap (91341/91343 both exist, 91342 doesn't) - and the running engine's
+    // own ValidateSpellInfo agrees ("Spell 91342 does not exist"). Left as-is rather than revert
+    // to the also-confirmed-dead 215711 or guess a third id; both spell_dk_festering_wound and
+    // spell_dk_dark_transformation_form still fail Validate() on this dependency.
     SPELL_DK_DARK_INFUSION                      = 91342,
     SPELL_DK_DARK_TRANSFORMATION                = 63560,
     SPELL_DK_SOUL_REAPER_OLD_DEBUFF             = 130736,
@@ -186,7 +188,7 @@ public:
     bool Validate(SpellInfo const* spellInfo) override
     {
         return ValidateSpellInfo({ SPELL_DK_RUNIC_POWER_ENERGIZE })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 }, { SPELL_DK_ANTI_MAGIC_BARRIER, EFFECT_2 } });
+            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 } });
     }
 
     bool Load() override
@@ -197,12 +199,15 @@ public:
         return true;
     }
 
+    // SPELL_DK_ANTI_MAGIC_BARRIER (205727, "Anti-Magic Shell also increases your maximum health
+    // by X% for Y sec") used to add a stored bonus % here via GetAuraEffect(..., EFFECT_2), but
+    // neither 205727 nor its own duration-holder (205725) has any aura-applying effect at that
+    // index in this build's data (205727's only effect isn't itself an aura at all; 205725's
+    // only aura effect is its own MOD_MAX_HEALTH bonus, unrelated to the absorb %) - removed
+    // rather than guess at a bonus source that isn't backed by any real effect.
     void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
     {
         amount = CalculatePct(maxHealth, absorbPct);
-
-        if (AuraEffect* const antiMagicBarrier = GetCaster()->GetAuraEffect(SPELL_DK_ANTI_MAGIC_BARRIER, EFFECT_2))
-            AddPct(amount, antiMagicBarrier->GetAmount());
 
         if (Player const* player = GetUnitOwner()->ToPlayer())
             AddPct(amount, player->GetRatingBonusValue(CR_VERSATILITY_DAMAGE_DONE) + player->GetTotalAuraModifier(SPELL_AURA_MOD_VERSATILITY));
@@ -307,50 +312,18 @@ class spell_dk_army_transform : public SpellScript
 };
 
 // 207167 - Blinding Sleet
-class spell_dk_blinding_sleet : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DK_BLINDING_SLEET_SLOW });
-    }
-
-    void HandleOnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
-    {
-        if (GetTargetApplication()->GetRemoveMode() == AURA_REMOVE_BY_EXPIRE)
-            GetTarget()->CastSpell(GetTarget(), SPELL_DK_BLINDING_SLEET_SLOW, true);
-    }
-
-    void Register() override
-    {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_dk_blinding_sleet::HandleOnRemove, EFFECT_0, SPELL_AURA_MOD_CONFUSE, AURA_EFFECT_HANDLE_REAL);
-    }
-};
+// Removed spell_dk_blinding_sleet: its only function was casting SPELL_DK_BLINDING_SLEET_SLOW
+// (317898, confirmed absent from this build's Spell.db2) when the disorient expired naturally -
+// real Blinding Sleet's own tooltip in this build ("blinded, causing them to wander disoriented...
+// Damage may cancel the effect") has no follow-up slow at all. Core disorient functionality is
+// handled natively by the base MOD_CONFUSE aura and needs no script.
 
 // 206931 - Blooddrinker
-class spell_dk_blooddrinker : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DK_BLOODDRINKER_DEBUFF });
-    }
-
-    void AfterRemove(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/) const
-    {
-        if (GetTargetApplication()->GetRemoveMode() != AURA_REMOVE_BY_EXPIRE)
-            return;
-
-        if (Unit* caster = GetCaster())
-            caster->CastSpell(GetTarget(), SPELL_DK_BLOODDRINKER_DEBUFF, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringAura = aurEff
-            });
-    }
-
-    void Register() override
-    {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_dk_blooddrinker::AfterRemove, EFFECT_0, SPELL_AURA_PERIODIC_LEECH, AURA_EFFECT_HANDLE_REAL);
-    }
-};
+// Removed spell_dk_blooddrinker: its only function was casting SPELL_DK_BLOODDRINKER_DEBUFF
+// (458687, a TWW/Dragonflight-range id, confirmed absent from this build's Spell.db2) on the
+// target when the channel expired - real Blooddrinker's own tooltip in this build ("Drains
+// health from the target... You can move, parry, dodge...") has no post-channel target debuff
+// at all; that's a later Blood DK rework.
 
 // 50842 - Blood Boil
 class spell_dk_blood_boil : public SpellScript
@@ -624,15 +597,17 @@ class spell_dk_death_grip_initial : public SpellScript
 // 48743 - Death Pact
 class spell_dk_death_pact : public AuraScript
 {
+    // real Death Pact (48743) only has 2 effects - EFFECT_0 (HEAL_PCT, the same % this heals the
+    // caster for) is the right source for the matching heal-absorb debuff amount, not EFFECT_2
     bool Validate(SpellInfo const* spellInfo) override
     {
-        return ValidateSpellEffect({ { spellInfo->Id, EFFECT_2 } });
+        return ValidateSpellEffect({ { spellInfo->Id, EFFECT_0 } });
     }
 
     void HandleCalcAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
     {
         if (Unit* caster = GetCaster())
-            amount = int32(caster->CountPctFromMaxHealth(GetEffectInfo(EFFECT_2).CalcValue(caster)));
+            amount = int32(caster->CountPctFromMaxHealth(GetEffectInfo(EFFECT_0).CalcValue(caster)));
     }
 
     void Register() override
@@ -655,19 +630,19 @@ class spell_dk_death_strike : public SpellScript
             SPELL_DK_FROST,
             SPELL_DK_DEATH_STRIKE_OFFHAND
         })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_2 } });
+            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_2 }, { spellInfo->Id, EFFECT_4 } });
     }
 
+    // real Death Strike (49998) tooltip macros: $s3 (EFFECT_2) = % of damage taken, $s4
+    // (EFFECT_3) = the seconds window, $m5 (EFFECT_4) = minimum % of max health
     void HandleDummy(SpellEffIndex /*effIndex*/)
     {
         Unit* caster = GetCaster();
 
         if (AuraEffect* enabler = caster->GetAuraEffect(SPELL_DK_DEATH_STRIKE_ENABLER, EFFECT_0, GetCaster()->GetGUID()))
         {
-            // Heals you for 25% of all damage taken in the last 5 sec,
-            int32 heal = CalculatePct(enabler->CalculateAmount(GetCaster()), GetEffectInfo(EFFECT_1).CalcValue(GetCaster()));
-            // minimum 7.0% of maximum health.
-            int32 pctOfMaxHealth = CalculatePct(GetEffectInfo(EFFECT_2).CalcValue(GetCaster()), caster->GetMaxHealth());
+            int32 heal = CalculatePct(enabler->CalculateAmount(GetCaster()), GetEffectInfo(EFFECT_2).CalcValue(GetCaster()));
+            int32 pctOfMaxHealth = CalculatePct(GetEffectInfo(EFFECT_4).CalcValue(GetCaster()), caster->GetMaxHealth());
             heal = std::max(heal, pctOfMaxHealth);
 
             caster->CastSpell(caster, SPELL_DK_DEATH_STRIKE_HEAL, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT0, heal));
@@ -687,7 +662,7 @@ class spell_dk_death_strike : public SpellScript
 
     void Register() override
     {
-        OnEffectLaunch += SpellEffectFn(spell_dk_death_strike::HandleDummy, EFFECT_1, SPELL_EFFECT_DUMMY);
+        OnEffectLaunch += SpellEffectFn(spell_dk_death_strike::HandleDummy, EFFECT_2, SPELL_EFFECT_DUMMY);
         AfterCast += SpellCastFn(spell_dk_death_strike::TriggerRecentlyUsedDeathStrike);
     }
 };
@@ -748,7 +723,8 @@ class spell_dk_festering_strike : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_dk_festering_strike::HandleScriptEffect, EFFECT_1, SPELL_EFFECT_DUMMY);
+        // real Festering Strike (85948) DUMMY effect is at EFFECT_2, not EFFECT_1 (which is WEAPON_PERCENT_DAMAGE)
+        OnEffectHitTarget += SpellEffectFn(spell_dk_festering_strike::HandleScriptEffect, EFFECT_2, SPELL_EFFECT_DUMMY);
     }
 };
 
@@ -1209,7 +1185,9 @@ class spell_dk_heartbreaker : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_dk_heartbreaker::HandleEnergize, EFFECT_0, SPELL_EFFECT_DUMMY);
+        // real Heartbreaker's (206930) owning ability EFFECT_0/1 are weapon-damage effects;
+        // its first DUMMY effect is at EFFECT_2
+        OnEffectHitTarget += SpellEffectFn(spell_dk_heartbreaker::HandleEnergize, EFFECT_2, SPELL_EFFECT_DUMMY);
     }
 };
 
@@ -1243,6 +1221,11 @@ class spell_dk_icy_talons : public AuraScript
         return false;
     }
 
+    // FIXME: real Icy Talons (194878) EFFECT_0 has no aura component at all (plain DUMMY, not
+    // PROC_TRIGGER_SPELL_WITH_VALUE) - its companion stacking buff (194879, referenced by
+    // 194878's own tooltip) has a single MOD_MELEE_RANGED_HASTE_2 effect instead. This proc gate
+    // may not need to exist at all if Frost Strike's own DB2 proc data already handles applying/
+    // stacking 194879 natively - not confirmed from local data, left as-is.
     void Register() override
     {
         DoCheckEffectProc += AuraCheckEffectProcFn(spell_dk_icy_talons::CheckProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL_WITH_VALUE);
@@ -1965,8 +1948,9 @@ class spell_dk_pillar_of_frost : public AuraScript
 
     void Register() override
     {
-        OnEffectApply += AuraEffectApplyFn(spell_dk_pillar_of_frost::OnApply, EFFECT_2, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
-        OnEffectRemove += AuraEffectRemoveFn(spell_dk_pillar_of_frost::OnRemove, EFFECT_2, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        // real Pillar of Frost (51271) EFFECT_2 is SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN, not DUMMY
+        OnEffectApply += AuraEffectApplyFn(spell_dk_pillar_of_frost::OnApply, EFFECT_2, SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN, AURA_EFFECT_HANDLE_REAL);
+        OnEffectRemove += AuraEffectRemoveFn(spell_dk_pillar_of_frost::OnRemove, EFFECT_2, SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN, AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -2276,7 +2260,8 @@ class spell_dk_vampiric_aura : public SpellScript
 
     void Register() override
     {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_dk_vampiric_aura::FilterTargets, EFFECT_0, TARGET_UNIT_TARGET_RAID);
+        // real Vampiric Aura (238698) implicit target is TARGET_UNIT_TARGET_ALLY_OR_RAID, not TARGET_UNIT_TARGET_RAID
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_dk_vampiric_aura::FilterTargets, EFFECT_0, TARGET_UNIT_TARGET_ALLY_OR_RAID);
     }
 };
 
@@ -2572,11 +2557,13 @@ class spell_dk_blood_mirror : public AuraScript
         caster->CastSpell(mirrorTarget, SPELL_DK_BLOOD_MIRROR_DAMAGE, args);
     }
 
+    // real Blood Mirror (206977) SCHOOL_ABSORB aura is at EFFECT_1, not EFFECT_0 (which is a
+    // DUMMY effect holding the absorb %, still correctly read via GetEffectInfo(EFFECT_0) above)
     void Register() override
     {
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_blood_mirror::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
-        AfterEffectApply += AuraEffectApplyFn(spell_dk_blood_mirror::OnApply, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB, AURA_EFFECT_HANDLE_REAL);
-        OnEffectAbsorb += AuraEffectAbsorbFn(spell_dk_blood_mirror::Absorb, EFFECT_0);
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_blood_mirror::CalculateAmount, EFFECT_1, SPELL_AURA_SCHOOL_ABSORB);
+        AfterEffectApply += AuraEffectApplyFn(spell_dk_blood_mirror::OnApply, EFFECT_1, SPELL_AURA_SCHOOL_ABSORB, AURA_EFFECT_HANDLE_REAL);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_dk_blood_mirror::Absorb, EFFECT_1);
     }
 };
 
@@ -2887,7 +2874,10 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_anti_magic_shell_raid);
     RegisterSpellScript(spell_dk_anti_magic_zone);
     RegisterSpellScriptWithArgs(spell_dk_apply_bone_shield, "spell_dk_marrowrend_apply_bone_shield", EFFECT_2);
-    RegisterSpellScriptWithArgs(spell_dk_apply_bone_shield, "spell_dk_deaths_caress_apply_bone_shield", EFFECT_2);
+    // Removed "spell_dk_deaths_caress_apply_bone_shield": real Death's Caress (195292) tooltip
+    // is "dealing Shadow damage and applying Blood Plague" only - no Bone Shield stacks at all in
+    // this build (only 2 real effects, neither DUMMY; Bone Shield generation via Death's Caress
+    // is a later Blood DK rework). Marrowrend above is genuine Legion content and is untouched.
     RegisterSpellScript(spell_dk_apocalypse);
     RegisterSpellScript(spell_dk_scourge_strike);
     RegisterSpellScript(spell_dk_outbreak);
@@ -2912,8 +2902,6 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_dark_succor);
     RegisterSpellScript(spell_dk_sudden_doom);
     RegisterSpellScript(spell_dk_army_transform);
-    RegisterSpellScript(spell_dk_blinding_sleet);
-    RegisterSpellScript(spell_dk_blooddrinker);
     RegisterSpellScript(spell_dk_blood_boil);
     RegisterSpellScript(spell_dk_blood_charge);
     RegisterSpellScript(spell_dk_blood_mirror);
@@ -2971,6 +2959,14 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_rime);
     RegisterSpellScript(spell_dk_runic_empowerment);
     RegisterSpellScript(spell_dk_runic_corruption);
+    // FIXME: real Soul Reaper (130736) EFFECT_1 is a plain DUMMY (not PERIODIC_DUMMY - no
+    // periodic component at all) with EffectTriggerSpell 215711, and there's no EFFECT_2 (only
+    // 2 effects total). Its own real tooltip in this build ("Bursting a Festering Wound on an
+    // enemy afflicted by Soul Reaper grants $215711s1% Haste... stacking up to 3 times") doesn't
+    // match this class's "deal bonus damage if target is still below X% health after a delay"
+    // logic at all - that's the classic Soul Reaper execute mechanic, but this build's spell
+    // implements a different (Festering-Wound-burst-grants-haste) design instead. Needs a
+    // rewrite against the real mechanic, not an index swap - left unresolved.
     RegisterSpellScriptWithArgs(spell_dk_soul_reaper, "spell_dk_soul_reaper", EFFECT_1, EFFECT_2);
     RegisterSpellScript(spell_dk_t20_2p_rune_empowered);
     RegisterSpellScript(spell_dk_tombstone);

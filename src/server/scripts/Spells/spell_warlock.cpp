@@ -668,7 +668,9 @@ class spell_warl_dark_pact : public AuraScript
 {
     bool Validate(SpellInfo const* spellInfo) override
     {
-        return ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 }, { spellInfo->Id, EFFECT_2 } });
+        // real Dark Pact (108416) only has 2 effects (EFFECT_0 SCHOOL_ABSORB, EFFECT_1 DUMMY) -
+        // no EFFECT_2 for the "% converted to absorb" factor this reads separately; left unresolved
+        return ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 } });
     }
 
     void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& canBeRecalculated)
@@ -679,7 +681,9 @@ class spell_warl_dark_pact : public AuraScript
             float extraAmount = caster->SpellBaseDamageBonusDone(GetSpellInfo()->GetSchoolMask()) * 2.5f;
             int32 absorb = caster->CountPctFromCurHealth(GetEffectInfo(EFFECT_1).CalcValue(caster));
             caster->SetHealth(caster->GetHealth() - absorb);
-            amount = CalculatePct(absorb, GetEffectInfo(EFFECT_2).CalcValue(caster)) + extraAmount;
+            // EFFECT_2 (the "% of drained health converted to absorb" factor) doesn't exist in
+            // this build - defaulting to a full 100% conversion rather than reading out of bounds
+            amount = absorb + int32(extraAmount);
         }
     }
 
@@ -883,10 +887,12 @@ class spell_warl_doom : public AuraScript
 // 198590 - Drain Soul
 class spell_warl_drain_soul : public AuraScript
 {
-    bool Validate(SpellInfo const* spellInfo) override
+    // real Drain Soul (198590) EFFECT_0 is SPELL_AURA_PERIODIC_LEECH, not PERIODIC_DAMAGE, and
+    // only has 2 effects total - the EFFECT_2 health-threshold % this reads has no data source
+    // in this build; guarded with a bounds check below rather than assumed.
+    bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo ({ SPELL_WARLOCK_DRAIN_SOUL_ENERGIZE })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_2 } });
+        return ValidateSpellInfo({ SPELL_WARLOCK_DRAIN_SOUL_ENERGIZE });
     }
 
     void HandleRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
@@ -900,14 +906,14 @@ class spell_warl_drain_soul : public AuraScript
 
     void CalculateDamage(AuraEffect const* /*aurEff*/, Unit const* victim, int32& /*damage*/, int32& /*flatMod*/, float& pctMod) const
     {
-        if (victim->HealthBelowPct(GetEffectInfo(EFFECT_2).CalcValue(GetCaster())))
+        if (GetSpellInfo()->GetEffects().size() > EFFECT_2 && victim->HealthBelowPct(GetEffectInfo(EFFECT_2).CalcValue(GetCaster())))
             AddPct(pctMod, GetEffectInfo(EFFECT_1).CalcValue(GetCaster()));
     }
 
     void Register() override
     {
-        AfterEffectRemove += AuraEffectApplyFn(spell_warl_drain_soul::HandleRemove, EFFECT_0, SPELL_AURA_PERIODIC_DAMAGE, AURA_EFFECT_HANDLE_REAL);
-        DoEffectCalcDamageAndHealing += AuraEffectCalcDamageFn(spell_warl_drain_soul::CalculateDamage, EFFECT_0, SPELL_AURA_PERIODIC_DAMAGE);
+        AfterEffectRemove += AuraEffectApplyFn(spell_warl_drain_soul::HandleRemove, EFFECT_0, SPELL_AURA_PERIODIC_LEECH, AURA_EFFECT_HANDLE_REAL);
+        DoEffectCalcDamageAndHealing += AuraEffectCalcDamageFn(spell_warl_drain_soul::CalculateDamage, EFFECT_0, SPELL_AURA_PERIODIC_LEECH);
     }
 };
 
@@ -1178,9 +1184,9 @@ class spell_warl_health_funnel : public AuraScript
 
     void Register() override
     {
-        OnEffectApply += AuraEffectApplyFn(spell_warl_health_funnel::ApplyEffect, EFFECT_0, SPELL_AURA_OBS_MOD_HEALTH, AURA_EFFECT_HANDLE_REAL);
-        OnEffectRemove += AuraEffectRemoveFn(spell_warl_health_funnel::RemoveEffect, EFFECT_0, SPELL_AURA_OBS_MOD_HEALTH, AURA_EFFECT_HANDLE_REAL);
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_warl_health_funnel::OnPeriodic, EFFECT_0, SPELL_AURA_OBS_MOD_HEALTH);
+        OnEffectApply += AuraEffectApplyFn(spell_warl_health_funnel::ApplyEffect, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        OnEffectRemove += AuraEffectRemoveFn(spell_warl_health_funnel::RemoveEffect, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_warl_health_funnel::OnPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
 

@@ -328,7 +328,8 @@ class spell_pal_blinding_light : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_pal_blinding_light::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+        // real Blinding Light (115750) EFFECT_0 is SPELL_EFFECT_APPLY_AURA, not DUMMY
+        OnEffectHitTarget += SpellEffectFn(spell_pal_blinding_light::HandleDummy, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
     }
 };
 
@@ -488,8 +489,9 @@ class spell_pal_divine_purpose : public AuraScript
 
     void Register() override
     {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_divine_purpose::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_pal_divine_purpose::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+        // real Divine Purpose (223817) EFFECT_0 is SPELL_AURA_PROC_TRIGGER_SPELL, not DUMMY
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_divine_purpose::CheckProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+        OnEffectProc += AuraEffectProcFn(spell_pal_divine_purpose::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
     }
 };
 
@@ -1036,7 +1038,8 @@ class spell_pal_grand_crusader : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_pal_grand_crusader::CheckProc);
-        OnEffectProc += AuraEffectProcFn(spell_pal_grand_crusader::HandleEffectProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+        // real Grand Crusader (85043) EFFECT_0 is SPELL_AURA_DUMMY, not PROC_TRIGGER_SPELL
+        OnEffectProc += AuraEffectProcFn(spell_pal_grand_crusader::HandleEffectProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -1080,7 +1083,8 @@ struct spell_pal_hammer_of_the_righteous : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_pal_hammer_of_the_righteous::HandleAoEHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+        // real Hammer of the Righteous (53595) EFFECT_0 is SPELL_EFFECT_WEAPON_PERCENT_DAMAGE, not SCHOOL_DAMAGE
+        OnEffectHitTarget += SpellEffectFn(spell_pal_hammer_of_the_righteous::HandleAoEHit, EFFECT_0, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
     }
 };
 
@@ -1953,6 +1957,10 @@ class spell_pal_aura_of_sacrifice : public AuraScript
 
     void Register() override
     {
+        // FIXME: real Aura of Sacrifice (183416) EFFECT_0 is SPELL_AURA_AREA_TRIGGER, not
+        // PERIODIC_DUMMY (5 effects total: AREA_TRIGGER, APPLY_AREA_AURA_PARTY, 2 DUMMYs, and a
+        // SCHOOL_ABSORB at EFFECT_4) - this looks like a modern areatrigger-driven redesign, not
+        // a simple index swap. Left unresolved.
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_pal_aura_of_sacrifice::HandleEffectPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
@@ -2065,7 +2073,8 @@ class spell_pal_word_of_glory : public SpellScript
 
     void Register() override
     {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pal_word_of_glory::FilterTargets, EFFECT_0, TARGET_UNIT_CASTER_AREA_PARTY);
+        // real Word of Glory (210191) implicit target is TARGET_UNIT_SRC_AREA_ALLY, not TARGET_UNIT_CASTER_AREA_PARTY
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pal_word_of_glory::FilterTargets, EFFECT_0, TARGET_UNIT_SRC_AREA_ALLY);
     }
 };
 

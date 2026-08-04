@@ -260,7 +260,8 @@ class spell_warr_avatar : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_warr_avatar::HandleRemoveImpairingAuras, EFFECT_5, SPELL_EFFECT_SCRIPT_EFFECT);
+        // real Avatar (107574) only has 3 effects - SCRIPT_EFFECT is at EFFECT_1, not EFFECT_5
+        OnEffectHitTarget += SpellEffectFn(spell_warr_avatar::HandleRemoveImpairingAuras, EFFECT_1, SPELL_EFFECT_SCRIPT_EFFECT);
     }
 };
 
@@ -364,7 +365,12 @@ class spell_warr_bloodthirst : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_warr_bloodthirst::CastHeal, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+        // real Bloodthirst (23881, per this class's own header comment) EFFECT_0 is
+        // SPELL_EFFECT_NORMALIZED_WEAPON_DMG, not SCHOOL_DAMAGE. Server.log's error cites spell
+        // 215568 (Fresh Meat) though, not 23881 - the spell_script_names binding for this
+        // scriptname may itself be wrong (bound to the wrong spell id); not verified against the
+        // live DB this pass, flagged as a possible follow-up.
+        OnEffectHitTarget += SpellEffectFn(spell_warr_bloodthirst::CastHeal, EFFECT_0, SPELL_EFFECT_NORMALIZED_WEAPON_DMG);
     }
 };
 
@@ -450,7 +456,8 @@ class spell_warr_charge_drop_fire_periodic : public AuraScript
 
     void Register() override
     {
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_warr_charge_drop_fire_periodic::DropFireVisual, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+        // real 126661 EFFECT_0 is SPELL_AURA_PERIODIC_TRIGGER_SPELL, not PERIODIC_DUMMY
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_warr_charge_drop_fire_periodic::DropFireVisual, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
     }
 };
 
@@ -1021,7 +1028,8 @@ class spell_warr_heroic_leap_jump : public SpellScript
 
     void Register() override
     {
-        OnEffectHit += SpellEffectFn(spell_warr_heroic_leap_jump::AfterJump, EFFECT_1, SPELL_EFFECT_JUMP_DEST);
+        // real Heroic Leap (178368) EFFECT_1 is SPELL_EFFECT_JUMP_CHARGE, not JUMP_DEST
+        OnEffectHit += SpellEffectFn(spell_warr_heroic_leap_jump::AfterJump, EFFECT_1, SPELL_EFFECT_JUMP_CHARGE);
     }
 };
 
@@ -1128,10 +1136,11 @@ class spell_warr_intimidating_shout : public SpellScript
         unitList.remove(GetExplTargetWorldObject());
     }
 
+    // real Intimidating Shout (5246) has TARGET_UNIT_SRC_AREA_ENEMY on 3 separate effects
+    // (indices 2/3/5, not 1/2) - EFFECT_ALL applies the same filter to all of them regardless
     void Register() override
     {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_warr_intimidating_shout::FilterTargets, EFFECT_1, TARGET_UNIT_SRC_AREA_ENEMY);
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_warr_intimidating_shout::FilterTargets, EFFECT_2, TARGET_UNIT_SRC_AREA_ENEMY);
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_warr_intimidating_shout::FilterTargets, EFFECT_ALL, TARGET_UNIT_SRC_AREA_ENEMY);
     }
 };
 
@@ -1537,6 +1546,11 @@ class spell_warr_rampage : public SpellScript
             SetHitDamage(GetHitDamage() / 2);
     }
 
+    // FIXME: real Rampage (184367) delivers its damage through 5 separate TRIGGER_SPELL effects
+    // (EFFECT_2-6, each casting a distinct sub-spell: 218617/184707/184709/201364/201363 per its
+    // own tooltip), not a single WEAPON_PERCENT_DAMAGE hit on EFFECT_1 (real EFFECT_1 is DUMMY).
+    // This cleave-halving logic would need to apply per sub-spell rather than here - left
+    // unresolved rather than guess which (if any) of the 5 it should bind to.
     void Register() override
     {
         OnCast += SpellCastFn(spell_warr_rampage::ConsumeCleaveAura);
@@ -1670,7 +1684,8 @@ class spell_warr_second_wind_heal : public AuraScript
 
     void Register() override
     {
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_warr_second_wind_heal::CalculateAmount, EFFECT_0, SPELL_AURA_PERIODIC_HEAL);
+        // real Second Wind Heal (202147) EFFECT_0 is SPELL_AURA_OBS_MOD_HEALTH, not PERIODIC_HEAL
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_warr_second_wind_heal::CalculateAmount, EFFECT_0, SPELL_AURA_OBS_MOD_HEALTH);
     }
 };
 
@@ -1795,7 +1810,8 @@ class spell_warr_shockwave : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_warr_shockwave::HandleStun, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+        // real Shockwave (46968) SCHOOL_DAMAGE is at EFFECT_1, not EFFECT_0 (which is DUMMY)
+        OnEffectHitTarget += SpellEffectFn(spell_warr_shockwave::HandleStun, EFFECT_1, SPELL_EFFECT_SCHOOL_DAMAGE);
     }
 };
 
@@ -1926,7 +1942,8 @@ class spell_warr_sudden_death : public AuraScript
 
     void Register() override
     {
-        AfterEffectApply += AuraEffectApplyFn(spell_warr_sudden_death::HandleApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        // real Sudden Death (52437) EFFECT_0 is SPELL_AURA_ABILITY_IGNORE_AURASTATE, not DUMMY
+        AfterEffectApply += AuraEffectApplyFn(spell_warr_sudden_death::HandleApply, EFFECT_0, SPELL_AURA_ABILITY_IGNORE_AURASTATE, AURA_EFFECT_HANDLE_REAL);
     }
 };
 

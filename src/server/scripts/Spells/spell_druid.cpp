@@ -245,7 +245,8 @@ class spell_dru_barkskin : public AuraScript
 
     void Register() override
     {
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dru_barkskin::HandlePeriodic, EFFECT_2, SPELL_AURA_PERIODIC_DUMMY);
+        // real Barkskin (22812) PERIODIC_DUMMY is at EFFECT_4 (5 effects total), not EFFECT_2
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dru_barkskin::HandlePeriodic, EFFECT_4, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
 
@@ -352,8 +353,8 @@ class spell_dru_killer_instinct : public AuraScript
 
     void Register() override
     {
-        AfterEffectApply += AuraEffectApplyFn(spell_dru_killer_instinct::AfterApply, EFFECT_0, SPELL_AURA_MOD_SHAPESHIFT, AURA_EFFECT_HANDLE_REAL);
-        AfterEffectRemove += AuraEffectRemoveFn(spell_dru_killer_instinct::AfterRemove, EFFECT_0, SPELL_AURA_MOD_SHAPESHIFT, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectApply += AuraEffectApplyFn(spell_dru_killer_instinct::AfterApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL); // real 108299 EFFECT_0 is DUMMY, not MOD_SHAPESHIFT
+        AfterEffectRemove += AuraEffectRemoveFn(spell_dru_killer_instinct::AfterRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -771,7 +772,10 @@ class spell_dru_efflorescence : public SpellScript
 
     void Register() override
     {
-        OnEffectLaunch += SpellEffectFn(spell_dru_efflorescence::RemoveOldAreaTrigger, EFFECT_2, SPELL_EFFECT_CREATE_AREATRIGGER);
+        // real Efflorescence (145205) has no CREATE_AREATRIGGER effect at all (EFFECT_2 is an
+        // empty/unused slot) - the summon itself is delivered via EFFECT_1 (SPELL_EFFECT_SUMMON,
+        // matching InitSummon() below), so the old-areatrigger cleanup is rebound there instead
+        OnEffectLaunch += SpellEffectFn(spell_dru_efflorescence::RemoveOldAreaTrigger, EFFECT_1, SPELL_EFFECT_SUMMON);
         AfterCast += SpellCastFn(spell_dru_efflorescence::InitSummon);
     }
 };
@@ -1837,6 +1841,10 @@ class spell_dru_shooting_stars : public AuraScript
 
     void Register() override
     {
+        // FIXME: real Shooting Stars (202342) EFFECT_0 is a plain SPELL_AURA_DUMMY (no amplitude
+        // set) - not periodic at all in this build, so OnEffectPeriodic can never fire regardless
+        // of aura-type match. The real trigger (likely proc-based, off Moonfire/Sunfire ticks) is
+        // not confirmed from local data; left unresolved rather than guess the wrong hook type.
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_dru_shooting_stars::OnTick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
 };

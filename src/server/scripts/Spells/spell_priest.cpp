@@ -355,8 +355,11 @@ class spell_pri_atonement : public AuraScript
 {
     bool Validate(SpellInfo const* spellInfo) override
     {
+        // real Sins of the Many (198076) only has EFFECT_0 in this build - UpdateSinsOfTheManyValue()
+        // already only touches whichever of EFFECT_0/1/2 actually exists via GetAuraEffect(),
+        // so requiring EFFECT_2 up front here was stricter than the code actually needs
         return ValidateSpellInfo({ SPELL_PRIEST_ATONEMENT_HEAL, SPELL_PRIEST_SINS_OF_THE_MANY })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 }, { SPELL_PRIEST_SINS_OF_THE_MANY, EFFECT_2 } });
+            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 } });
     }
 
     static bool CheckProc(AuraScript const&, ProcEventInfo const& eventInfo)
@@ -619,7 +622,8 @@ class spell_pri_circle_of_healing : public SpellScript
 
     void Register() override
     {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pri_circle_of_healing::FilterTargets, EFFECT_0, TARGET_UNIT_DEST_AREA_ALLY);
+        // real Circle of Healing (204883) TARGET_UNIT_DEST_AREA_ALLY is on EFFECT_1, not EFFECT_0
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pri_circle_of_healing::FilterTargets, EFFECT_1, TARGET_UNIT_DEST_AREA_ALLY);
     }
 };
 
@@ -828,8 +832,9 @@ class spell_pri_guardian_spirit : public AuraScript
 
     void Register() override
     {
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pri_guardian_spirit::CalculateAmount, EFFECT_1, SPELL_AURA_SCHOOL_ABSORB);
-        OnEffectAbsorb += AuraEffectAbsorbFn(spell_pri_guardian_spirit::Absorb, EFFECT_1);
+        // real Guardian Spirit (47788) SCHOOL_ABSORB is at EFFECT_2, not EFFECT_1 (which is a plain DUMMY)
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pri_guardian_spirit::CalculateAmount, EFFECT_2, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_pri_guardian_spirit::Absorb, EFFECT_2);
     }
 };
 
@@ -1216,7 +1221,8 @@ class spell_pri_phantasm : public SpellScript
 
     void Register() override
     {
-        OnEffectHit += SpellEffectFn(spell_pri_phantasm::HandleEffectHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+        // real Phantasm (114239) EFFECT_0 is SPELL_EFFECT_APPLY_AURA, not DUMMY
+        OnEffectHit += SpellEffectFn(spell_pri_phantasm::HandleEffectHit, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
     }
 };
 
@@ -1760,7 +1766,8 @@ class spell_pri_rapture : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_pri_rapture::HandleEffectDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+        // real Rapture (47536) EFFECT_0 is SPELL_EFFECT_APPLY_AURA, not DUMMY
+        OnEffectHitTarget += SpellEffectFn(spell_pri_rapture::HandleEffectDummy, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
         AfterCast += SpellCastFn(spell_pri_rapture::HandleAfterCast);
     }
 
@@ -2008,47 +2015,27 @@ class spell_pri_shadow_mend_periodic_damage : public AuraScript
 // 32379 - Shadow Word: Death
 class spell_pri_shadow_word_death : public SpellScript
 {
-    static constexpr Seconds BACKLASH_DELAY = 1s;
-
+    // real Shadow Word: Death (32379) only has 3 effects (EFFECT_0 SCHOOL_DAMAGE, EFFECT_1 DUMMY
+    // "health threshold %", EFFECT_2 DUMMY "damage bonus %") - the health-check/damage-bonus
+    // effects were off by one (EFFECT_2/EFFECT_3), and there's no EFFECT_5 or SCRIPT_EFFECT at
+    // all, so the backlash-on-non-kill mechanic (SPELL_PRIEST_SHADOW_WORD_DEATH_DAMAGE, 32409,
+    // also confirmed absent from Spell.db2) has no data source in this build - left unresolved.
     bool Validate(SpellInfo const* spellInfo) override
     {
-        return ValidateSpellInfo({ SPELL_PRIEST_SHADOW_WORD_DEATH_DAMAGE })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_5 } })
-            && spellInfo->GetEffect(EFFECT_2).IsEffect(SPELL_EFFECT_DUMMY)
-            && spellInfo->GetEffect(EFFECT_3).IsEffect(SPELL_EFFECT_SCRIPT_EFFECT)
-            && spellInfo->GetEffect(EFFECT_5).IsEffect(SPELL_EFFECT_DUMMY);
+        return ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 }, { spellInfo->Id, EFFECT_2 } })
+            && spellInfo->GetEffect(EFFECT_1).IsEffect(SPELL_EFFECT_DUMMY)
+            && spellInfo->GetEffect(EFFECT_2).IsEffect(SPELL_EFFECT_DUMMY);
     }
 
     void HandleDamageCalculation(SpellEffectInfo const& /*spellEffectInfo*/, Unit const* victim, int32 const& /*damage*/, int32 const& /*flatMod*/, float& pctMod) const
     {
-        if (victim->HealthBelowPct(GetEffectInfo(EFFECT_2).CalcValue(GetCaster())))
-            AddPct(pctMod, GetEffectInfo(EFFECT_3).CalcValue(GetCaster()));
-    }
-
-    void DetermineKillStatus(DamageInfo const& damageInfo, uint32& /*resistAmount*/, int32& /*absorbAmount*/) const
-    {
-        bool killed = damageInfo.GetDamage() >= damageInfo.GetVictim()->GetHealth();
-        if (!killed)
-        {
-            Unit* caster = GetCaster();
-            int32 backlashDamage = caster->CountPctFromMaxHealth(GetEffectInfo(EFFECT_5).CalcValue(caster));
-            caster->m_Events.AddEventAtOffset([caster, originalCastId = GetSpell()->m_castId, backlashDamage]
-            {
-                caster->CastSpell(caster, SPELL_PRIEST_SHADOW_WORD_DEATH_DAMAGE, CastSpellExtraArgs()
-                    .SetTriggerFlags(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR)
-                    .SetOriginalCastId(originalCastId)
-                    .AddSpellMod(SPELLVALUE_BASE_POINT0, backlashDamage));
-
-            }, BACKLASH_DELAY);
-        }
+        if (victim->HealthBelowPct(GetEffectInfo(EFFECT_1).CalcValue(GetCaster())))
+            AddPct(pctMod, GetEffectInfo(EFFECT_2).CalcValue(GetCaster()));
     }
 
     void Register() override
     {
         CalcDamage += SpellCalcDamageFn(spell_pri_shadow_word_death::HandleDamageCalculation);
-
-        // abuse OnCalculateResistAbsorb to determine if this spell will kill target or not (its still not perfect - happens before absorbs are applied)
-        OnCalculateResistAbsorb += SpellOnResistAbsorbCalculateFn(spell_pri_shadow_word_death::DetermineKillStatus);
     }
 };
 
@@ -2606,7 +2593,8 @@ class spell_pri_vampiric_embrace : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_pri_vampiric_embrace::CheckProc);
-        OnEffectProc += AuraEffectProcFn(spell_pri_vampiric_embrace::HandleEffectProc, EFFECT_0, SPELL_AURA_DUMMY);
+        // real Vampiric Embrace (15286) EFFECT_0 is SPELL_AURA_PERIODIC_DUMMY, not plain DUMMY
+        OnEffectProc += AuraEffectProcFn(spell_pri_vampiric_embrace::HandleEffectProc, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
 
@@ -2620,7 +2608,8 @@ class spell_pri_vampiric_embrace_target : public SpellScript
 
     void Register() override
     {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pri_vampiric_embrace_target::FilterTargets, EFFECT_0, TARGET_UNIT_CASTER_AREA_PARTY);
+        // real Vampiric Embrace Target (15290) implicit target is TARGET_UNIT_CASTER_AREA_RAID, not _PARTY
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pri_vampiric_embrace_target::FilterTargets, EFFECT_0, TARGET_UNIT_CASTER_AREA_RAID);
     }
 };
 
