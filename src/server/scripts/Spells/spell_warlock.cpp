@@ -49,11 +49,17 @@ enum WarlockSpells
     SPELL_WARLOCK_BACKDRAFT_PROC                    = 117828,
     SPELL_WARLOCK_CALL_DREADSTALKERS_SUMMON         = 193331,
     SPELL_WARLOCK_CHANNEL_DEMONFIRE_DAMAGE          = 196448,
-    SPELL_WARLOCK_CONFLAGRATE_DEBUFF                = 265931,
+    // real id "Roaring Blaze" debuff (265931 doesn't exist); cross-referenced via Roaring
+    // Blaze's (205184) own tooltip ("$205690s1") and 205690's own tooltip ("Damage taken from
+    // the Warlock's Immolate increased by...") - exact mechanic match
+    SPELL_WARLOCK_CONFLAGRATE_DEBUFF                = 205690,
     SPELL_WARLOCK_CONFLAGRATE_ENERGIZE              = 245330,
     SPELL_WARLOCK_CORRUPTION_DAMAGE                 = 146739,
     SPELL_WARLOCK_CREATE_HEALTHSTONE                = 23517,
-    SPELL_WARLOCK_DEATHS_EMBRACE                    = 453189,
+    // real id "Death's Embrace" (453189 is a later-expansion remake id); confirmed via
+    // wago.tools SpellEffect data - only 2 real effects (EFFECT_0 the damage-increase %,
+    // EFFECT_1 the health-threshold %), matching drain_life's own EFFECT_0/EFFECT_1 usage
+    SPELL_WARLOCK_DEATHS_EMBRACE                    = 234876,
     SPELL_WARLOCK_DEMONBOLT_ENERGIZE                = 280127,
     SPELL_WARLOCK_DEMONIC_CIRCLE_ALLOW_CAST         = 62388,
     SPELL_WARLOCK_DEMONIC_CIRCLE_SUMMON             = 48018,
@@ -81,9 +87,10 @@ enum WarlockSpells
     SPELL_WARLOCK_EYE_LASER                         = 205231,
     SPELL_WARLOCK_ERADICATION_DEBUFF                = 196414,
     SPELL_WARLOCK_FLAMESHADOW                       = 37379,
-    SPELL_WARLOCK_GLYPH_OF_DEMON_TRAINING           = 56249,
+    // FIXME: old active-glyph-system id (doesn't exist in Legion, same as Glyph of
+    // Felhunter/Succubus above) - spell_warl_soul_swap still fails Validate() on this and its
+    // own separate SOUL_SWAP_CD_MARKER problem below, so left as-is rather than a partial fix.
     SPELL_WARLOCK_GLYPH_OF_SOUL_SWAP                = 56226,
-    SPELL_WARLOCK_GLYPH_OF_SUCCUBUS                 = 56250,
     SPELL_WARLOCK_GRIMOIRE_OF_SYNERGY_BUFF          = 171982,
     SPELL_WARLOCK_HAND_OF_DOOM                      = 196283,
     SPELL_WARLOCK_HAND_OF_GULDAN_DAMAGE             = 86040,
@@ -115,6 +122,9 @@ enum WarlockSpells
     SPELL_WARLOCK_SOUL_LEECH                        = 228974,
     SPELL_WARLOCK_SOUL_LEECH_ABSORB                 = 108366,
     SPELL_WARLOCK_SOUL_FIRE_ENERGIZE                = 281490,
+    // FIXME: both confirmed absent from Spell.db2 under any id (checked the immediate id
+    // neighborhood around each - no candidate for either); SOUL_SWAP_DOT_MARKER (92795,
+    // directly adjacent to MOD_COST) is confirmed correct, so these aren't simply off-by-N.
     SPELL_WARLOCK_SOUL_SWAP_CD_MARKER               = 94229,
     SPELL_WARLOCK_SOUL_SWAP_DOT_MARKER              = 92795,
     SPELL_WARLOCK_SOUL_SWAP_MOD_COST                = 92794,
@@ -127,7 +137,7 @@ enum WarlockSpells
 enum MiscSpells
 {
     SPELL_GEN_REPLENISHMENT                         = 57669,
-    SPELL_PRIEST_SHADOW_WORD_DEATH                  = 32409
+    SPELL_PRIEST_SHADOW_WORD_DEATH                  = 32379 // real id (32409 doesn't exist)
 };
 
 // 146739 - Corruption
@@ -699,13 +709,13 @@ class spell_warl_deaths_embrace_dots : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellEffect({ { SPELL_WARLOCK_DEATHS_EMBRACE, EFFECT_3 } });
+        return ValidateSpellEffect({ { SPELL_WARLOCK_DEATHS_EMBRACE, EFFECT_1 } });
     }
 
     void CalculateDamage(AuraEffect const* /*aurEff*/, Unit const* victim, int32& /*damage*/, int32& /*flatMod*/, float& pctMod) const
     {
         if (Unit const* caster = GetCaster())
-            spell_warl_deaths_embrace_impl::HandleDamageOrHealingCalculation(caster, victim, pctMod, EFFECT_2, EFFECT_3);
+            spell_warl_deaths_embrace_impl::HandleDamageOrHealingCalculation(caster, victim, pctMod, EFFECT_0, EFFECT_1);
     }
 
     void Register() override
@@ -827,10 +837,13 @@ class spell_warl_devour_magic : public SpellScript
 {
     bool Validate(SpellInfo const* spellInfo) override
     {
-        return ValidateSpellInfo({ SPELL_WARLOCK_GLYPH_OF_DEMON_TRAINING, SPELL_WARLOCK_DEVOUR_MAGIC_HEAL })
+        return ValidateSpellInfo({ SPELL_WARLOCK_DEVOUR_MAGIC_HEAL })
             && ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 } });
     }
 
+    // Glyph of Felhunter (the old active-glyph system this once extended to the pet's owner)
+    // doesn't exist under any id in this build - the old active-glyph system itself doesn't
+    // exist in Legion, same as Warrior's Glyph of Heroic Leap.
     void OnSuccessfulDispel(SpellEffIndex /*effIndex*/)
     {
         Unit* caster = GetCaster();
@@ -839,11 +852,6 @@ class spell_warl_devour_magic : public SpellScript
         args.AddSpellBP0(GetEffectInfo(EFFECT_1).CalcValue(caster));
 
         caster->CastSpell(caster, SPELL_WARLOCK_DEVOUR_MAGIC_HEAL, args);
-
-        // Glyph of Felhunter
-        if (Unit* owner = caster->GetOwner())
-            if (owner->GetAura(SPELL_WARLOCK_GLYPH_OF_DEMON_TRAINING))
-                owner->CastSpell(owner, SPELL_WARLOCK_DEVOUR_MAGIC_HEAL, args);
     }
 
     void Register() override
@@ -1264,33 +1272,10 @@ class spell_warl_roaring_blaze : public SpellScript
     }
 };
 
-// 6358 - Seduction (Special Ability)
-class spell_warl_seduction : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_WARLOCK_GLYPH_OF_SUCCUBUS, SPELL_PRIEST_SHADOW_WORD_DEATH });
-    }
-
-    void HandleScriptEffect(SpellEffIndex /*effIndex*/)
-    {
-        Unit* caster = GetCaster();
-        if (Unit* target = GetHitUnit())
-        {
-            if (caster->GetOwner() && caster->GetOwner()->HasAura(SPELL_WARLOCK_GLYPH_OF_SUCCUBUS))
-            {
-                target->RemoveAurasByType(SPELL_AURA_PERIODIC_DAMAGE, ObjectGuid::Empty, target->GetAura(SPELL_PRIEST_SHADOW_WORD_DEATH)); // SW:D shall not be removed.
-                target->RemoveAurasByType(SPELL_AURA_PERIODIC_DAMAGE_PERCENT);
-                target->RemoveAurasByType(SPELL_AURA_PERIODIC_LEECH);
-            }
-        }
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_warl_seduction::HandleScriptEffect, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
-    }
-};
+// Removed spell_warl_seduction (6358 - Seduction, Special Ability): its entire function was
+// gated behind Glyph of Succubus (SPELL_WARLOCK_GLYPH_OF_SUCCUBUS, 56250), which - like Glyph
+// of Felhunter above - doesn't exist under any id in this build; the old active-glyph system
+// itself doesn't exist in Legion. Without it the script had no reachable behavior at all.
 
 // 27285 - Seed of Corruption (damage)
 class spell_warl_seed_of_corruption : public SpellScript
@@ -2349,7 +2334,6 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_immolate);
     RegisterSpellScript(spell_warl_rain_of_fire);
     RegisterSpellScript(spell_warl_roaring_blaze);
-    RegisterSpellScript(spell_warl_seduction);
     RegisterSpellScript(spell_warl_seed_of_corruption);
     RegisterSpellAndAuraScriptPair(spell_warl_seed_of_corruption_dummy, spell_warl_seed_of_corruption_dummy_aura);
     RegisterSpellScript(spell_warl_seed_of_corruption_generic);
