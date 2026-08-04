@@ -8,14 +8,18 @@
 -- Legion equivalent at all, not a rebind case - see the C++ diff in the same commit).
 
 -- spell_dru_berserk: 50334 (pre-Cata id) -> 106951 (the real, stable Legion-era Guardian Berserk id)
+-- INSERT IGNORE (not plain INSERT): makes this safe to rerun if the 106951 row was already
+-- inserted by a prior run of this same migration (e.g. a world DB restored from a dump taken
+-- after this migration applied, but without its `updates` tracking row) - the DELETE above only
+-- clears the old 50334 binding, not the new one, so a plain INSERT would hit a duplicate key.
 DELETE FROM `spell_script_names` WHERE `spell_id` = 50334 AND `ScriptName` = 'spell_dru_berserk';
-INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES (106951, 'spell_dru_berserk');
+INSERT IGNORE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES (106951, 'spell_dru_berserk');
 
 -- spell_dru_celestial_alignment: 383410/390414 (Dragonflight remake ids) -> 194223/102560
 -- (Celestial Alignment / Incarnation: Chosen of Elune, both trigger the same instant-dual-eclipse
 -- effect this script implements, and were already documented in the file's own comments).
 DELETE FROM `spell_script_names` WHERE `spell_id` IN (383410, 390414) AND `ScriptName` = 'spell_dru_celestial_alignment';
-INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+INSERT IGNORE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
     (194223, 'spell_dru_celestial_alignment'),
     (102560, 'spell_dru_celestial_alignment');
 
