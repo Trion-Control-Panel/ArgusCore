@@ -4266,6 +4266,14 @@ Currency.ResetDay = 3
 Currency.ResetHour = 6
 
 #
+#    Currency.StartArtifactKnowledge
+#        Description: Starting Artifact Knowledge level granted to new artifact weapons.
+#        Default:     55
+#
+
+Currency.StartArtifactKnowledge = 55
+
+#
 ###################################################################################################
 
 ###################################################################################################
