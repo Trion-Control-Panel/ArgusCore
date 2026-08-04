@@ -2633,7 +2633,7 @@ BattlegroundMapScript::BattlegroundMapScript(char const* name, uint32 mapId) noe
     if (!GetEntry())
         TC_LOG_ERROR("scripts", "Invalid BattlegroundMapScript for {}; no such map ID.", mapId);
 
-    if (GetEntry() && !GetEntry()->IsBattleground())
+    if (GetEntry() && !GetEntry()->IsBattlegroundOrArena())
         TC_LOG_ERROR("scripts", "BattlegroundMapScript for map {} is invalid.", mapId);
 
     ScriptRegistry<BattlegroundMapScript>::Instance()->AddScript(this);
