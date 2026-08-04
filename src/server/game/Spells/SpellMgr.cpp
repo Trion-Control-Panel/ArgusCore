@@ -3874,15 +3874,11 @@ void SpellMgr::LoadSpellInfoCorrections()
         });
     });
 
-    // Maelstrom Weapon
-    ApplySpellFix({ 187881 }, [](SpellInfo* spellInfo)
-    {
-        ApplySpellEffectFix(spellInfo, EFFECT_1, [](SpellEffectInfo* spellEffectInfo)
-        {
-            // Add Lava Burst to spells that benefit from it
-            spellEffectInfo->SpellClassMask[1] |= 0x1000;
-        });
-    });
+    // Maelstrom Weapon (187881) - confirmed absent from this build's Spell.db2 under any id
+    // (187880/187882 are consecutive, no gap for it); see the "Maelstrom Weapon" finding in
+    // ARGUSCORE_FIXES.md and spell_sha_maelstrom_weapon_base::Validate() in spell_shaman.cpp -
+    // the whole 5-stack consumable-buff system this belongs to appears to model a later
+    // (Dragonflight) Enhancement rework with no basis in this build's real spell data.
 
     ApplySpellFix({
         15538, // Gout of Flame
@@ -4018,10 +4014,12 @@ void SpellMgr::LoadSpellInfoCorrections()
     });
 
     // Death and Decay (target increase)
+    // real 188290 only has 3 effects (EFFECT_0-2) - this was EFFECT_3, off by one; EFFECT_2 is
+    // the last real effect and already carries a related SpellClassMask (family flag 0x1000000)
     ApplySpellFix({ 188290 }, [](SpellInfo* spellInfo)
     {
         // Change SpellClassMask to exclude 49020 and only keep its triggered spells
-        ApplySpellEffectFix(spellInfo, EFFECT_3, [](SpellEffectInfo* spellEffectInfo)
+        ApplySpellEffectFix(spellInfo, EFFECT_2, [](SpellEffectInfo* spellEffectInfo)
         {
             spellEffectInfo->SpellClassMask.Set(0x80, 0, 0, 0x8000);
         });
@@ -4033,15 +4031,8 @@ void SpellMgr::LoadSpellInfoCorrections()
         spellInfo->RangeEntry = sSpellRangeStore.LookupEntry(6);  // 100yd
     });
 
-    // Inescapable Torment
-    ApplySpellFix({ 373427 }, [](SpellInfo* spellInfo)
-    {
-        // Remove self-damage from passive aura on learn
-        ApplySpellEffectFix(spellInfo, EFFECT_3, [](SpellEffectInfo* spellEffectInfo)
-        {
-            spellEffectInfo->Effect = SPELL_EFFECT_DUMMY;
-        });
-    });
+    // Inescapable Torment (373427) - confirmed absent from this build's Spell.db2 under any id;
+    // this is a Shadowlands 9.0 Necrolord Death Knight covenant ability, no Legion connection.
 
     // Summon Faol in Tirisfal
     ApplySpellFix({ 202112 }, [](SpellInfo* spellInfo)
@@ -4892,11 +4883,9 @@ void SpellMgr::LoadSpellInfoCorrections()
         });
     });
 
-    // Ray of Frost (Fingers of Frost charges)
-    ApplySpellFix({ 269748 }, [](SpellInfo* spellInfo)
-    {
-        spellInfo->AttributesEx &= ~SPELL_ATTR1_IS_CHANNELLED;
-    });
+    // Ray of Frost (Fingers of Frost charges) (269748) - confirmed absent from this build's
+    // Spell.db2 under any id; the real Ray of Frost is a different id range entirely (205021,
+    // already confirmed real elsewhere in this codebase), no candidate found for this one.
 
     // Burning Rush
     ApplySpellFix({ 111400 }, [](SpellInfo* spellInfo)
@@ -4913,11 +4902,9 @@ void SpellMgr::LoadSpellInfoCorrections()
         });
     });
 
-    // Collective Anguish channel hack (triggered by another channel)
-    ApplySpellFix({ 391057, 393831 }, [](SpellInfo* spellInfo)
-    {
-        spellInfo->AttributesEx &= ~SPELL_ATTR1_IS_CHANNELLED;
-    });
+    // Collective Anguish channel hack (391057, 393831) - both confirmed absent from this build's
+    // Spell.db2 under any id; this is Dragonflight-era Vengeance Demon Hunter content, no Legion
+    // connection.
 
     for (SpellInfo const& s : mSpellInfoMap)
     {
