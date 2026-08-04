@@ -5087,27 +5087,39 @@ void SpellMgr::LoadSpellInfoTargetCaps()
     uint32 oldMSTime = getMSTime();
 
     // Eye Beam
+    // No reliable cross-check target: neither Eye Beam itself (198030, 1 effect) nor its damage
+    // tick (198013, 4 effects - no EFFECT_4 at all) hold a matching value in this build's
+    // SpellEffect data, and SpellTargetRestrictions.MaxTargets is 0 (uncapped) at the DB2 level -
+    // this diminishing threshold isn't sourced from client data at all. Dropped the stale
+    // cross-check args, same as Revival/Keg Smash/Flame Patch/Whirlwind below (the hardcoded
+    // maxTargets value is unaffected either way).
     ApplySpellFix({ 198030 }, [](SpellInfo* spellInfo)
     {
-        spellInfo->_LoadSqrtTargetLimit(5, 0, 198013, EFFECT_4, {}, {});
+        spellInfo->_LoadSqrtTargetLimit(5, 0, {}, {}, {}, {});
     });
 
     // Divine Storm
+    // Same as Eye Beam above: checked both 53385's own effects and its actual damage-scaling
+    // spell (224239, referenced by 53385's own tooltip via $224239sw1) - neither holds a
+    // matching value, and SpellTargetRestrictions.MaxTargets is 255 (uncapped) for 53385.
     ApplySpellFix({ 53385 }, [](SpellInfo* spellInfo)
     {
-        spellInfo->_LoadSqrtTargetLimit(5, 0, {}, EFFECT_1, {}, {});
+        spellInfo->_LoadSqrtTargetLimit(5, 0, {}, {}, {}, {});
     });
 
     // Ice Nova
+    // Same as above: 157997's own 3 effects don't hold a matching value.
     ApplySpellFix({ 157997 }, [](SpellInfo* spellInfo)
     {
-        spellInfo->_LoadSqrtTargetLimit(8, 0, {}, EFFECT_2, {}, {});
+        spellInfo->_LoadSqrtTargetLimit(8, 0, {}, {}, {}, {});
     });
 
     // Explosive Shot
+    // Same as above: neither 212431 (the detonation spell) nor its own effects hold a matching
+    // value.
     ApplySpellFix({ 212680 }, [](SpellInfo* spellInfo)
     {
-        spellInfo->_LoadSqrtTargetLimit(5, 0, 212431, EFFECT_1, {}, {});
+        spellInfo->_LoadSqrtTargetLimit(5, 0, {}, {}, {}, {});
     });
 
     // Revival

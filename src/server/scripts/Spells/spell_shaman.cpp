@@ -1956,15 +1956,18 @@ class spell_sha_liquid_magma_totem : public SpellScript
 
 bool spell_sha_maelstrom_weapon_base::Validate()
 {
-    // NOTE: SPELL_SHAMAN_MAELSTROM_WEAPON_VISIBLE_AURA used to be a separate id (344179) from
-    // SPELL_SHAMAN_MAELSTROM_WEAPON_MOD_AURA (187881); 344179 doesn't exist anywhere in this
-    // build's Spell.db2, and the class that consumed it (spell_sha_maelstrom_weapon_proc) is
-    // itself bound via spell_script_names to that same nonexistent id, so it never actually
-    // attached to anything even before this fix - the whole generate/consume cycle only ever
-    // ran through spell_sha_maelstrom_weapon (187880, real). Collapsed onto the one confirmed
-    // id below rather than guess a replacement for the split; the spell_script_names row still
-    // needs a DB-side follow-up to point spell_sha_maelstrom_weapon_proc at 187881 - flagged in
-    // ARGUSCORE_FIXES.md rather than changed here (out of scope for a Server.log-only pass).
+    // SIGNIFICANT FINDING (see ARGUSCORE_FIXES.md): SPELL_SHAMAN_MAELSTROM_WEAPON_MOD_AURA
+    // (187881) is ALSO confirmed absent from Spell.db2 - not a neighbor-id gap (187880/187882
+    // are consecutive) - so this whole "5-stack consumable buff, spent on Lightning Bolt/Chain
+    // Lightning" system has no basis in this build's real data at all. Real 187880's own tooltip
+    // ("Your auto attacks and Windfury attacks generate $187890s1 Maelstrom") plus 187890's own
+    // SpellEffect data (a plain ENERGIZE-5-Maelstrom effect, MiscValue 11 = POWER_MAELSTROM) show
+    // Legion's actual Maelstrom Weapon is a simple proc-energize passive feeding the Maelstrom
+    // resource bar, not a stacking buff - this entire Generate/Consume apparatus (and the
+    // Hailstorm trigger wired through it) appears to model a much later (Dragonflight)
+    // reimplementation reusing the same name/ids by coincidence. A correct fix needs Hailstorm's
+    // real Legion proc condition, which isn't confirmed from local data - left as a known-broken,
+    // flagged system rather than force a Validate() pass on an unconfirmed redesign.
     return SpellScriptBase::ValidateSpellInfo
     ({
         SPELL_SHAMAN_MAELSTROM_WEAPON_OVERLAY,
