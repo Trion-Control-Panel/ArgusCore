@@ -600,7 +600,7 @@ class spell_illidari_council_balance_of_power : public AuraScript
         return ValidateSpellInfo({ SPELL_SHARED_RULE });
     }
 
-    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo) const
+    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
     {
         return eventInfo.GetDamageInfo() != nullptr;
     }

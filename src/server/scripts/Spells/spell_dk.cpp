@@ -2782,16 +2782,20 @@ class spell_dk_shadow_infusion : public AuraScript
         return ValidateSpellInfo({ SPELL_DK_DEATH_COIL, SPELL_DK_DARK_TRANSFORMATION });
     }
 
-    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo) const
+    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
     {
         if (!eventInfo.GetSpellInfo() || eventInfo.GetSpellInfo()->Id != SPELL_DK_DEATH_COIL)
             return false;
 
-        Pet* pet = GetTarget()->GetPet();
+        Player* player = GetTarget()->ToPlayer();
+        if (!player)
+            return false;
+
+        Pet* pet = player->GetPet();
         return pet && !pet->HasAura(SPELL_DK_DARK_TRANSFORMATION);
     }
 
-    void HandleProc(AuraEffect const* aurEff, ProcEventInfo const& /*eventInfo*/) const
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo& /*eventInfo*/)
     {
         GetTarget()->GetSpellHistory()->ModifyCooldown(SPELL_DK_DARK_TRANSFORMATION, Seconds(-aurEff->GetAmount()));
     }
