@@ -2590,7 +2590,7 @@ void ObjectMgr::LoadGameObjects()
         data.spawnDifficulties      = ParseSpawnDifficulties(fields[14].GetStringView(), "gameobject", guid, data.mapId, spawnMasks[data.mapId]);
         if (data.spawnDifficulties.empty())
         {
-            TC_LOG_ERROR("sql.sql", "Table `creature` has creature (GUID: {}) that is not spawned in any difficulty, skipped.", guid);
+            TC_LOG_ERROR("sql.sql", "Table `gameobject` has gameobject (GUID: {}) that is not spawned in any difficulty, skipped.", guid);
             continue;
         }
 
