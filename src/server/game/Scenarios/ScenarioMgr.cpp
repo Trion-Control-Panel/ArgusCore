@@ -160,7 +160,7 @@ void ScenarioMgr::LoadScenarioPOI()
     QueryResult result = WorldDatabase.Query("SELECT CriteriaTreeID, BlobIndex, Idx1, MapID, WorldMapAreaId, Floor, Priority, Flags, WorldEffectID, PlayerConditionID FROM scenario_poi ORDER BY CriteriaTreeID, Idx1");
     if (!result)
     {
-        TC_LOG_ERROR("server.loading", ">> Loaded 0 scenario POI definitions. DB table `scenario_poi` is empty.");
+        TC_LOG_WARN("server.loading", ">> Loaded 0 scenario POI definitions. DB table `scenario_poi` is empty.");
         return;
     }
 

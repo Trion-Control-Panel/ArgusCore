@@ -3642,7 +3642,7 @@ void ObjectMgr::LoadVehicleSeatAddon()
 
     if (!result)
     {
-        TC_LOG_ERROR("server.loading", ">> Loaded 0 vehicle seat addons. DB table `vehicle_seat_addon` is empty.");
+        TC_LOG_WARN("server.loading", ">> Loaded 0 vehicle seat addons. DB table `vehicle_seat_addon` is empty.");
         return;
     }
 
@@ -3821,7 +3821,7 @@ void ObjectMgr::LoadPlayerInfo()
 
         if (!result)
         {
-            TC_LOG_ERROR("server.loading", ">> Loaded 0 player create definitions. DB table `playercreateinfo` is empty.");
+            TC_LOG_WARN("server.loading", ">> Loaded 0 player create definitions. DB table `playercreateinfo` is empty.");
             ABORT();
         }
         else
@@ -4235,7 +4235,7 @@ void ObjectMgr::LoadPlayerInfo()
 
         if (!raceStatsResult)
         {
-            TC_LOG_ERROR("server.loading", ">> Loaded 0 race stats definitions. DB table `player_racestats` is empty.");
+            TC_LOG_WARN("server.loading", ">> Loaded 0 race stats definitions. DB table `player_racestats` is empty.");
             ABORT();
         }
 
@@ -4260,7 +4260,7 @@ void ObjectMgr::LoadPlayerInfo()
 
         if (!result)
         {
-            TC_LOG_ERROR("server.loading", ">> Loaded 0 level stats definitions. DB table `player_classlevelstats` is empty.");
+            TC_LOG_WARN("server.loading", ">> Loaded 0 level stats definitions. DB table `player_classlevelstats` is empty.");
             ABORT();
         }
 
@@ -9003,7 +9003,7 @@ void ObjectMgr::LoadSkillTiers()
 
     if (!result)
     {
-        TC_LOG_ERROR("server.loading", ">> Loaded 0 skill max values. DB table `skill_tiers` is empty.");
+        TC_LOG_WARN("server.loading", ">> Loaded 0 skill max values. DB table `skill_tiers` is empty.");
         return;
     }
 
@@ -9549,7 +9549,7 @@ void ObjectMgr::LoadVendors()
     QueryResult result = WorldDatabase.Query("SELECT entry, item, maxcount, incrtime, ExtendedCost, type, BonusListIDs, PlayerConditionID, IgnoreFiltering FROM npc_vendor ORDER BY entry, slot ASC");
     if (!result)
     {
-        TC_LOG_ERROR("server.loading", ">>  Loaded 0 Vendors. DB table `npc_vendor` is empty!");
+        TC_LOG_WARN("server.loading", ">>  Loaded 0 Vendors. DB table `npc_vendor` is empty!");
         return;
     }
 
