@@ -70,9 +70,6 @@ enum MonkSpells
     // (Fire) and 69792 (Earth). Confirmed via two independent reference sources.
     NPC_MONK_SEF_FIRE_SPIRIT                             = 69791,
     NPC_MONK_SEF_EARTH_SPIRIT                            = 69792,
-    SPELL_MONK_BURST_OF_LIFE_TALENT                     = 399226,
-    SPELL_MONK_BURST_OF_LIFE_HEAL                       = 399230,
-    SPELL_MONK_CALMING_COALESCENCE                      = 388220,
     SPELL_MONK_CHI_BURST_DAMAGE                         = 148135,
     SPELL_MONK_CHI_BURST_HEAL                           = 130654,
     SPELL_MONK_CHI_TORPEDO_DAMAGE                       = 117993,
@@ -113,7 +110,7 @@ enum MonkSpells
     SPELL_MONK_LIFECYCLES_ENVELOPING_MIST               = 197919,
     SPELL_MONK_LIFECYCLES_VIVIFY                        = 197916,
     SPELL_MONK_MASTERY_COMBO_STRIKES                    = 115636,
-    SPELL_MONK_MISTS_OF_LIFE                            = 388548,
+    SPELL_MONK_MISTS_OF_LIFE                            = 199563, // real Legion talent id (388548 is a later-expansion drift id; confirmed via SpellEffect.db2 - EFFECT_0 is a plain DUMMY aura, matching this class's HasAuraEffect(..., EFFECT_0) check)
     SPELL_MONK_MORTAL_WOUNDS                            = 115804,
     SPELL_MONK_POWER_STRIKE_PROC                        = 129914,
     SPELL_MONK_POWER_STRIKE_ENERGIZE                    = 121283,
@@ -144,7 +141,6 @@ enum MonkSpells
     SPELL_MONK_STAGGER_HEAVY                            = 124273,
     SPELL_MONK_STAGGER_LIGHT                            = 124275,
     SPELL_MONK_STAGGER_MODERATE                         = 124274,
-    SPELL_MONK_SURGING_MIST_HEAL                        = 116995,
     SPELL_MONK_TEACHINGS_OF_THE_MONASTERY               = 116645,
     SPELL_MONK_THUNDER_FOCUS_TEA                        = 116680,
     SPELL_MONK_TEACHINGS_OF_THE_MONASTERY_AURA          = 202090,
@@ -586,60 +582,10 @@ class spell_monk_transcendence_transfer : public SpellScript
     }
 };
 
-// 399226 - Burst of Life (attached to 116849 - Life Cocoon)
-class spell_monk_burst_of_life : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_MONK_BURST_OF_LIFE_HEAL })
-            && ValidateSpellEffect({ { SPELL_MONK_BURST_OF_LIFE_TALENT, EFFECT_0 } });
-    }
-
-    bool Load() override
-    {
-        Unit* caster = GetCaster();
-        return caster && caster->HasAuraEffect(SPELL_MONK_BURST_OF_LIFE_TALENT, EFFECT_0);
-    }
-
-    void AfterRemove(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/) const
-    {
-        AuraRemoveMode removeMode = GetTargetApplication()->GetRemoveMode();
-        if (removeMode != AURA_REMOVE_BY_EXPIRE && (removeMode != AURA_REMOVE_BY_ENEMY_SPELL || aurEff->GetAmount()))
-            return;
-
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
-
-        AuraEffect const* burstOfLife = caster->GetAuraEffect(SPELL_MONK_BURST_OF_LIFE_TALENT, EFFECT_0);
-        if (!burstOfLife)
-            return;
-
-        caster->CastSpell(GetTarget(), SPELL_MONK_BURST_OF_LIFE_HEAL, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .SpellValueOverrides = { { SPELLVALUE_MAX_TARGETS, burstOfLife->GetAmount() } }
-        });
-    }
-
-    void Register() override
-    {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_monk_burst_of_life::AfterRemove, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB, AURA_EFFECT_HANDLE_REAL);
-    }
-};
-
-// 399230 - Burst of Life
-class spell_monk_burst_of_life_heal : public SpellScript
-{
-    void FilterTargets(std::list<WorldObject*>& targets) const
-    {
-        Trinity::SelectRandomInjuredTargets(targets, GetSpellValue()->MaxAffectedTargets, true, GetExplTargetUnit());
-    }
-
-    void Register() override
-    {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_monk_burst_of_life_heal::FilterTargets, EFFECT_1, TARGET_UNIT_DEST_AREA_ALLY);
-    }
-};
+// Removed spell_monk_burst_of_life and spell_monk_burst_of_life_heal: SPELL_MONK_BURST_OF_LIFE_TALENT
+// (399226) and SPELL_MONK_BURST_OF_LIFE_HEAL (399230) are both confirmed absent from this build's
+// Spell.db2 (no "Burst of Life" entry anywhere in logs/Spell.csv) - a Dragonflight-era Mistweaver
+// talent-tree name/id range, not Legion content.
 
 // 130654 - Chi Burst (heal)
 // The heal payload needs its own attack-power-scaled formula rather than relying on the base
@@ -1284,31 +1230,29 @@ class spell_monk_legacy_of_the_emperor : public SpellScript
 };
 
 // 116849 - Life Cocoon
+// FIXME: real 116849 (confirmed via SpellEffect.db2) has only 2 effects (EFFECT_0/1, both
+// APPLY_AURA), no EFFECT_2 at all - hook moved to EFFECT_0/SPELL_EFFECT_APPLY_AURA to match, and
+// the SPELL_MONK_CALMING_COALESCENCE (388220) bonus branch removed since that spell is confirmed
+// absent from this build (Dragonflight-range id, no "Calming Coalescence" entry in
+// logs/Spell.csv). Note: real EFFECT_0 has a 1.1 BonusCoefficient and EffectBasePoints=1, i.e. it
+// scales off healing power like a normal spell rather than a flat "% of caster max health" value -
+// the CountPctFromMaxHealth() model below may itself be outdated for this build's actual Life
+// Cocoon design; left as-is since rewriting the scaling formula needs real tooltip verification
+// beyond just fixing the hook binding.
 class spell_monk_life_cocoon : public SpellScript
 {
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_MONK_CALMING_COALESCENCE });
-    }
-
     void CalculateAbsorb(SpellEffIndex /*effIndex*/)
     {
         int32 absorb = GetCaster()->CountPctFromMaxHealth(GetEffectValue());
         if (Player* player = GetCaster()->ToPlayer())
             AddPct(absorb, player->GetRatingBonusValue(CR_VERSATILITY_HEALING_DONE));
 
-        if (AuraEffect* calmingCoalescence = GetCaster()->GetAuraEffect(SPELL_MONK_CALMING_COALESCENCE, EFFECT_0, GetCaster()->GetGUID()))
-        {
-            AddPct(absorb, calmingCoalescence->GetAmount());
-            calmingCoalescence->GetBase()->Remove();
-        }
-
         GetSpell()->SetSpellValue({ SPELLVALUE_BASE_POINT0, absorb });
     }
 
     void Register() override
     {
-        OnEffectLaunch += SpellEffectFn(spell_monk_life_cocoon::CalculateAbsorb, EFFECT_2, SPELL_EFFECT_DUMMY);
+        OnEffectLaunch += SpellEffectFn(spell_monk_life_cocoon::CalculateAbsorb, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
     }
 };
 
@@ -1430,6 +1374,11 @@ class spell_monk_power_strike_proc : public AuraScript
 };
 
 // 115078 - Paralysis
+// FIXME: SPELL_MONK_PRESSURE_POINTS (450432, the gating buff this script checks for) is a
+// TWW-range id, confirmed absent from this build. Real 115078 (Paralysis) also only has 2 effects
+// (EFFECT_0 = MOD_STUN, EFFECT_1 = a non-aura effect) - no EFFECT_2 at all for the dispel-block
+// this class hooks. Both pieces point to forward-drift (a later-expansion Pressure Points talent
+// redesign), not a simple index fix - left unresolved.
 class spell_monk_pressure_points : public SpellScript
 {
     bool Validate(SpellInfo const* spellInfo) override
@@ -2290,14 +2239,12 @@ class spell_monk_soothing_mist_aura : public AuraScript
 };
 
 // 116694 - Surging Mist
-// Redirects to whoever the caster is currently channeling Soothing Mist on, if any, then heals.
+// Redirects to whoever the caster is currently channeling Soothing Mist on, if any; the heal
+// itself is native (real EFFECT_0 is SPELL_EFFECT_HEAL, confirmed via SpellEffect.db2 - not a
+// DUMMY that casts a separate SPELL_MONK_SURGING_MIST_HEAL, which is itself confirmed absent from
+// this build), so only the target-redirect hook is needed.
 class spell_monk_surging_mist : public SpellScript
 {
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_MONK_SURGING_MIST_HEAL });
-    }
-
     void SelectTarget(WorldObject*& target)
     {
         Unit* caster = GetCaster();
@@ -2310,80 +2257,16 @@ class spell_monk_surging_mist : public SpellScript
                 target = soothingMistTarget;
     }
 
-    void HandleDummy(SpellEffIndex effIndex)
-    {
-        PreventHitDefaultEffect(effIndex);
-
-        Unit* caster = GetCaster();
-        Unit* target = GetHitUnit();
-        if (caster && target)
-            caster->CastSpell(target, SPELL_MONK_SURGING_MIST_HEAL, true);
-    }
-
     void Register() override
     {
         OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_monk_surging_mist::SelectTarget, EFFECT_0, TARGET_UNIT_TARGET_ALLY);
-        OnEffectHitTarget += SpellEffectFn(spell_monk_surging_mist::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
     }
 };
 
-// 123273 - Surging Mist (glyphed)
-// While channeling Soothing Mist, redirects entirely to that target; otherwise heals the
-// lowest-health raid member instead of requiring an explicit target, falling back to the
-// caster if no valid target is found at all.
-class spell_monk_surging_mist_glyphed : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_MONK_SURGING_MIST_HEAL, SPELL_MONK_SOOTHING_MIST });
-    }
-
-    void SelectTargets(std::list<WorldObject*>& targets)
-    {
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
-
-        if (caster->GetChannelSpellId() == SPELL_MONK_SOOTHING_MIST)
-        {
-            targets.clear();
-
-            DynamicFieldStructuredView<ObjectGuid> channelObjects = caster->GetChannelObjects();
-            if (channelObjects.size() == 1)
-                if (Unit* soothingMistTarget = ObjectAccessor::GetUnit(*caster, *channelObjects.begin()))
-                    targets.push_back(soothingMistTarget);
-        }
-        else
-        {
-            targets.remove_if([caster](WorldObject* target)
-            {
-                return target->GetTypeId() != TYPEID_UNIT || !target->ToUnit()->IsInRaidWith(caster);
-            });
-            targets.sort(Trinity::Predicates::HealthPctOrderPred());
-            if (!targets.empty())
-                targets.resize(1);
-        }
-
-        if (targets.empty())
-            targets.push_back(caster);
-    }
-
-    void HandleDummy(SpellEffIndex effIndex)
-    {
-        PreventHitDefaultEffect(effIndex);
-
-        Unit* caster = GetCaster();
-        Unit* target = GetHitUnit();
-        if (caster && target)
-            caster->CastSpell(target, SPELL_MONK_SURGING_MIST_HEAL, true);
-    }
-
-    void Register() override
-    {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_monk_surging_mist_glyphed::SelectTargets, EFFECT_0, TARGET_UNIT_SRC_AREA_ALLY);
-        OnEffectHitTarget += SpellEffectFn(spell_monk_surging_mist_glyphed::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
-    }
-};
+// Removed spell_monk_surging_mist_glyphed: bound to 123273, a MoP-era "Glyph of Surging Mist" id -
+// the Glyph system doesn't exist in Legion and 123273 is confirmed absent from this build's
+// Spell.db2 entirely (same category as the Glyph of Felhunter branch removed from
+// spell_warl_devour_magic earlier). Unbound via SQL migration.
 
 // 116705 - Spear Hand Strike
 // Interrupt/silence: only applies if the target is in front of the caster, and self-applies a
@@ -2976,8 +2859,6 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_mana_tea_stacks);
     RegisterSpellScript(spell_monk_transcendence);
     RegisterSpellScript(spell_monk_transcendence_transfer);
-    RegisterSpellScript(spell_monk_burst_of_life);
-    RegisterSpellScript(spell_monk_burst_of_life_heal);
     RegisterSpellScript(spell_monk_chi_burst_heal);
     RegisterSpellScript(spell_monk_chi_torpedo);
     RegisterSpellScript(spell_monk_chi_wave);
@@ -3014,7 +2895,6 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_purifying_brew);
     RegisterSpellScript(spell_monk_spear_hand_strike);
     RegisterSpellScript(spell_monk_surging_mist);
-    RegisterSpellScript(spell_monk_surging_mist_glyphed);
     RegisterSpellScript(spell_monk_guard);
     RegisterSpellScript(spell_monk_renewing_mist);
     RegisterSpellScript(spell_monk_renewing_mist_periodic);

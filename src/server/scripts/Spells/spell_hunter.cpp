@@ -91,7 +91,6 @@ enum HunterSpells
     SPELL_HUNTER_MONGOOSE_FURY                      = 190931,
     SPELL_HUNTER_MULTI_SHOT_FOCUS                   = 213363,
     SPELL_HUNTER_MULTISHOT                          = 2643,
-    SPELL_HUNTER_PET_LAST_STAND_TRIGGERED           = 53479,
     SPELL_HUNTER_PET_HEART_OF_THE_PHOENIX_TRIGGERED = 54114,
     SPELL_HUNTER_PET_HEART_OF_THE_PHOENIX_DEBUFF    = 55711,
     SPELL_HUNTER_POSTHASTE_INCREASE_SPEED           = 118922,
@@ -487,6 +486,13 @@ class spell_hun_cobra_sting : public AuraScript
 };
 
 // 5116 - Concussive Shot (attached to 193455 - Cobra Shot and 56641 - Steady Shot)
+// FIXME: SPELL_HUNTER_STEADY_SHOT (56641) is confirmed absent from this build. logs/Spell.csv has
+// 8 different "Steady Shot" candidates across the WoD/Legion id range; checked the most
+// Legion-plausible one (190115) and it has only 1 effect (no EFFECT_2 to read a duration value
+// from at all), ruling it out - none of the others were verified either. "Steady Shot extends
+// Concussive Shot's duration" also isn't a mechanic that matches real Hunter design knowledge, so
+// this premise itself may be wrong rather than just id-drifted. Left unresolved rather than guess
+// among the remaining candidates.
 class spell_hun_concussive_shot : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -1043,26 +1049,11 @@ class spell_hun_killer_cobra : public AuraScript
 };
 
 // 53478 - Last Stand Pet
-class spell_hun_last_stand_pet : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_HUNTER_PET_LAST_STAND_TRIGGERED });
-    }
-
-    void HandleDummy(SpellEffIndex /*effIndex*/)
-    {
-        Unit* caster = GetCaster();
-        CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
-        args.AddSpellBP0(caster->CountPctFromMaxHealth(30));
-        caster->CastSpell(caster, SPELL_HUNTER_PET_LAST_STAND_TRIGGERED, args);
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_hun_last_stand_pet::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
-    }
-};
+// Removed spell_hun_last_stand_pet: real EFFECT_0 (confirmed via SpellEffect.db2) is
+// SPELL_EFFECT_APPLY_AURA/SPELL_AURA_MOD_INCREASE_HEALTH_2 with EffectBasePoints 30 (matching the
+// intended "30% of max health" behavior directly), not a DUMMY that casts a separate triggered
+// spell (53479, confirmed absent from this build). The engine already handles
+// MOD_INCREASE_HEALTH_2 natively (AuraEffect::HandleAuraModIncreaseHealth), so no script is needed.
 
 // 194595 - Lock and Load
 // Gates the talent aura's own DB2 proc data to Auto Shot only.
@@ -1979,7 +1970,6 @@ void AddSC_hunter_spell_scripts()
     RegisterSpellScript(spell_hun_kill_command);
     RegisterSpellScript(spell_hun_kill_command_proc);
     RegisterSpellScript(spell_hun_killer_cobra);
-    RegisterSpellScript(spell_hun_last_stand_pet);
     RegisterSpellScript(spell_hun_lock_and_load);
     RegisterSpellScript(spell_hun_marked_shot);
     RegisterSpellScript(spell_hun_marking_targets);

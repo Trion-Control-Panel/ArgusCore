@@ -397,13 +397,12 @@ private:
 };
 
 // 209426 - Darkness
+// Real 209426 (confirmed via SpellEffect.db2) has only 1 effect - EFFECT_0 is the SCHOOL_ABSORB
+// aura itself, with EffectBasePoints 20 (the "20% chance" value) - there is no separate EFFECT_1
+// to read the chance from. CalculateAmount() below overwrites the aura's live amount to -1
+// (unlimited absorb), so the chance is instead read from the spell's own effect data directly.
 class spell_dh_darkness : public AuraScript
 {
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 } });
-    }
-
     void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
     {
         // Set absorbtion amount to unlimited
@@ -412,9 +411,9 @@ class spell_dh_darkness : public AuraScript
 
     void Absorb(AuraEffect const* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount) const
     {
-        if (AuraEffect const* chanceEffect = GetEffect(EFFECT_1))
-            if (roll_chance_i(chanceEffect->GetAmount()))
-                absorbAmount = dmgInfo.GetDamage();
+        int32 chance = GetEffectInfo(EFFECT_0).CalcValue(GetCaster());
+        if (roll_chance_i(chance))
+            absorbAmount = dmgInfo.GetDamage();
     }
 
     void Register() override

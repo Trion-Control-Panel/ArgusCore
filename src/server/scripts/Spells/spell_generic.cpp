@@ -1687,10 +1687,15 @@ class spell_gen_feign_death_all_flags_uninteractible : public AuraScript
             creature->InitializeReactState();
     }
 
+    // Bound to 6 spells (spell_script_names); 5 of them (80636, 146587, 151020, 153277, 155184)
+    // have a plain SPELL_AURA_DUMMY at EFFECT_0, but 141502 uniquely has SPELL_AURA_FEIGN_DEATH
+    // there instead (confirmed via SpellEffect.db2) - register both so every bound spell fires.
     void Register() override
     {
         OnEffectApply += AuraEffectApplyFn(spell_gen_feign_death_all_flags_uninteractible::HandleEffectApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
         OnEffectRemove += AuraEffectRemoveFn(spell_gen_feign_death_all_flags_uninteractible::OnRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        OnEffectApply += AuraEffectApplyFn(spell_gen_feign_death_all_flags_uninteractible::HandleEffectApply, EFFECT_0, SPELL_AURA_FEIGN_DEATH, AURA_EFFECT_HANDLE_REAL);
+        OnEffectRemove += AuraEffectRemoveFn(spell_gen_feign_death_all_flags_uninteractible::OnRemove, EFFECT_0, SPELL_AURA_FEIGN_DEATH, AURA_EFFECT_HANDLE_REAL);
     }
 };
 

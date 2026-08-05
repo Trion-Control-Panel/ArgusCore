@@ -875,12 +875,16 @@ class spell_pal_divine_shield : public SpellScript
 // 190784 - Divine Steed
 class spell_pal_divine_steed : public SpellScript
 {
+    // SPELL_PALADIN_DIVINE_STEED_DWARF (276111) is confirmed absent from this build - the other 4
+    // race variants (Human/Draenei/BloodElf/Tauren) sit consecutively at 221883/85/86/87 with no
+    // gap for a Dwarf-specific id anywhere nearby in logs/Spell.csv, so there may simply not be a
+    // distinct Dwarf charger model in this build. Not checked here to avoid blocking the other 4
+    // races; the Dwarf case below falls back to the Human charger instead of a nonexistent id.
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellInfo(
         {
             SPELL_PALADIN_DIVINE_STEED_HUMAN,
-            SPELL_PALADIN_DIVINE_STEED_DWARF,
             SPELL_PALADIN_DIVINE_STEED_DRAENEI,
             SPELL_PALADIN_DIVINE_STEED_BLOODELF,
             SPELL_PALADIN_DIVINE_STEED_TAUREN
@@ -898,7 +902,7 @@ class spell_pal_divine_steed : public SpellScript
                 spellId = SPELL_PALADIN_DIVINE_STEED_HUMAN;
                 break;
             case RACE_DWARF:
-                spellId = SPELL_PALADIN_DIVINE_STEED_DWARF;
+                spellId = SPELL_PALADIN_DIVINE_STEED_HUMAN;
                 break;
             case RACE_DRAENEI:
             case RACE_LIGHTFORGED_DRAENEI:
@@ -1127,6 +1131,15 @@ private:
 };
 
 // 54149 - Infusion of Light
+// FIXME: real 54149 (confirmed via SpellEffect.db2) only has 2 effects, not 3 - EFFECT_0 is
+// ADD_FLAT_MODIFIER with a classmask matching Holy Light (the HolyLightSpellClassMask below),
+// EFFECT_1 is ADD_PCT_MODIFIER with a different classmask - there is no third DUMMY effect at all,
+// so the "proc -> cast SPELL_PALADIN_INFUSION_OF_LIGHT_ENERGIZE" mechanism this class implements
+// has nothing to trigger from (and that energize spell, 356717, is itself confirmed absent from
+// this build). Real Infusion of Light here looks like a plain passive dual stat-modifier buff with
+// no separate energize step, which the two ADD_*_MODIFIER auras may already apply natively via the
+// SpellMod system - needs verification against what those two modifiers actually target
+// (EffectMiscValue) before rewriting, not a hook-index fix. Left unresolved.
 class spell_pal_infusion_of_light : public AuraScript
 {
     static constexpr flag128 HolyLightSpellClassMask = { 0, 0, 0x400 };
@@ -1415,6 +1428,12 @@ class spell_pal_holy_shock : public SpellScript
 };
 
 // 25912 - Holy Shock
+// FIXME: PALADIN_VISUAL_SPELL_HOLY_SHOCK_DAMAGE/_CRIT (83731/83881) are confirmed absent from
+// this build's SpellVisual.db2 (spot-checked 83731), so Validate() always fails and this
+// purely-cosmetic hit-visual script never attaches - not present in either reference core to
+// cross-check real ids against, and SpellVisual.db2 has no name field to search by. Real Holy
+// Shock damage/healing is unaffected (handled elsewhere); only the crit-specific visual effect is
+// missing. Left unresolved rather than guess at replacement visual kit ids.
 class spell_pal_holy_shock_damage_visual : public SpellScript
 {
     bool Validate(SpellInfo const*) override
@@ -1435,6 +1454,8 @@ class spell_pal_holy_shock_damage_visual : public SpellScript
 };
 
 // 25914 - Holy Shock
+// FIXME: same issue as spell_pal_holy_shock_damage_visual above - PALADIN_VISUAL_SPELL_HOLY_SHOCK_HEAL/_CRIT
+// (83732/83880) need verified replacement SpellVisual ids for this build.
 class spell_pal_holy_shock_heal_visual : public SpellScript
 {
     bool Validate(SpellInfo const*) override

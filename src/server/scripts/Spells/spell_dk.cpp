@@ -1948,9 +1948,11 @@ class spell_dk_pillar_of_frost : public AuraScript
 
     void Register() override
     {
-        // real Pillar of Frost (51271) EFFECT_2 is SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN, not DUMMY
-        OnEffectApply += AuraEffectApplyFn(spell_dk_pillar_of_frost::OnApply, EFFECT_2, SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN, AURA_EFFECT_HANDLE_REAL);
-        OnEffectRemove += AuraEffectRemoveFn(spell_dk_pillar_of_frost::OnRemove, EFFECT_2, SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN, AURA_EFFECT_HANDLE_REAL);
+        // real Pillar of Frost (51271) EFFECT_2 is SPELL_AURA_MOD_DAMAGE_PERCENT_DONE (a buff to
+        // the caster's own damage, matching the ability's actual purpose), not DUMMY - and not
+        // MOD_DAMAGE_PERCENT_TAKEN either (that was a transposition error, 87 vs the real 79).
+        OnEffectApply += AuraEffectApplyFn(spell_dk_pillar_of_frost::OnApply, EFFECT_2, SPELL_AURA_MOD_DAMAGE_PERCENT_DONE, AURA_EFFECT_HANDLE_REAL);
+        OnEffectRemove += AuraEffectRemoveFn(spell_dk_pillar_of_frost::OnRemove, EFFECT_2, SPELL_AURA_MOD_DAMAGE_PERCENT_DONE, AURA_EFFECT_HANDLE_REAL);
     }
 };
 

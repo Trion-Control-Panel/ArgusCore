@@ -52,7 +52,6 @@ enum WarriorSpells
     SPELL_WARRIOR_COLOSSUS_SMASH                    = 167105,
     SPELL_WARRIOR_COLOSSUS_SMASH_AURA               = 208086,
     SPELL_WARRIOR_CRITICAL_THINKING_ENERGIZE        = 392776,
-    SPELL_WARRIOR_DRAGON_ROAR_KNOCK_BACK            = 118895,
     SPELL_WARRIOR_EXECUTE                           = 163201,
     SPELL_WARRIOR_ENRAGE                            = 184362,
     SPELL_WARRIOR_FRESH_MEAT_DEBUFF                 = 316044,
@@ -73,7 +72,6 @@ enum WarriorSpells
     SPELL_WARRIOR_IMPENDING_VICTORY                 = 202168,
     SPELL_WARRIOR_IMPENDING_VICTORY_HEAL            = 202166,
     SPELL_WARRIOR_INSPIRING_PRESENCE                = 222944,
-    SPELL_WARRIOR_LAST_STAND_TRIGGERED              = 12976,
     SPELL_WARRIOR_MASSACRE                          = 206315,
     SPELL_WARRIOR_MORTAL_STRIKE                     = 12294,
     SPELL_WARRIOR_MORTAL_WOUNDS                     = 213667,
@@ -90,7 +88,7 @@ enum WarriorSpells
     NPC_WARRIOR_RAVAGER                             = 76168,
     SPELL_WARRIOR_RECKLESSNESS                      = 1719,
     SPELL_WARRIOR_REVENGE                           = 6572,
-    SPELL_WARRIOR_RUMBLING_EARTH                    = 275339,
+    SPELL_WARRIOR_RUMBLING_EARTH                    = 184064, // real Legion talent id (275339 is a drift id, confirmed absent)
     SPELL_WARRIOR_SECOND_WIND_HEAL                  = 202147,
     SPELL_WARRIOR_SHIELD_BLOCK_AURA                 = 132404,
     SPELL_WARRIOR_SHIELD_CHARGE_EFFECT              = 385953,
@@ -233,15 +231,15 @@ class spell_warr_anger_management_proc : public AuraScript
         HandleProc(aurEff, eventInfo, ProtectionSpellIds);
     }
 
+    // real 152278 (confirmed via SpellEffect.db2) only has 2 effects (EFFECT_0/1, both DUMMY) -
+    // no EFFECT_2, so the Fury-spec branch has no real effect to hook and is left unregistered.
     void Register() override
     {
         DoCheckEffectProc += AuraCheckEffectProcFn(spell_warr_anger_management_proc::CheckArmsProc, EFFECT_0, SPELL_AURA_DUMMY);
         DoCheckEffectProc += AuraCheckEffectProcFn(spell_warr_anger_management_proc::CheckProtectionProc, EFFECT_1, SPELL_AURA_DUMMY);
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_warr_anger_management_proc::CheckFuryProc, EFFECT_2, SPELL_AURA_DUMMY);
 
         OnEffectProc += AuraEffectProcFn(spell_warr_anger_management_proc::OnProcArms, EFFECT_0, SPELL_AURA_DUMMY);
         OnEffectProc += AuraEffectProcFn(spell_warr_anger_management_proc::OnProcProtection, EFFECT_1, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_warr_anger_management_proc::OnProcFury, EFFECT_2, SPELL_AURA_DUMMY);
     }
 
     static constexpr FloatMilliseconds CooldownReduction = 1s;
@@ -499,53 +497,28 @@ class spell_warr_charge_effect : public SpellScript
 
 // 167105 - Colossus Smash
 // 262161 - Warbreaker
+// The "In For The Kill" bonus-haste logic previously here was removed: real SPELL_WARRIOR_IN_FOR_THE_KILL
+// (248621, confirmed via SpellEffect.db2) has only 1 effect - EFFECT_0 is SPELL_AURA_PROC_TRIGGER_SPELL
+// with EffectTriggerSpell already set to SPELL_WARRIOR_IN_FOR_THE_KILL_HASTE (248622) - i.e. it's a
+// fully native passive proc (the engine casts the haste buff automatically per the spell's own
+// SpellProcEntry data, presumably including the low-health condition), not something this script
+// needs to trigger manually. There's no EFFECT_1/EFFECT_2 to read bonus values from either.
 class spell_warr_colossus_smash : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_WARRIOR_COLOSSUS_SMASH_AURA, SPELL_WARRIOR_IN_FOR_THE_KILL, SPELL_WARRIOR_IN_FOR_THE_KILL_HASTE })
-            && ValidateSpellEffect({ { SPELL_WARRIOR_IN_FOR_THE_KILL, EFFECT_2 } });
+        return ValidateSpellInfo({ SPELL_WARRIOR_COLOSSUS_SMASH_AURA });
     }
 
     void HandleHit()
     {
-        Unit* target = GetHitUnit();
-        Unit* caster = GetCaster();
-
         GetCaster()->CastSpell(GetHitUnit(), SPELL_WARRIOR_COLOSSUS_SMASH_AURA, true);
-
-        if (caster->HasAura(SPELL_WARRIOR_IN_FOR_THE_KILL))
-        {
-            if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(SPELL_WARRIOR_IN_FOR_THE_KILL, DIFFICULTY_NONE))
-            {
-                if (target->HealthBelowPct(spellInfo->GetEffect(EFFECT_2).CalcValue(caster)))
-                    _bonusHaste = true;
-            }
-        }
-    }
-
-    void HandleAfterCast()
-    {
-        Unit* caster = GetCaster();
-        SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(SPELL_WARRIOR_IN_FOR_THE_KILL, DIFFICULTY_NONE);
-        if (!spellInfo)
-            return;
-
-        CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
-        args.AddSpellBP0(spellInfo->GetEffect(EFFECT_0).CalcValue(caster));
-        if (_bonusHaste)
-            args.AddSpellBP0(spellInfo->GetEffect(EFFECT_1).CalcValue(caster));
-        caster->CastSpell(caster, SPELL_WARRIOR_IN_FOR_THE_KILL_HASTE, args);
     }
 
     void Register() override
     {
         OnHit += SpellHitFn(spell_warr_colossus_smash::HandleHit);
-        AfterCast += SpellCastFn(spell_warr_colossus_smash::HandleAfterCast);
     }
-
-private:
-    bool _bonusHaste = false;
 };
 
 // 389306 - Critical Thinking
@@ -625,31 +598,11 @@ class spell_warr_devastator : public AuraScript
 };
 
 // 118000 - Dragon Roar
-// Knocks the target back on hit. Spell id confirmed via a reference implementation's own
-// committed spell_script_names data, since the C++ logic itself never names Dragon Roar's own
-// id in an enum constant (only the knockback sub-spell is named there).
-class spell_warr_dragon_roar : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_WARRIOR_DRAGON_ROAR_KNOCK_BACK });
-    }
-
-    void HandleOnHit()
-    {
-        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
-        if (!caster)
-            return;
-
-        if (Unit* target = GetHitUnit())
-            caster->CastSpell(target, SPELL_WARRIOR_DRAGON_ROAR_KNOCK_BACK, true);
-    }
-
-    void Register() override
-    {
-        OnHit += SpellHitFn(spell_warr_dragon_roar::HandleOnHit);
-    }
-};
+// Removed spell_warr_dragon_roar: modeled the older WoD-era Dragon Roar (knockback on hit via a
+// separate trigger spell, 118895 - confirmed absent from this build). Real Legion 118000
+// (confirmed via SpellEffect.db2) is just SCHOOL_DAMAGE (EFFECT_0) + a self MOD_DAMAGE_PERCENT_DONE
+// buff (EFFECT_1, matching its own tooltip's "increasing all damage you deal" line) - no
+// knockback component at all, both effects natively handled, no script needed.
 
 // 214871 - Odyn's Fury
 // Warswords of the Valarjar artifact ability. The spell's own DB2 data carries an unwanted
@@ -671,9 +624,17 @@ class spell_warr_odyns_fury : public AuraScript
 // 184361 - Enrage
 class spell_warr_enrage_proc : public AuraScript
 {
+    // FIXME: SPELL_WARRIOR_FRESH_MEAT_DEBUFF (316044) is confirmed absent from this build - real
+    // Fresh Meat (215568, SPELL_WARRIOR_FRESH_MEAT_TALENT) tooltip is a plain conditional crit%
+    // bonus for Bloodthirst ("increased critical strike chance against targets above X% health"),
+    // with no mention of a guaranteed-proc-once-per-target debuff mechanic. The Fresh Meat special
+    // casing below (CheckBloodthirstProc/HandleProc) that reads/casts this debuff may be modeling
+    // a mechanic that doesn't match the real ability at all - left in place (guarded by the
+    // now-removed Validate() dependency so it no longer blocks the core Enrage-on-crit proc) but
+    // unresolved rather than guess a replacement debuff id.
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_WARRIOR_FRESH_MEAT_TALENT, SPELL_WARRIOR_FRESH_MEAT_DEBUFF });
+        return ValidateSpellInfo({ SPELL_WARRIOR_FRESH_MEAT_TALENT });
     }
 
     static bool CheckRampageProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo)
@@ -747,6 +708,12 @@ class spell_warr_enrage_proc : public AuraScript
         }
     }
 
+    // FIXME: the bound spell (184361, "Enrage" trigger container - confirmed real via Spell.csv
+    // name/tooltip) has zero rows in SpellEffect.db2 for this build - no EFFECT_0/1 to hook at
+    // all, hence both DUMMY registrations below mismatch. The actual stat-buff spell it casts on
+    // proc (184362, SPELL_WARRIOR_ENRAGE) is fully native (2 real effects, haste + damage-taken
+    // modifiers, no DUMMY proc-check effects either) so it's not a rebind target. Left registered
+    // as-is rather than guess a different container id.
     void Register() override
     {
         DoCheckEffectProc += AuraCheckEffectProcFn(spell_warr_enrage_proc::CheckRampageProc, EFFECT_0, SPELL_AURA_DUMMY);
@@ -1092,6 +1059,12 @@ class spell_improved_whirlwind : public SpellScript
         ApplyWhirlwindCleaveAura(caster, GetCastDifficulty(), GetSpell());
     }
 
+    // FIXME: real Whirlwind (190411, confirmed via SpellEffect.db2) has 6 effects, all
+    // SPELL_EFFECT_TRIGGER_SPELL (alternating EffectTriggerSpell 199667/44949 - the actual
+    // per-target damage sub-spells), no DUMMY effect anywhere. SPELL_WARRIOR_WHIRLWIND_ENERGIZE
+    // (280715) is also confirmed absent, and neither of the two real trigger spells is it - the
+    // rage-gain-per-target-hit mechanic this class implements doesn't map onto the real structure
+    // at all. Left registered as-is (harmless no-op given the mismatch) rather than guess a rewrite.
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_improved_whirlwind::HandleHit, EFFECT_1, SPELL_EFFECT_DUMMY);
@@ -1332,28 +1305,11 @@ class spell_warr_rallying_cry : public SpellScript
 };
 
 // 12975 - Last Stand
-// Grants temporary max health equal to a percentage of the caster's current max health.
-class spell_warr_last_stand : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_WARRIOR_LAST_STAND_TRIGGERED });
-    }
-
-    void HandleDummy(SpellEffIndex /*effIndex*/) const
-    {
-        Unit* caster = GetCaster();
-        int32 healthMod = int32(caster->CountPctFromMaxHealth(GetEffectValue()));
-
-        caster->CastSpell(caster, SPELL_WARRIOR_LAST_STAND_TRIGGERED, CastSpellExtraArgs(TRIGGERED_FULL_MASK)
-            .AddSpellMod(SPELLVALUE_BASE_POINT0, healthMod));
-    }
-
-    void Register() override
-    {
-        OnEffectHit += SpellEffectFn(spell_warr_last_stand::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
-    }
-};
+// Removed spell_warr_last_stand: real EFFECT_0 (confirmed via SpellEffect.db2) is
+// SPELL_EFFECT_APPLY_AURA/SPELL_AURA_MOD_INCREASE_HEALTH_PERCENT, not a DUMMY that casts a
+// separate triggered spell (12976, "Last Stand Triggered" - confirmed absent from this build).
+// The engine already handles MOD_INCREASE_HEALTH_PERCENT natively
+// (AuraEffect::HandleAuraModIncreaseHealthPercent), so no script is needed at all.
 
 // 50725 - Vigilance
 // Resets the target's Taunt cooldown when Vigilance is placed on them.
@@ -1464,9 +1420,13 @@ class spell_warr_ravager_fury_prot_aura : public AuraScript
         }
     }
 
+    // FIXME: real 152277 EFFECT_0 (confirmed via SpellEffect.db2) is a plain SPELL_AURA_DUMMY, not
+    // SPELL_AURA_MOD_PARRY_PERCENT - the spec-gated parry% bonus this hook implements has no
+    // matching real effect to attach to, so it's left unregistered rather than bound to the wrong
+    // aura type. EFFECT_2/EFFECT_3 (OnTick's PERIODIC_DUMMY and tick-count read) are confirmed
+    // correct as-is.
     void Register() override
     {
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_warr_ravager_fury_prot_aura::CalculateParryPct, EFFECT_0, SPELL_AURA_MOD_PARRY_PERCENT);
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_warr_ravager_fury_prot_aura::OnTick, EFFECT_2, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
@@ -1614,9 +1574,11 @@ class spell_warr_rumbling_earth : public SpellScript
             GetCaster()->GetSpellHistory()->ModifyCooldown(GetSpellInfo()->Id, Seconds(-cooldownReduction->GetAmount()));
     }
 
+    // real 46968 (confirmed via SpellEffect.db2) has 4 effects; its SCRIPT_EFFECT is at EFFECT_3,
+    // not EFFECT_1
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_warr_rumbling_earth::HandleCooldownReduction, EFFECT_1, SPELL_EFFECT_SCRIPT_EFFECT);
+        OnEffectHitTarget += SpellEffectFn(spell_warr_rumbling_earth::HandleCooldownReduction, EFFECT_3, SPELL_EFFECT_SCRIPT_EFFECT);
     }
 };
 
@@ -1870,6 +1832,12 @@ class spell_warr_storm_bolt : public SpellScript
 };
 
 // 107570 - Storm Bolt
+// FIXME: SPELL_WARRIOR_STORM_BOLTS (436162, meant to gate this single-target fallback behind "does
+// the caster NOT have the Storm Bolts multi-target buff") is confirmed absent from this build -
+// it's a much later-expansion-range id, not Legion content. logs/Spell.csv has no "Storm Bolts"
+// (plural) entry at all for this build; only singular "Storm Bolt" variants exist (107570 being
+// the base ability this script targets). No verified Legion-era multi-target buff id found to
+// replace it with - left unresolved rather than guess.
 class spell_warr_storm_bolts: public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -1948,6 +1916,14 @@ class spell_warr_sudden_death : public AuraScript
 };
 
 // 12328, 18765, 35429 - Sweeping Strikes
+// FIXME: the two triggered "extra attack" spells this proc casts (12723, 26654) are both
+// confirmed absent from this build's Spell.db2 (matches AshamaneCore's ids exactly, so this isn't
+// an id-drift issue - they may have simply been pruned from later Legion patches), so
+// Validate() always fails and the whole class never attaches. This build's Spell.csv has a
+// candidate replacement, 202161 "Sweeping Strikes" ("Mortal Strike and Execute hit $s1 additional
+// nearby targets"), whose description suggests a directly-integrated multi-target effect on those
+// two abilities instead of this proc-and-cast-a-copy design - but that needs real SpellEffect
+// data and a mechanic rewrite to confirm/implement, not a simple id swap. Left unresolved.
 class spell_warr_sweeping_strikes : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -2310,7 +2286,6 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_critical_thinking);
     RegisterSpellScript(spell_warr_defensive_stance);
     RegisterSpellScript(spell_warr_devastator);
-    RegisterSpellScript(spell_warr_dragon_roar);
     RegisterSpellScript(spell_warr_odyns_fury);
     RegisterSpellScript(spell_warr_enrage_proc);
     RegisterSpellScript(spell_warr_execute);
@@ -2334,7 +2309,6 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_rallying_cry);
     RegisterSpellAndAuraScriptPair(spell_warr_ravager_fury_prot, spell_warr_ravager_fury_prot_aura);
     RegisterCreatureAI(npc_warr_ravager);
-    RegisterSpellScript(spell_warr_last_stand);
     RegisterSpellScript(spell_warr_vigilance_trigger);
     RegisterSpellScript(spell_warr_war_machine);
     RegisterSpellScript(spell_warr_rampage);
