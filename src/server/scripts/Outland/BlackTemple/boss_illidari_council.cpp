@@ -600,19 +600,26 @@ class spell_illidari_council_balance_of_power : public AuraScript
         return ValidateSpellInfo({ SPELL_SHARED_RULE });
     }
 
-    void Absorb(AuraEffect* aurEff, DamageInfo& dmgInfo, uint32& /*absorbAmount*/)
+    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo) const
     {
-        PreventDefaultAction();
-        GetTarget()->CastSpell(nullptr, SPELL_SHARED_RULE, CastSpellExtraArgs(aurEff).AddSpellBP0(dmgInfo.GetDamage()));
+        return eventInfo.GetDamageInfo() != nullptr;
     }
 
-    // FIXME: real Balance of Power (41341) EFFECT_0 is a plain SPELL_AURA_DUMMY, not
-    // SCHOOL_ABSORB - OnEffectAbsorb can't fire on a non-absorb aura at all, so this mechanic
-    // doesn't work as an absorb in this build's data. Needs a different hook (likely
-    // DoCheckEffectProc/OnEffectProc off damage taken) to redesign correctly; left unresolved.
+    void HandleProc(AuraEffect* aurEff, ProcEventInfo& eventInfo)
+    {
+        DamageInfo* dmgInfo = eventInfo.GetDamageInfo();
+        GetTarget()->CastSpell(nullptr, SPELL_SHARED_RULE, CastSpellExtraArgs(aurEff).AddSpellBP0(dmgInfo->GetDamage()));
+    }
+
+    // real Balance of Power (41341, confirmed via SpellEffect.db2) EFFECT_0 is a plain
+    // SPELL_AURA_DUMMY, not SCHOOL_ABSORB, so OnEffectAbsorb could never fire. Re-hooked as a
+    // damage-taken proc instead - matches the ability's actual purpose (redirecting/sharing
+    // damage between the two council members via SPELL_SHARED_RULE) better than a true absorb
+    // would anyway, and DUMMY auras with real proc data fire OnEffectProc natively.
     void Register() override
     {
-        OnEffectAbsorb += AuraEffectAbsorbFn(spell_illidari_council_balance_of_power::Absorb, EFFECT_0);
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_illidari_council_balance_of_power::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_illidari_council_balance_of_power::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 

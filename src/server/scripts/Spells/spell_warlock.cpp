@@ -122,9 +122,12 @@ enum WarlockSpells
     SPELL_WARLOCK_SOUL_LEECH                        = 228974,
     SPELL_WARLOCK_SOUL_LEECH_ABSORB                 = 108366,
     SPELL_WARLOCK_SOUL_FIRE_ENERGIZE                = 281490,
-    // FIXME: both confirmed absent from Spell.db2 under any id (checked the immediate id
-    // neighborhood around each - no candidate for either); SOUL_SWAP_DOT_MARKER (92795,
-    // directly adjacent to MOD_COST) is confirmed correct, so these aren't simply off-by-N.
+    // SPELL_WARLOCK_SOUL_SWAP_CD_MARKER (94229) turned out to be a vestigial dependency -
+    // spell_warl_soul_swap checked it in Validate() but never actually used it, so it was dropped
+    // there rather than needing a fix. SOUL_SWAP_MOD_COST (92794) is a real remaining gap though:
+    // confirmed absent from Spell.db2 under any id (checked the immediate id neighborhood, no
+    // candidate found), and it IS actually used (spell_warl_soul_swap_exhale casts it for the
+    // cost-refund mechanic) - that dependency still blocks Validate() there.
     SPELL_WARLOCK_SOUL_SWAP_CD_MARKER               = 94229,
     SPELL_WARLOCK_SOUL_SWAP_DOT_MARKER              = 92795,
     SPELL_WARLOCK_SOUL_SWAP_MOD_COST                = 92794,
@@ -1672,14 +1675,18 @@ class spell_warl_soul_harvest : public AuraScript
 };
 
 // 86121 - Soul Swap
+// SPELL_WARLOCK_GLYPH_OF_SOUL_SWAP (56226, old Glyph-system id - Glyphs don't exist in Legion) and
+// SPELL_WARLOCK_SOUL_SWAP_CD_MARKER (94229, confirmed absent from this build) were both being
+// checked here but neither is actually referenced anywhere in this class's logic - dropped as
+// vestigial dependencies, since HandleHit() below only ever needs SOUL_SWAP_OVERRIDE (and
+// SOUL_SWAP_DOT_MARKER, confirmed correct, now validated too).
 class spell_warl_soul_swap : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellInfo(
         {
-            SPELL_WARLOCK_GLYPH_OF_SOUL_SWAP,
-            SPELL_WARLOCK_SOUL_SWAP_CD_MARKER,
+            SPELL_WARLOCK_SOUL_SWAP_DOT_MARKER,
             SPELL_WARLOCK_SOUL_SWAP_OVERRIDE
         });
     }

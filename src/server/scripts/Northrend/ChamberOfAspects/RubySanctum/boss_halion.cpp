@@ -112,7 +112,6 @@ enum Spells
     SPELL_LEAVE_TWILIGHT_REALM          = 74812,
     SPELL_TWILIGHT_PHASING              = 74808, // Phase spell from phase 1 to phase 2
     SPELL_SUMMON_TWILIGHT_PORTAL        = 74809, // Summons go 202794
-    SPELL_SUMMON_EXIT_PORTALS           = 74805, // Custom spell created in spell_dbc. // Used in Cataclysm, need a sniff of cata and up
     SPELL_TWILIGHT_MENDING              = 75509,
     SPELL_TWILIGHT_REALM                = 74807,
     SPELL_DUSK_SHROUD                   = 75476,
@@ -673,8 +672,15 @@ class npc_halion_controller : public CreatureScript
                             halion->SetUninteractible(false);
                         }
 
-                        // Summon Twilight portals
-                        DoCastSelf(SPELL_SUMMON_EXIT_PORTALS);
+                        // Summon Twilight portals. 74805 ("Summon Exit Portals") is a fabricated
+                        // id with no real client data (see the removed spell_halion_summon_exit_portals
+                        // script for the full history) - replaced with two direct casts of the
+                        // real single-portal spell (74809) at the same +/-20y offsets that script
+                        // used to apply via its destination-target hooks.
+                        Position const portalOffset1 = { 0.0f, 20.0f, 0.0f, 0.0f };
+                        Position const portalOffset2 = { 0.0f, -20.0f, 0.0f, 0.0f };
+                        me->CastSpell(me->GetPosition().GetPositionWithOffset(portalOffset1), SPELL_SUMMON_TWILIGHT_PORTAL, true);
+                        me->CastSpell(me->GetPosition().GetPositionWithOffset(portalOffset2), SPELL_SUMMON_TWILIGHT_PORTAL, true);
 
                         _instance->DoUpdateWorldState(WORLDSTATE_CORPOREALITY_TOGGLE, 1);
                         // Hardcoding doesn't really matter here.
@@ -1804,51 +1810,6 @@ class spell_halion_twilight_phasing : public SpellScriptLoader
         }
 };
 
-// 74805 - Summon Exit Portals
-// FIXME: 74805 is not a real client spell id. logs/DestinyCore's own enum comment for the same
-// constant says as much: "Custom spell created in spell_dbc ... Used in Cataclysm, need a sniff
-// of cata and up" - i.e. even the primary reference source never had confirmed real data for it,
-// just an invented placeholder id. Confirmed here too: 74805 in this build's Spell.db2 actually
-// belongs to an unrelated spell ("Verinias Visual Transform", a single TRANSFORM aura effect with
-// no destination-target effects at all), and ArgusCore has no local spell_dbc/spell_effect
-// override table defining a custom 74805 either. The nearest real candidate by name, 74809
-// "Summon Twilight Portal" (SPELL_SUMMON_TWILIGHT_PORTAL, already used elsewhere in this file),
-// only has a single EFFECT_0 (summons GameObject 202794 at TARGET_DEST_CASTER) - it summons one
-// portal per cast, not two via a paired EFFECT_0/EFFECT_1 offset like this script expects, so
-// swapping the id wouldn't cleanly fix it either without also restructuring the cast site to fire
-// twice. Left unresolved rather than guess.
-class spell_halion_summon_exit_portals : public SpellScriptLoader
-{
-    public:
-        spell_halion_summon_exit_portals() : SpellScriptLoader("spell_halion_summon_exit_portals") { }
-
-        class spell_halion_summon_exit_portals_SpellScript : public SpellScript
-        {
-            void SetDest0(SpellDestination& dest)
-            {
-                Position const offset = { 0.0f, 20.0f, 0.0f, 0.0f };
-                dest.RelocateOffset(offset);
-            }
-
-            void SetDest1(SpellDestination& dest)
-            {
-                Position const offset = { 0.0f, -20.0f, 0.0f, 0.0f };
-                dest.RelocateOffset(offset);
-            }
-
-            void Register() override
-            {
-                OnDestinationTargetSelect += SpellDestinationTargetSelectFn(spell_halion_summon_exit_portals_SpellScript::SetDest0, EFFECT_0, TARGET_DEST_CASTER);
-                OnDestinationTargetSelect += SpellDestinationTargetSelectFn(spell_halion_summon_exit_portals_SpellScript::SetDest1, EFFECT_1, TARGET_DEST_CASTER);
-            }
-        };
-
-        SpellScript* GetSpellScript() const override
-        {
-            return new spell_halion_summon_exit_portals_SpellScript();
-        }
-};
-
 // 75880 - Spawn Living Embers
 class spell_halion_spawn_living_embers : public SpellScriptLoader
 {
@@ -1932,7 +1893,6 @@ void AddSC_boss_halion()
     new spell_halion_damage_aoe_summon();
     new spell_halion_twilight_realm_handlers("spell_halion_leave_twilight_realm", SPELL_SOUL_CONSUMPTION, false);
     new spell_halion_twilight_realm_handlers("spell_halion_enter_twilight_realm", SPELL_FIERY_COMBUSTION, true);
-    new spell_halion_summon_exit_portals();
     new spell_halion_twilight_phasing();
     new spell_halion_twilight_cutter();
     new spell_halion_clear_debuffs();

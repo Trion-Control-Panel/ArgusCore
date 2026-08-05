@@ -1915,56 +1915,13 @@ class spell_warr_sudden_death : public AuraScript
     }
 };
 
-// 12328, 18765, 35429 - Sweeping Strikes
-// FIXME: the two triggered "extra attack" spells this proc casts (12723, 26654) are both
-// confirmed absent from this build's Spell.db2 (matches AshamaneCore's ids exactly, so this isn't
-// an id-drift issue - they may have simply been pruned from later Legion patches), so
-// Validate() always fails and the whole class never attaches. This build's Spell.csv has a
-// candidate replacement, 202161 "Sweeping Strikes" ("Mortal Strike and Execute hit $s1 additional
-// nearby targets"), whose description suggests a directly-integrated multi-target effect on those
-// two abilities instead of this proc-and-cast-a-copy design - but that needs real SpellEffect
-// data and a mechanic rewrite to confirm/implement, not a simple id swap. Left unresolved.
-class spell_warr_sweeping_strikes : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_WARRIOR_SWEEPING_STRIKES_EXTRA_ATTACK_1, SPELL_WARRIOR_SWEEPING_STRIKES_EXTRA_ATTACK_2 });
-    }
-
-    bool CheckProc(ProcEventInfo& eventInfo)
-    {
-        _procTarget = eventInfo.GetActor()->SelectNearbyTarget(eventInfo.GetProcTarget());
-        return _procTarget != nullptr;
-    }
-
-    void HandleProc(AuraEffect* aurEff, ProcEventInfo& eventInfo)
-    {
-        PreventDefaultAction();
-        if (DamageInfo* damageInfo = eventInfo.GetDamageInfo())
-        {
-            SpellInfo const* spellInfo = damageInfo->GetSpellInfo();
-            if (spellInfo && (spellInfo->Id == SPELL_WARRIOR_BLADESTORM_PERIODIC_WHIRLWIND || (spellInfo->Id == SPELL_WARRIOR_EXECUTE && !_procTarget->HasAuraState(AURA_STATE_WOUNDED_20_PERCENT))))
-            {
-                // If triggered by Execute (while target is not under 20% hp) or Bladestorm deals normalized weapon damage
-                GetTarget()->CastSpell(_procTarget, SPELL_WARRIOR_SWEEPING_STRIKES_EXTRA_ATTACK_2, aurEff);
-            }
-            else
-            {
-                CastSpellExtraArgs args(aurEff);
-                args.AddSpellMod(SPELLVALUE_BASE_POINT0, damageInfo->GetDamage());
-                GetTarget()->CastSpell(_procTarget, SPELL_WARRIOR_SWEEPING_STRIKES_EXTRA_ATTACK_1, args);
-            }
-        }
-    }
-
-    void Register() override
-    {
-        DoCheckProc += AuraCheckProcFn(spell_warr_sweeping_strikes::CheckProc);
-        OnEffectProc += AuraEffectProcFn(spell_warr_sweeping_strikes::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-
-    Unit* _procTarget = nullptr;
-};
+// Removed spell_warr_sweeping_strikes (was bound to 12328/18765/35429, the old Cata/MoP-era
+// proc-and-cast-an-extra-attack design - its two triggered spells, 12723/26654, are confirmed
+// absent from this build). Real Legion Sweeping Strikes is 202161: confirmed via SpellEffect.db2
+// as a fully-native EffectAura=107 (ADD_FLAT_MODIFIER) with EffectMiscValue_0=17, i.e.
+// SpellModOp::ChainTargets - a passive aura that adds +2 additional targets directly to Mortal
+// Strike/Execute via the engine's own spell-mod system (EffectSpellClassMask_0 matches those two
+// abilities). No script needed at all; unbound the three old ids via SQL migration.
 
 // 215538 - Trauma
 class spell_warr_trauma : public AuraScript
@@ -2327,7 +2284,6 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_storm_bolts);
     RegisterSpellScript(spell_warr_strategist);
     RegisterSpellScript(spell_warr_sudden_death);
-    RegisterSpellScript(spell_warr_sweeping_strikes);
     RegisterSpellScript(spell_warr_trauma);
     RegisterSpellScript(spell_warr_t3_prot_8p_bonus);
     RegisterSpellScript(spell_warr_tactician);

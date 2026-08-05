@@ -2862,13 +2862,14 @@ class spell_sha_windfury_weapon : public SpellScript
             });
     }
 
-    // FIXME: real Windfury Weapon (33757) EFFECT_0 is SPELL_EFFECT_APPLY_AURA (AuraName DUMMY),
-    // not a SPELL_EFFECT_DUMMY hit effect at all - this SpellScript/OnEffectHitTarget shape can't
-    // bind to it as-is; would need restructuring as an AuraScript (OnEffectApply), not a simple
-    // effect-index swap. Left unresolved rather than risk a wrong hook-type change.
+    // real Windfury Weapon (33757, confirmed via SpellEffect.db2) EFFECT_0 is
+    // SPELL_EFFECT_APPLY_AURA with AuraName DUMMY - SpellEffectFn/OnEffectHitTarget binds on the
+    // Effect column (APPLY_AURA), not the aura name, so this is a plain type swap (matching the
+    // same idiom already used elsewhere in this session, e.g. Metamorphosis Immunity) rather than
+    // needing an AuraScript restructure.
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_sha_windfury_weapon::HandleEffect, EFFECT_0, SPELL_EFFECT_DUMMY);
+        OnEffectHitTarget += SpellEffectFn(spell_sha_windfury_weapon::HandleEffect, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
     }
 };
 

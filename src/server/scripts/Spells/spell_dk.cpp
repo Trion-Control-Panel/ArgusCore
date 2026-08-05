@@ -113,13 +113,11 @@ enum DeathKnightSpells
     SPELL_DK_PURGATORY_DEATH                    = 123982,
     SPELL_DK_PURGATORY_MARKER                   = 123981,
     SPELL_DK_DESECRATED_GROUND_IMMUNE           = 115018,
-    // FIXME: despite the note this replaced (215711 -> 91342, said to be corroborated by two
-    // reference sources), 91342 is confirmed absent from this build's Spell.db2 under any id -
-    // not a neighbor-id gap (91341/91343 both exist, 91342 doesn't) - and the running engine's
-    // own ValidateSpellInfo agrees ("Spell 91342 does not exist"). Left as-is rather than revert
-    // to the also-confirmed-dead 215711 or guess a third id; both spell_dk_festering_wound and
-    // spell_dk_dark_transformation_form still fail Validate() on this dependency.
-    SPELL_DK_DARK_INFUSION                      = 91342,
+    // Was SPELL_DK_DARK_INFUSION = 91342 (confirmed absent from this build). TrinityCore-Cata's
+    // own reference implementation names id 91342 "SPELL_DK_SHADOW_INFUSION" (not "Dark
+    // Infusion") - the constant name itself was wrong, and 91342 was the old WotLK/Cata stacking
+    // version anyway. Real Legion Shadow Infusion is 198943 (see spell_dk_shadow_infusion).
+    SPELL_DK_SHADOW_INFUSION                    = 198943,
     SPELL_DK_DARK_TRANSFORMATION                = 63560,
     SPELL_DK_SOUL_REAPER_OLD_DEBUFF             = 130736,
     SPELL_DK_CORPSE_SHIELD_TRANSFER             = 212753,
@@ -2763,61 +2761,45 @@ class spell_dk_scourge_strike : public SpellScript
     }
 };
 
-// 194311 - Festering Wound (pop effect — Soul Reaper interaction)
-class spell_dk_festering_wound : public SpellScript
+// Removed spell_dk_festering_wound (the Soul Reaper-pop-grants-a-stack version) and
+// spell_dk_dark_transformation_form (the stack-consuming version): both modeled the old
+// WotLK/Cata "Shadow Infusion" design (stack up 5 charges, consumed by Dark Transformation).
+// Checked TrinityCore-Cata's own reference implementation for corroboration first - it names the
+// same id (91342) "SPELL_DK_SHADOW_INFUSION", not "Dark Infusion", confirming the constant name
+// itself was wrong here, not just possibly the id. Real Legion Shadow Infusion is a completely
+// different, much simpler design: 198943 (confirmed via logs/Spell.csv tooltip - "While your ghoul
+// is not transformed, Death Coil will also reduce the remaining cooldown of Dark Transformation")
+// - a flat cooldown-reduction proc, not a stacking-and-consuming mechanic at all. Replaced with
+// spell_dk_shadow_infusion below, implementing the real mechanic.
+
+// 198943 - Shadow Infusion
+// Passive: while the caster's ghoul is not currently Dark Transformed, casting Death Coil reduces
+// Dark Transformation's remaining cooldown by the aura's own effect amount.
+class spell_dk_shadow_infusion : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_DK_DARK_INFUSION, SPELL_DK_SOUL_REAPER_OLD_DEBUFF });
+        return ValidateSpellInfo({ SPELL_DK_DEATH_COIL, SPELL_DK_DARK_TRANSFORMATION });
     }
 
-    void HandleOnCast()
+    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo) const
     {
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
+        if (!eventInfo.GetSpellInfo() || eventInfo.GetSpellInfo()->Id != SPELL_DK_DEATH_COIL)
+            return false;
 
-        Unit* target = GetExplTargetUnit();
-        if (target && target->HasAura(SPELL_DK_SOUL_REAPER_OLD_DEBUFF, caster->GetGUID()))
-            caster->CastSpell(caster, SPELL_DK_DARK_INFUSION, true);
+        Pet* pet = GetTarget()->GetPet();
+        return pet && !pet->HasAura(SPELL_DK_DARK_TRANSFORMATION);
+    }
+
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo const& /*eventInfo*/) const
+    {
+        GetTarget()->GetSpellHistory()->ModifyCooldown(SPELL_DK_DARK_TRANSFORMATION, Seconds(-aurEff->GetAmount()));
     }
 
     void Register() override
     {
-        OnCast += SpellCastFn(spell_dk_festering_wound::HandleOnCast);
-    }
-};
-
-// 63560 - Dark Transformation: consumes the Dark Infusion stack (granted above by
-// spell_dk_festering_wound) from both player and pet when it hits the pet, matching the
-// corroborated implementation shared by two independent reference sources.
-class spell_dk_dark_transformation_form : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DK_DARK_INFUSION });
-    }
-
-    void HandleOnHit()
-    {
-        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
-        if (!player)
-            return;
-
-        Unit* pet = GetHitUnit();
-        if (!pet)
-            return;
-
-        if (pet->HasAura(SPELL_DK_DARK_INFUSION))
-        {
-            player->RemoveAura(SPELL_DK_DARK_INFUSION);
-            pet->RemoveAura(SPELL_DK_DARK_INFUSION);
-        }
-    }
-
-    void Register() override
-    {
-        OnHit += SpellHitFn(spell_dk_dark_transformation_form::HandleOnHit);
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dk_shadow_infusion::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_dk_shadow_infusion::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -2917,7 +2899,6 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_dancing_rune_weapon);
     RegisterSpellScript(spell_dk_dark_simulacrum);
     RegisterSpellScript(spell_dk_dark_simulacrum_buff);
-    RegisterSpellScript(spell_dk_dark_transformation_form);
     RegisterSpellScript(spell_dk_death_and_decay);
     RegisterSpellScript(spell_dk_death_coil);
     RegisterSpellScript(spell_dk_death_gate);
@@ -2934,7 +2915,7 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_death_strike_enabler);
     RegisterSpellScript(spell_dk_blighted_rune_weapon);
     RegisterSpellScript(spell_dk_festering_strike);
-    RegisterSpellScript(spell_dk_festering_wound);
+    RegisterSpellScript(spell_dk_shadow_infusion);
     RegisterSpellScript(spell_dk_frost_fever_proc);
     RegisterSpellScript(spell_dk_frost_shield);
     RegisterSpellScript(spell_dk_frost_strike);

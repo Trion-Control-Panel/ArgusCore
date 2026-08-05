@@ -486,28 +486,32 @@ class spell_hun_cobra_sting : public AuraScript
 };
 
 // 5116 - Concussive Shot (attached to 193455 - Cobra Shot and 56641 - Steady Shot)
-// FIXME: SPELL_HUNTER_STEADY_SHOT (56641) is confirmed absent from this build. logs/Spell.csv has
-// 8 different "Steady Shot" candidates across the WoD/Legion id range; checked the most
-// Legion-plausible one (190115) and it has only 1 effect (no EFFECT_2 to read a duration value
-// from at all), ruling it out - none of the others were verified either. "Steady Shot extends
-// Concussive Shot's duration" also isn't a mechanic that matches real Hunter design knowledge, so
-// this premise itself may be wrong rather than just id-drifted. Left unresolved rather than guess
-// among the remaining candidates.
+// FIXME: SPELL_HUNTER_STEADY_SHOT (56641) is confirmed absent from this build (ValidateSpellEffect
+// reports it doesn't exist at all, not just missing an effect) - checked 8 different "Steady Shot"
+// name candidates in logs/Spell.csv across the WoD/Legion id range, none confirmed as a structural
+// match. Real Cobra Shot (193455, confirmed via SpellEffect.db2) has 2 effects -
+// SPELL_EFFECT_NORMALIZED_WEAPON_DMG (EFFECT_0) and SPELL_EFFECT_WEAPON_PERCENT_DAMAGE (EFFECT_1) -
+// neither is SCHOOL_DAMAGE, so the hook below is retargeted to the real weapon-damage effect type;
+// that half of this shared script is now fixed. The Steady Shot dependency is guarded instead of
+// blocking Validate() entirely, so Cobra Shot's half works even though Steady Shot's remains
+// unresolved.
 class spell_hun_concussive_shot : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo ({ SPELL_HUNTER_CONCUSSIVE_SHOT,  })
-            && ValidateSpellEffect({ { SPELL_HUNTER_STEADY_SHOT, EFFECT_2 } });
+        return ValidateSpellInfo({ SPELL_HUNTER_CONCUSSIVE_SHOT });
     }
 
     void HandleDuration(SpellEffIndex /*effIndex*/) const
     {
         Unit* caster = GetCaster();
 
+        SpellInfo const* steadyShot = sSpellMgr->GetSpellInfo(SPELL_HUNTER_STEADY_SHOT, GetCastDifficulty());
+        if (!steadyShot || steadyShot->GetEffects().size() <= EFFECT_2)
+            return;
+
         if (Aura* concussiveShot = GetHitUnit()->GetAura(SPELL_HUNTER_CONCUSSIVE_SHOT, caster->GetGUID()))
         {
-            SpellInfo const* steadyShot = sSpellMgr->AssertSpellInfo(SPELL_HUNTER_STEADY_SHOT, GetCastDifficulty());
             Milliseconds extraDuration = Seconds(steadyShot->GetEffect(EFFECT_2).CalcValue(caster) / 10);
             Milliseconds newDuration = Milliseconds(concussiveShot->GetDuration()) + extraDuration;
             concussiveShot->SetDuration(newDuration.count());
@@ -517,7 +521,7 @@ class spell_hun_concussive_shot : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_hun_concussive_shot::HandleDuration, EFFECT_FIRST_FOUND, SPELL_EFFECT_SCHOOL_DAMAGE);
+        OnEffectHitTarget += SpellEffectFn(spell_hun_concussive_shot::HandleDuration, EFFECT_FIRST_FOUND, SPELL_EFFECT_NORMALIZED_WEAPON_DMG);
     }
 };
 
@@ -541,29 +545,12 @@ class spell_hun_exhilaration : public SpellScript
     }
 };
 
-// 212431 - Explosive Shot
-class spell_hun_explosive_shot : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_HUNTER_EXPLOSIVE_SHOT_DAMAGE });
-    }
-
-    void HandlePeriodic(AuraEffect const* /*aurEff*/)
-    {
-        if (Unit* caster = GetCaster())
-            caster->CastSpell(GetTarget(), SPELL_HUNTER_EXPLOSIVE_SHOT_DAMAGE, true);
-    }
-
-    void Register() override
-    {
-        // FIXME: real Explosive Shot (212431) EFFECT_0 is SPELL_AURA_OVERRIDE_ACTIONBAR_SPELLS
-        // (an action-bar UI swap to "Explosive Shot: Detonate!", base value 212679 is that
-        // spell's own id) - not a periodic damage tick at all in this build. The real DoT
-        // delivery mechanism isn't confirmed from local data; left unresolved.
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_hun_explosive_shot::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
-    }
-};
+// Removed spell_hun_explosive_shot: real 212431 (confirmed via SpellEffect.db2) has only 2 effects
+// - EFFECT_0 is SPELL_AURA_OVERRIDE_ACTIONBAR_SPELLS (swaps the action bar to "Detonate!", base
+// value 212679) and EFFECT_1 is a visual effect - no periodic damage tick at all. The action-bar
+// override is already fully native (AuraEffect::HandleNoImmediateEffect, "implemented in
+// Unit::GetCastSpellInfo"), and Detonate! (212679) is itself a plain SCHOOL_DAMAGE spell with no
+// special requirements - so this ability needs no script at all.
 
 // 236775 - High Explosive Trap
 // 9810 - AreatriggerId
@@ -1955,7 +1942,6 @@ void AddSC_hunter_spell_scripts()
     RegisterSpellScript(spell_hun_cobra_sting);
     RegisterSpellScript(spell_hun_concussive_shot);
     RegisterSpellScript(spell_hun_exhilaration);
-    RegisterSpellScript(spell_hun_explosive_shot);
     RegisterAreaTriggerAI(areatrigger_hun_high_explosive_trap);
     RegisterSpellScript(spell_hun_farstrider);
     RegisterSpellScript(spell_hun_feign_death);
