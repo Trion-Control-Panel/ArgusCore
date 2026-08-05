@@ -932,6 +932,12 @@ enum QueryDataGroup
     QUERY_DATA_ALL = 0xFF
 };
 
+enum EncounterCreditType : uint8
+{
+    ENCOUNTER_CREDIT_KILL_CREATURE = 0,
+    ENCOUNTER_CREDIT_CAST_SPELL    = 1
+};
+
 class PlayerDumpReader;
 
 class TC_GAME_API ObjectMgr
@@ -1236,6 +1242,7 @@ class TC_GAME_API ObjectMgr
         void LoadPointOfInterestLocales();
         void LoadInstanceTemplate();
         void LoadInstanceFinalEncounter();
+        void LoadInstanceEncounters();
         void LoadPVPStatIDs();
         void LoadMailLevelRewards();
         void LoadVehicleTemplateAccessories();

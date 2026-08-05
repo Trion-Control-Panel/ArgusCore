@@ -378,6 +378,10 @@ enum CreatureFlagsExtra : uint32
                                                 CREATURE_FLAG_EXTRA_UNUSED_23 | CREATURE_FLAG_EXTRA_UNUSED_24 | CREATURE_FLAG_EXTRA_UNUSED_25 |
                                                 CREATURE_FLAG_EXTRA_UNUSED_26 | CREATURE_FLAG_EXTRA_UNUSED_27 | CREATURE_FLAG_EXTRA_UNUSED_31), // SKIP
 
+    // CREATURE_FLAG_EXTRA_DUNGEON_BOSS is set dynamically, not from DB content - see
+    // ObjectMgr::LoadInstanceEncounters() (reads the `instance_encounters` table, ported from the
+    // reference cores' identically-named/shaped mechanism, which ArgusCore was previously missing
+    // entirely) for where it gets set on the in-memory CreatureTemplate after this mask strips it.
     CREATURE_FLAG_EXTRA_DB_ALLOWED           = (0xFFFFFFFF & ~(CREATURE_FLAG_EXTRA_UNUSED | CREATURE_FLAG_EXTRA_DUNGEON_BOSS)) // SKIP
 };
 

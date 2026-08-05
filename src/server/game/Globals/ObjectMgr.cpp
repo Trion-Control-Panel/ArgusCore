@@ -6276,6 +6276,91 @@ void ObjectMgr::LoadInstanceFinalEncounter()
     TC_LOG_INFO("server.loading", ">> Loaded {} instance final encounters in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
 }
 
+void ObjectMgr::LoadInstanceEncounters()
+{
+    uint32 oldMSTime = getMSTime();
+
+    //                                               0      1           2            3                     4
+    QueryResult result = WorldDatabase.Query("SELECT entry, creditType, creditEntry, lastEncounterDungeon, comment FROM instance_encounters");
+    if (!result)
+    {
+        TC_LOG_INFO("server.loading", ">> Loaded 0 instance encounters, table is empty!");
+        return;
+    }
+
+    uint32 count = 0;
+    std::map<uint32, std::pair<uint32, DungeonEncounterEntry const*>> dungeonLastBosses;
+    do
+    {
+        Field* fields = result->Fetch();
+        uint32 entry = fields[0].GetUInt32();
+        uint8 creditType = fields[1].GetUInt8();
+        uint32 creditEntry = fields[2].GetUInt32();
+        uint32 lastEncounterDungeon = fields[3].GetUInt16();
+        DungeonEncounterEntry const* dungeonEncounter = sDungeonEncounterStore.LookupEntry(entry);
+        if (!dungeonEncounter)
+        {
+            TC_LOG_ERROR("sql.sql", "Table `instance_encounters` has an invalid encounter id {}, skipped!", entry);
+            continue;
+        }
+
+        if (lastEncounterDungeon && !sLFGMgr->GetLFGDungeonEntry(lastEncounterDungeon))
+        {
+            TC_LOG_ERROR("sql.sql", "Table `instance_encounters` has an encounter {} ({}) marked as final for invalid dungeon id {}, skipped!",
+                entry, dungeonEncounter->Name[sWorld->GetDefaultDbcLocale()], lastEncounterDungeon);
+            continue;
+        }
+
+        if (lastEncounterDungeon)
+        {
+            std::map<uint32, std::pair<uint32, DungeonEncounterEntry const*>>::const_iterator itr = dungeonLastBosses.find(lastEncounterDungeon);
+            if (itr != dungeonLastBosses.end())
+            {
+                TC_LOG_ERROR("sql.sql", "Table `instance_encounters` specified encounter {} ({}) as last encounter but {} ({}) is already marked as one, skipped!",
+                    entry, dungeonEncounter->Name[sWorld->GetDefaultDbcLocale()], itr->second.first, itr->second.second->Name[sWorld->GetDefaultDbcLocale()]);
+                continue;
+            }
+
+            dungeonLastBosses[lastEncounterDungeon] = std::make_pair(entry, dungeonEncounter);
+        }
+
+        switch (creditType)
+        {
+            case ENCOUNTER_CREDIT_KILL_CREATURE:
+            {
+                CreatureTemplate const* creatureInfo = GetCreatureTemplate(creditEntry);
+                if (!creatureInfo)
+                {
+                    TC_LOG_ERROR("sql.sql", "Table `instance_encounters` has an invalid creature (entry {}) linked to the encounter {} ({}), skipped!",
+                        creditEntry, entry, dungeonEncounter->Name[sWorld->GetDefaultDbcLocale()]);
+                    continue;
+                }
+                // Unlike older cores, ArgusCore's CreatureTemplate is not duplicated per difficulty
+                // (that data lives in creature_template_difficulty instead), so flags_extra only
+                // needs to be set once per entry - no DifficultyEntry[] loop needed here.
+                const_cast<CreatureTemplate*>(creatureInfo)->flags_extra |= CREATURE_FLAG_EXTRA_DUNGEON_BOSS;
+                break;
+            }
+            case ENCOUNTER_CREDIT_CAST_SPELL:
+                if (!sSpellMgr->GetSpellInfo(creditEntry, DIFFICULTY_NONE))
+                {
+                    TC_LOG_ERROR("sql.sql", "Table `instance_encounters` has an invalid spell (entry {}) linked to the encounter {} ({}), skipped!",
+                        creditEntry, entry, dungeonEncounter->Name[sWorld->GetDefaultDbcLocale()]);
+                    continue;
+                }
+                break;
+            default:
+                TC_LOG_ERROR("sql.sql", "Table `instance_encounters` has an invalid credit type ({}) for encounter {} ({}), skipped!",
+                    creditType, entry, dungeonEncounter->Name[sWorld->GetDefaultDbcLocale()]);
+                continue;
+        }
+
+        ++count;
+    } while (result->NextRow());
+
+    TC_LOG_INFO("server.loading", ">> Loaded {} instance encounters in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
+}
+
 void ObjectMgr::LoadPVPStatIDs()
 {
     uint32 oldMSTime = getMSTime();

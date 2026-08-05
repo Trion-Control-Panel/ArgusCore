@@ -1659,6 +1659,9 @@ bool World::SetInitialWorldSettings()
     TC_LOG_INFO("server.loading", "Loading instance final encounter data...");
     sObjectMgr->LoadInstanceFinalEncounter();
 
+    TC_LOG_INFO("server.loading", "Loading instance encounters..."); // Must be after LoadCreatureTemplates() and LFGMgr::LoadLFGDungeons()
+    sObjectMgr->LoadInstanceEncounters();
+
     TC_LOG_INFO("server.loading", "Loading LFG rewards...");
     sLFGMgr->LoadRewards();
 
