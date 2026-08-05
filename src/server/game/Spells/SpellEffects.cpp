@@ -1016,7 +1016,10 @@ void Spell::EffectTeleportUnitsWithVisualLoadingScreen()
     if (!targetDest.GetOrientation() && m_targets.GetUnitTarget())
         targetDest.SetOrientation(m_targets.GetUnitTarget()->GetOrientation());
 
-    if (effectInfo->MiscValueB)
+    // SMSG_SPELL_VISUAL_LOAD_SCREEN's real opcode value is unknown (see Opcodes.h) - sending it
+    // would put an invalid opcode header on the wire, so skip the visual-only packet and still
+    // perform the teleport below.
+    if (effectInfo->MiscValueB && SMSG_SPELL_VISUAL_LOAD_SCREEN != UNKNOWN_OPCODE)
         if (Player* playerTarget = unitTarget->ToPlayer())
             playerTarget->SendDirectMessage(WorldPackets::Spells::SpellVisualLoadScreen(effectInfo->MiscValueB, effectInfo->MiscValue).Write());
 

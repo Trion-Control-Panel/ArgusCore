@@ -38,6 +38,14 @@ INSERT IGNORE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES (23881
 -- its flat damage natively. Unbind 60776 only; 60864 keeps the (now-corrected) script.
 DELETE FROM `spell_script_names` WHERE `spell_id` = 60776 AND `ScriptName` = 'spell_jaws_of_death_claw_swipe_pct_damage';
 
+-- battleground_template row 1014 has no matching BattlemasterList.dbc entry in this build
+-- (confirmed via wago.tools: no row exists for BattlemasterList ID 1014 in 7.3.5.26972), and no
+-- BattlegroundTypeId enum constant in the engine references 1014 either - it's an orphaned row
+-- with no DBC backing and no code path, producing a harmless-but-noisy startup error
+-- ("Battleground ID 1014 could not be found in BattlemasterList.dbc") every launch. Same category
+-- as the earlier orphaned gameobject_template_addon cleanup - remove it.
+DELETE FROM `battleground_template` WHERE `ID` = 1014;
+
 -- spell_gen_feast: bound to 57337/57397/58466/58475/66477. Real SpellEffect data confirms EFFECT_0
 -- is SPELL_EFFECT_SCRIPT_EFFECT (matching the hook) for the first four, but 66477 (Bountiful
 -- Feast) no longer has a SCRIPT_EFFECT at all in this build - its three effects are plain

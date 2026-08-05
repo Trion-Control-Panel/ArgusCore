@@ -3049,10 +3049,16 @@ Arena.QueueAnnouncer.Enable = 0
 
 #
 #    Arena.ArenaSeason.ID
-#        Description: Current arena season id shown in clients.
-#        Default:     32
+#        Description: Current arena season id shown in clients. Must have a matching row in the
+#                      `game_event_arena_seasons` table (StartArenaSeason() rejects it otherwise) -
+#                      this repo's shipped world DB only carries season data through season 11
+#                      (Cataclysm's "PvP Season 11 - Cataclysmic", see
+#                      sql/old/7/world/03_2025_05_11/2024_10_09_00_world.sql); later seasons (MoP
+#                      onward) were never ported in, so raising this default would need real
+#                      game_event/game_event_arena_seasons rows added first.
+#        Default:     11
 
-Arena.ArenaSeason.ID = 32
+Arena.ArenaSeason.ID = 11
 
 #
 #    Arena.ArenaSeason.InProgress

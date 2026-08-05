@@ -1678,10 +1678,17 @@ enum OpcodeServer : uint16
     SMSG_SPELL_PERIODIC_AURA_LOG                      = 0x2C1B,
     SMSG_SPELL_PREPARE                                = 0x2C38,
     SMSG_SPELL_START                                  = 0x2C3A,
-    SMSG_SPELL_VISUAL_LOAD_SCREEN                     = 0x9999, // TBD - also absent from all 4 reference cores, so this value
-                                                                  // is unverified too; left as-is (not moved to UNKNOWN_OPCODE)
-                                                                  // because it's actively sent from SpellEffects.cpp and doing
-                                                                  // that would silently disable a currently-working feature.
+    SMSG_SPELL_VISUAL_LOAD_SCREEN                     = UNKNOWN_OPCODE, // real value unknown, absent from all 4 reference
+                                                                  // cores. Previously held guessed placeholder 0x9999, but that
+                                                                  // value is outside the valid SMSG opcode range, so
+                                                                  // ValidateServerOpcode was already rejecting the handler
+                                                                  // registration (the "currently working feature" the old
+                                                                  // comment protected was never actually reaching the client
+                                                                  // correctly) while Spell::EffectTeleportUnitsWithVisualLoadingScreen
+                                                                  // was still unconditionally writing that bogus opcode onto the
+                                                                  // wire. Moved to the UNKNOWN_OPCODE sentinel (matching
+                                                                  // SMSG_CAPTURE_POINT_REMOVED/SMSG_ITEM_UPGRADE_RESULT's
+                                                                  // convention) and the send site guarded instead.
     SMSG_SPIRIT_HEALER_CONFIRM                        = 0x2754,
     SMSG_STAND_STATE_UPDATE                           = 0x275B,
     SMSG_START_ELAPSED_TIMER                          = 0x261A,
