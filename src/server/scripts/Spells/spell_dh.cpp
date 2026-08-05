@@ -1088,8 +1088,10 @@ class spell_dh_fel_rush_charge : public SpellScript
 
     void Register() override
     {
-        // real Fel Rush (197922/197923) EFFECT_0 is SPELL_EFFECT_JUMP_CHARGE, not CHARGE_DEST
-        OnEffectHit += SpellEffectFn(spell_dh_fel_rush_charge::HandleDamage, EFFECT_0, SPELL_EFFECT_JUMP_CHARGE);
+        // correction: real Fel Rush (197922/197923) EFFECT_0 is plain SPELL_EFFECT_DUMMY - unlike
+        // Infernal Strike, it has no JUMP_CHARGE effect at all (7 effects total, mostly speed/
+        // movement auras matching the same "Roll"-style dash shape used elsewhere in this file)
+        OnEffectHit += SpellEffectFn(spell_dh_fel_rush_charge::HandleDamage, EFFECT_0, SPELL_EFFECT_DUMMY);
     }
 };
 

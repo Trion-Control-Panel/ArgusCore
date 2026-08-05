@@ -259,6 +259,11 @@ class spell_varos_centrifuge_shield : public AuraScript
 };
 
 // 50785, 59372 - Energize Cores
+// Real EFFECT_0 on both ids (confirmed via SpellEffect.db2) is SPELL_EFFECT_SCHOOL_DAMAGE with
+// ImplicitTarget TARGET_UNIT_CONE_180_DEG_ENEMY, not TARGET_UNIT_SRC_AREA_ENEMY - cone select
+// still routes through OnObjectAreaTargetSelect (TARGET_SELECT_CATEGORY_CONE shares the same
+// Spell::SelectImplicitTargets code path as TARGET_SELECT_CATEGORY_AREA), so this is a target-type
+// fix only, the FilterTargets orientation-narrowing logic is unaffected.
 class spell_varos_energize_core_area_enemy : public SpellScript
 {
     void FilterTargets(std::list<WorldObject*>& targets)
@@ -286,12 +291,16 @@ class spell_varos_energize_core_area_enemy : public SpellScript
 
     void Register() override
     {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_varos_energize_core_area_enemy::FilterTargets, EFFECT_0, TARGET_UNIT_SRC_AREA_ENEMY);
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_varos_energize_core_area_enemy::FilterTargets, EFFECT_0, TARGET_UNIT_CONE_180_DEG_ENEMY);
     }
 };
 
 // 54069, 56251 - Energize Cores
 // 61407, 62136 - Energize Cores
+// Same real-data finding as spell_varos_energize_core_area_enemy above: all four ids' EFFECT_0
+// targets TARGET_UNIT_CONE_180_DEG_ENEMY (confirmed via SpellEffect.db2), not
+// TARGET_UNIT_SRC_AREA_ENTRY - no evidence of an entry-filtered target anywhere in this spell
+// family's real data.
 class spell_varos_energize_core_area_entry : public SpellScript
 {
     void FilterTargets(std::list<WorldObject*>& targets)
@@ -319,7 +328,7 @@ class spell_varos_energize_core_area_entry : public SpellScript
 
     void Register() override
     {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_varos_energize_core_area_entry::FilterTargets, EFFECT_0, TARGET_UNIT_SRC_AREA_ENTRY);
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_varos_energize_core_area_entry::FilterTargets, EFFECT_0, TARGET_UNIT_CONE_180_DEG_ENEMY);
     }
 };
 

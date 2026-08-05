@@ -1307,6 +1307,10 @@ class spell_icehowl_trample : public SpellScript
 };
 
 // 66683 - Massive Crash
+// Real EFFECT_0 (confirmed via SpellEffect.db2, across all its per-difficulty rows) is
+// APPLY_AURA/SPELL_AURA_MOD_STUN - EFFECT_2 is SPELL_EFFECT_SCHOOL_DAMAGE (also confirmed across
+// every difficulty variant, DifficultyID 0/4/5/6), not an aura at all, so the stun this handler
+// hooks off of is actually on EFFECT_0.
 class spell_icehowl_massive_crash : public AuraScript
 {
     bool Validate(SpellInfo const* /*spell*/) override
@@ -1323,7 +1327,7 @@ class spell_icehowl_massive_crash : public AuraScript
 
     void Register() override
     {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_icehowl_massive_crash::HandleSpeed, EFFECT_2, SPELL_AURA_MOD_STUN, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_icehowl_massive_crash::HandleSpeed, EFFECT_0, SPELL_AURA_MOD_STUN, AURA_EFFECT_HANDLE_REAL);
     }
 };
 

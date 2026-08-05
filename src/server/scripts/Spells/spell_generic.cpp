@@ -1014,8 +1014,14 @@ class spell_gen_clone_weapon_aura : public AuraScript
         }
     }
 
+    // This scriptname is shared across 6 differently-shaped "copy weapon" spells: most (Offhand/
+    // Offhand 2/Ranged) real EFFECT_0 is SPELL_AURA_PERIODIC_DUMMY, but Weapon/Weapon 2/Weapon 3
+    // (41054/63418/69893) are SPELL_AURA_MOD_DISARM instead - registering both means whichever
+    // type a given bound spell actually has still fires, without breaking the others.
     void Register() override
     {
+        OnEffectApply += AuraEffectApplyFn(spell_gen_clone_weapon_aura::OnApply, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
+        OnEffectRemove += AuraEffectRemoveFn(spell_gen_clone_weapon_aura::OnRemove, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
         OnEffectApply += AuraEffectApplyFn(spell_gen_clone_weapon_aura::OnApply, EFFECT_0, SPELL_AURA_MOD_DISARM, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
         OnEffectRemove += AuraEffectRemoveFn(spell_gen_clone_weapon_aura::OnRemove, EFFECT_0, SPELL_AURA_MOD_DISARM, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
     }
@@ -1538,7 +1544,14 @@ enum Feast
    57397 - Fish Feast
    58466 - Gigantic Feast
    58475 - Small Feast
-   66477 - Bountiful Feast */
+   66477 - Bountiful Feast (unbound - see sql/updates/world/master/2026_08_04_01_world.sql) */
+// Real EFFECT_0 (confirmed via SpellEffect.db2) is SPELL_EFFECT_SCRIPT_EFFECT for 57337/57397/
+// 58466/58475, matching this hook. 66477 (Bountiful Feast) no longer matches at all in this
+// build - its EFFECT_0/EFFECT_1 are plain SPELL_EFFECT_TRIGGER_SPELL (Food 175780, Drink 175787)
+// and EFFECT_2 is APPLY_AURA/PERIODIC_TRIGGER_SPELL (the Well Fed buff, 65418) - the same
+// Food+Drink+WellFed combo this script's SPELL_BOUNTIFUL_FEAST case manually casts, just already
+// delivered natively by the spell's own effects now, with no SCRIPT_EFFECT left to hook. Unbound
+// 66477 from this ScriptName via SQL rather than force a fake hook match.
 class spell_gen_feast : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -5352,6 +5365,10 @@ enum SpatialRiftSpells
 };
 
 // 257040 - Spatial Rift
+// Real EFFECT_0 (confirmed via SpellEffect.db2) is SPELL_EFFECT_DESPAWN_AREATRIGGER, not
+// SPELL_EFFECT_DUMMY - matches exactly what HandleDummy already does (teleports to the areatrigger
+// then calls at->SetDuration(0) to despawn it). EFFECT_1 (EffectTriggerSpell = 256948) is the one
+// that actually creates SPELL_SPATIAL_RIFT_AREATRIGGER, handled natively by the engine.
 class spell_gen_spatial_rift : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -5377,7 +5394,7 @@ class spell_gen_spatial_rift : public SpellScript
 
     void Register() override
     {
-        OnEffectHit += SpellEffectFn(spell_gen_spatial_rift::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+        OnEffectHit += SpellEffectFn(spell_gen_spatial_rift::HandleDummy, EFFECT_0, SPELL_EFFECT_DESPAWN_AREATRIGGER);
     }
 };
 

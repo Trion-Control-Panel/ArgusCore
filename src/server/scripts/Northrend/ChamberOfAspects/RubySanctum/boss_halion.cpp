@@ -1805,6 +1805,18 @@ class spell_halion_twilight_phasing : public SpellScriptLoader
 };
 
 // 74805 - Summon Exit Portals
+// FIXME: 74805 is not a real client spell id. logs/DestinyCore's own enum comment for the same
+// constant says as much: "Custom spell created in spell_dbc ... Used in Cataclysm, need a sniff
+// of cata and up" - i.e. even the primary reference source never had confirmed real data for it,
+// just an invented placeholder id. Confirmed here too: 74805 in this build's Spell.db2 actually
+// belongs to an unrelated spell ("Verinias Visual Transform", a single TRANSFORM aura effect with
+// no destination-target effects at all), and ArgusCore has no local spell_dbc/spell_effect
+// override table defining a custom 74805 either. The nearest real candidate by name, 74809
+// "Summon Twilight Portal" (SPELL_SUMMON_TWILIGHT_PORTAL, already used elsewhere in this file),
+// only has a single EFFECT_0 (summons GameObject 202794 at TARGET_DEST_CASTER) - it summons one
+// portal per cast, not two via a paired EFFECT_0/EFFECT_1 offset like this script expects, so
+// swapping the id wouldn't cleanly fix it either without also restructuring the cast site to fire
+// twice. Left unresolved rather than guess.
 class spell_halion_summon_exit_portals : public SpellScriptLoader
 {
     public:

@@ -1016,8 +1016,13 @@ class spell_low_health_trigger : public SpellScript
     }
 };
 
-// 60776 - Claw Swipe
 // 60864 - Jaws of Death
+// Real EFFECT_0 (confirmed via SpellEffect.db2) is SPELL_EFFECT_DAMAGE_FROM_MAX_HEALTH_PCT, not
+// SPELL_EFFECT_SCHOOL_DAMAGE - matches this handler's own pct-of-max-health computation exactly.
+// This ScriptName used to also be bound to 60776 (Claw Swipe), but 60776's real EFFECT_0 is plain
+// SPELL_EFFECT_SCHOOL_DAMAGE with a flat EffectBasePoints (8) - no pct calc needed, so it doesn't
+// need this script at all and can't share one static Register() hook with Jaws of Death's real
+// effect type; unbound via sql/updates/world/master/2026_08_04_01_world.sql instead.
 class spell_jaws_of_death_claw_swipe_pct_damage : public SpellScript
 {
     void HandleDamage(SpellEffIndex /*effIndex*/)
@@ -1027,7 +1032,7 @@ class spell_jaws_of_death_claw_swipe_pct_damage : public SpellScript
 
     void Register() override
     {
-        OnEffectLaunchTarget += SpellEffectFn(spell_jaws_of_death_claw_swipe_pct_damage::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+        OnEffectLaunchTarget += SpellEffectFn(spell_jaws_of_death_claw_swipe_pct_damage::HandleDamage, EFFECT_0, SPELL_EFFECT_DAMAGE_FROM_MAX_HEALTH_PCT);
     }
 };
 

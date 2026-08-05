@@ -606,6 +606,10 @@ class spell_illidari_council_balance_of_power : public AuraScript
         GetTarget()->CastSpell(nullptr, SPELL_SHARED_RULE, CastSpellExtraArgs(aurEff).AddSpellBP0(dmgInfo.GetDamage()));
     }
 
+    // FIXME: real Balance of Power (41341) EFFECT_0 is a plain SPELL_AURA_DUMMY, not
+    // SCHOOL_ABSORB - OnEffectAbsorb can't fire on a non-absorb aura at all, so this mechanic
+    // doesn't work as an absorb in this build's data. Needs a different hook (likely
+    // DoCheckEffectProc/OnEffectProc off damage taken) to redesign correctly; left unresolved.
     void Register() override
     {
         OnEffectAbsorb += AuraEffectAbsorbFn(spell_illidari_council_balance_of_power::Absorb, EFFECT_0);

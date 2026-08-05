@@ -969,6 +969,9 @@ enum DiscerningEyeBeastMisc
 };
 
 // 59915 - Discerning Eye of the Beast Dummy
+// Real EFFECT_0 (confirmed via SpellEffect.db2) is SPELL_AURA_PROC_TRIGGER_SPELL (its own
+// EffectTriggerSpell field is already 59914, matching SPELL_DISCERNING_EYE_BEAST) - not
+// SPELL_AURA_DUMMY.
 class spell_item_discerning_eye_beast_dummy : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -984,7 +987,7 @@ class spell_item_discerning_eye_beast_dummy : public AuraScript
 
     void Register() override
     {
-        OnEffectProc += AuraEffectProcFn(spell_item_discerning_eye_beast_dummy::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_item_discerning_eye_beast_dummy::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
     }
 };
 
@@ -4220,6 +4223,18 @@ enum Eggnog
 };
 
 // 21149 - Egg Nog
+// FIXME: real 21149 (confirmed via SpellEffect.db2, and cross-checked against its own tooltip
+// text) has only two effects at all: EFFECT_0 = APPLY_AURA/MOD_REGEN (flat health-over-time
+// while eating) and EFFECT_1 = APPLY_AURA/PERIODIC_TRIGGER_SPELL (grants the Well Fed buff,
+// 19705). There is no EFFECT_2 and no SPELL_EFFECT_INEBRIATE at all in this build's data, so
+// this reindeer/snowman transform-on-drink hook can never fire. No reference core under logs/
+// (DestinyCore/AshamaneCore/LegionCore-7.3.5/-V2) implements spell_item_eggnog either, so there's
+// no corroborating precedent to port from. Not removed outright since 21149 isn't later-expansion
+// content (it's real, just apparently redesigned away from the old inebriate mechanic) - left
+// unresolved rather than guess. (Note: an earlier pass mistakenly associated this script with
+// spell id 68614 - that id actually belongs to boss_apothecary_hummel's "Concentrated Irresistible
+// Cologne Spill" (spell_apothecary_cologne_spill), not Egg Nog; likely a Server.log adjacent-line
+// mixup, same pattern documented for spell_gen_battleground_mercenary_shapeshift.)
 class spell_item_eggnog : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
