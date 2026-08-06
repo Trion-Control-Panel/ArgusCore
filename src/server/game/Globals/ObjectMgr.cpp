@@ -3685,105 +3685,10 @@ void ObjectMgr::LoadVehicleSeatAddon()
     TC_LOG_INFO("server.loading", ">> Loaded {} Vehicle Seat Addon entries in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
 }
 
-void ObjectMgr::LoadPetLevelInfo()
-{
-    uint32 oldMSTime = getMSTime();
-
-    //                                                 0               1      2   3     4    5    6    7     8    9
-    QueryResult result = WorldDatabase.Query("SELECT creature_entry, level, hp, mana, str, agi, sta, inte, spi, armor FROM pet_levelstats");
-
-    if (!result)
-    {
-        TC_LOG_INFO("server.loading", ">> Loaded 0 level pet stats definitions. DB table `pet_levelstats` is empty.");
-        return;
-    }
-
-    uint32 count = 0;
-
-    do
-    {
-        Field* fields = result->Fetch();
-
-        uint32 creature_id = fields[0].GetUInt32();
-        if (!GetCreatureTemplate(creature_id))
-        {
-            TC_LOG_ERROR("sql.sql", "Wrong creature id {} in `pet_levelstats` table, ignoring.", creature_id);
-            continue;
-        }
-
-        uint32 current_level = fields[1].GetUInt8();
-        if (current_level > sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL))
-        {
-            if (current_level > STRONG_MAX_LEVEL)        // hardcoded level maximum
-                TC_LOG_ERROR("sql.sql", "Wrong (> {}) level {} in `pet_levelstats` table, ignoring.", STRONG_MAX_LEVEL, current_level);
-            else
-            {
-                TC_LOG_INFO("misc", "Unused (> MaxPlayerLevel in worldserver.conf) level {} in `pet_levelstats` table, ignoring.", current_level);
-                ++count;                                // make result loading percent "expected" correct in case disabled detail mode for example.
-            }
-            continue;
-        }
-        else if (current_level < 1)
-        {
-            TC_LOG_ERROR("sql.sql", "Wrong (<1) level {} in `pet_levelstats` table, ignoring.", current_level);
-            continue;
-        }
-
-        auto& pInfoMapEntry = _petInfoStore[creature_id];
-        if (!pInfoMapEntry)
-            pInfoMapEntry = std::make_unique<PetLevelInfo[]>(sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL));
-
-        // data for level 1 stored in [0] array element, ...
-        PetLevelInfo* pLevelInfo = &pInfoMapEntry[current_level - 1];
-
-        pLevelInfo->health = fields[2].GetUInt16();
-        pLevelInfo->mana   = fields[3].GetUInt16();
-        pLevelInfo->armor  = fields[9].GetUInt32();
-
-        for (uint8 i = 0; i < MAX_STATS; i++)
-            pLevelInfo->stats[i] = fields[i + 4].GetUInt16();
-
-        ++count;
-    }
-    while (result->NextRow());
-
-    // Fill gaps and check integrity
-    for (PetLevelInfoContainer::iterator itr = _petInfoStore.begin(); itr != _petInfoStore.end(); ++itr)
-    {
-        auto& pInfo = itr->second;
-
-        // fatal error if no level 1 data
-        if (!pInfo || pInfo[0].health == 0)
-        {
-            TC_LOG_ERROR("sql.sql", "Creature {} does not have pet stats data for Level 1!", itr->first);
-            ABORT();
-        }
-
-        // fill level gaps
-        for (uint8 level = 1; level < sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL); ++level)
-        {
-            if (pInfo[level].health == 0)
-            {
-                TC_LOG_ERROR("sql.sql", "Creature {} has no data for Level {} pet stats data, using data of Level {}.", itr->first, level + 1, level);
-                pInfo[level] = pInfo[level - 1];
-            }
-        }
-    }
-
-    TC_LOG_INFO("server.loading", ">> Loaded {} level pet stats definitions in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
-}
-
-PetLevelInfo const* ObjectMgr::GetPetLevelInfo(uint32 creature_id, uint8 level) const
-{
-    if (level > sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL))
-        level = sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL);
-
-    auto itr = _petInfoStore.find(creature_id);
-    if (itr == _petInfoStore.end())
-        return nullptr;
-
-    return &itr->second[level - 1];                         // data for level 1 stored in [0] array element, ...
-}
+// `pet_levelstats` and the ObjectMgr code that read it were removed here: Legion dropped this
+// per-level pet stat table entirely (confirmed absent from both DestinyCore and AshamaneCore).
+// Pet::InitStatsForLevel now scales hunter pets as a percentage of the owner's own stats and all
+// other pets via the same CreatureBaseStats formula regular creatures use.
 
 void ObjectMgr::PlayerCreateInfoAddItemHelper(uint32 race_, uint32 class_, uint32 itemId, int32 count)
 {

@@ -674,14 +674,6 @@ struct PlayerInfo
     std::unique_ptr<PlayerLevelInfo[]> levelInfo;
 };
 
-struct PetLevelInfo
-{
-    uint16 stats[MAX_STATS] = {};
-    uint16 health = 0;
-    uint16 mana = 0;
-    uint16 armor = 0;
-};
-
 struct MailLevelReward
 {
     MailLevelReward() : raceMask({ 0 }), mailTemplateId(0), senderEntry(0) { }
@@ -1043,8 +1035,6 @@ class TC_GAME_API ObjectMgr
         InstanceTemplateContainer const& GetInstanceTemplates() const { return _instanceTemplateStore; }
         InstanceTemplate const* GetInstanceTemplate(uint32 mapId) const;
 
-        PetLevelInfo const* GetPetLevelInfo(uint32 creature_id, uint8 level) const;
-
         void GetPlayerClassLevelInfo(uint32 class_, uint8 level, uint32& baseMana) const;
 
         PlayerInfo const* GetPlayerInfo(uint32 race, uint32 class_) const;
@@ -1265,7 +1255,6 @@ class TC_GAME_API ObjectMgr
         PageText const* GetPageText(uint32 pageEntry);
 
         void LoadPlayerInfo();
-        void LoadPetLevelInfo();
         void LoadExplorationBaseXP();
         void LoadPetNames();
         void LoadPetNumber();
@@ -1795,9 +1784,6 @@ class TC_GAME_API ObjectMgr
         MailLevelRewardContainer _mailLevelRewardStore;
 
         CreatureBaseStatsContainer _creatureBaseStatsStore;
-
-        using PetLevelInfoContainer = std::unordered_map<uint32 /*creatureId*/, std::unique_ptr<PetLevelInfo[] /*level*/>>;
-        PetLevelInfoContainer _petInfoStore;
 
         void BuildPlayerLevelInfo(uint8 race, uint8 class_, uint8 level, PlayerLevelInfo* plinfo) const;
 
