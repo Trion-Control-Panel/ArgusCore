@@ -87,6 +87,6 @@ services:
 
 volumes:
   mysql-data:
-  db-init_data:
+  db-init-data:
   bnet-logs:
   world-logs:
