@@ -1,0 +1,92 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: arguscore-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_USER: arguscore
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-arguscore}
+      MYSQL_DATABASE: arguscore
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  db-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: db-init
+    container_name: arguscore-db-init
+    restart: "no"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: arguscore-mysql
+      MYSQL_PORT: 3306
+      MYSQL_ROOT_USER: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      DB_USER: arguscore
+      DB_PASSWORD: ${MYSQL_PASSWORD:-arguscore}
+    volumes:
+      - db-init-data:/etc/db-init
+      - ./sql:/app/sql:ro
+
+  bnetserver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: bnetserver
+    container_name: arguscore-bnetserver
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./configs/bnetserver.conf:/opt/arguscore/etc/bnetserver.conf:ro
+      - bnet-logs:/opt/arguscore/logs
+    ports:
+      - "1119:1119"
+      - "8081:8081"
+
+  worldserver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worldserver
+    container_name: arguscore-worldserver
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./configs/worldserver.conf:/opt/arguscore/etc/worldserver.conf:ro
+      - world-logs:/opt/arguscore/logs
+      - ./sql:/opt/arguscore/sql:ro
+      - ${GAME_DATA_PATH:-./data}/maps:/opt/arguscore/data/maps:ro
+      - ${GAME_DATA_PATH:-./data}/vmaps:/opt/arguscore/data/vmaps:ro
+      - ${GAME_DATA_PATH:-./data}/mmaps:/opt/arguscore/data/mmaps:ro
+      - ${GAME_DATA_PATH:-./data}/dbc:/opt/arguscore/data/dbc:ro
+      - ${GAME_DATA_PATH:-./data}/cameras:/opt/arguscore/data/cameras:ro
+      - ${GAME_DATA_PATH:-./data}/gt:/opt/arguscore/data/gt:ro
+    ports:
+      - "8085:8085"
+    stdin_open: true
+    tty: true
+
+volumes:
+  mysql-data:
+  db-init_data:
+  bnet-logs:
+  world-logs:
