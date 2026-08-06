@@ -424,6 +424,8 @@ class TC_GAME_API Spell
         void EffectJumpCharge();
         void EffectLearnTransmogSet();
         void EffectTeleportGraveyard();
+        void EffectCreatePrivateConversation();
+        void EffectModifyCooldown();
 
         using UsedSpellMods = std::unordered_set<Aura*>;
 
