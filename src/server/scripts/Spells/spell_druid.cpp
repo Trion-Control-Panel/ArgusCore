@@ -77,15 +77,21 @@ enum DruidSpells
     SPELL_DRUID_FORMS_TRINKET_MOONKIN          = 37343,
     SPELL_DRUID_FORMS_TRINKET_NONE             = 37344,
     SPELL_DRUID_FORMS_TRINKET_TREE             = 37342,
-    SPELL_DRUID_FULL_MOON                      = 274283,
+    // real ids: 274281/274282/274283/274295/274297 are confirmed completely absent from this
+    // build (no Spell record at all) - they're the later BfA-talent reintroduction of this
+    // mechanic. New Moon/Half Moon/Full Moon is genuine Legion content (added 7.0.3, confirmed
+    // via web search), just under its original Artifact-era ids, confirmed by exact name match
+    // in the local Spell.csv dump ("New Moon"/"Half Moon"/"Full Moon"/"New Moon Override"/
+    // "Half Moon Override").
+    SPELL_DRUID_FULL_MOON                      = 202771,
     SPELL_DRUID_GALACTIC_GUARDIAN_AURA         = 213708,
     SPELL_DRUID_GERMINATION                    = 155675,
     SPELL_DRUID_GLYPH_OF_STARS                 = 114301,
     SPELL_DRUID_GLYPH_OF_STARS_VISUAL          = 114302,
     SPELL_DRUID_GORE_PROC                      = 93622,
     SPELL_DRUID_GROWL                          = 6795,
-    SPELL_DRUID_HALF_MOON                      = 274282,
-    SPELL_DRUID_HALF_MOON_OVERRIDE             = 274297,
+    SPELL_DRUID_HALF_MOON                      = 202768,
+    SPELL_DRUID_HALF_MOON_OVERRIDE             = 202788,
     SPELL_DRUID_IDOL_OF_FERAL_SHADOWS          = 34241,
     SPELL_DRUID_IDOL_OF_WORSHIP                = 60774,
     SPELL_DRUID_INCARNATION                    = 117679,
@@ -110,8 +116,8 @@ enum DruidSpells
     SPELL_DRUID_MOONFIRE_CAT                   = 155625,
     SPELL_DRUID_MOONFIRE_DAMAGE                = 164812,
     SPELL_DRUID_MOONKIN_FORM                   = 24858,
-    SPELL_DRUID_NEW_MOON                       = 274281,
-    SPELL_DRUID_NEW_MOON_OVERRIDE              = 274295,
+    SPELL_DRUID_NEW_MOON                       = 202767,
+    SPELL_DRUID_NEW_MOON_OVERRIDE              = 202787,
     SPELL_DRUID_PREDATORY_SWIFTNESS            = 16974,
     SPELL_DRUID_PREDATORY_SWIFTNESS_AURA       = 69369,
     SPELL_DRUID_PROWL                          = 5215,
@@ -134,6 +140,7 @@ enum DruidSpells
     SPELL_DRUID_STAMPEDING_ROAR                = 106898,
     SPELL_DRUID_STAMPEDING_ROAR_BEAR_OVERRIDE  = 106899,
     SPELL_DRUID_STAR_BURST                     = 205486, // real id "Starburst" (356474 is a later-expansion remake id)
+    SPELL_DRUID_STARFALL_DAMAGE                = 191037, // real id (50286 is a pre-Legion Starfall id, absent from this build)
     SPELL_DRUID_SUNFIRE_DAMAGE                 = 164815,
     SPELL_DRUID_SURVIVAL_INSTINCTS             = 50322,
     SPELL_DRUID_TRAVEL_FORM                    = 783,
@@ -1199,9 +1206,9 @@ class spell_dru_moonfire : public SpellScript
     }
 };
 
-// 274283 - Full Moon
-// 274282 - Half Moon
-// 274281 - New Moon
+// 202771 - Full Moon
+// 202768 - Half Moon
+// 202767 - New Moon
 class spell_dru_new_moon : public SpellScript
 {
 public:
@@ -1777,9 +1784,24 @@ protected:
     bool ToCatForm() const override { return false; }
 };
 
-// 50286 - Starfall (Dummy)
+// 191034 - Starfall
+// real id: 50286 is confirmed completely absent from this build (no Spell record at all, in
+// either the local dump or a live wago.tools query) - it's a pre-Legion (WoD-era) Starfall id;
+// Legion's own Starfall is 191034, whose tooltip references Astral damage and Stellar
+// Empowerment (both Legion-specific Balance mechanics), confirming the era match. The old
+// HandleDummy also relied on GetEffectValue() holding a dynamically-encoded spell id to cast -
+// real 191034 EFFECT_0 (DUMMY) has BasePoints 0, so that lookup always resolved to spell id 0
+// (a silent no-op) even with the id corrected. Replaced with a direct cast of 191037, Starfall's
+// own damage-dealing companion spell (single SCHOOL_DAMAGE effect, tooltip literally
+// "$@spelldesc191034") - the same "separate trigger/damage spell" shape used throughout this
+// file (e.g. spell_dru_moonfire/spell_dru_sunfire below).
 class spell_dru_starfall_dummy : public SpellScript
 {
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DRUID_STARFALL_DAMAGE });
+    }
+
     void FilterTargets(std::list<WorldObject*>& targets)
     {
         Trinity::Containers::RandomResize(targets, 2);
@@ -1800,7 +1822,7 @@ class spell_dru_starfall_dummy : public SpellScript
         if (caster->HasUnitState(UNIT_STATE_CONTROLLED))
             return;
 
-        caster->CastSpell(GetHitUnit(), uint32(GetEffectValue()), true);
+        caster->CastSpell(GetHitUnit(), SPELL_DRUID_STARFALL_DAMAGE, true);
     }
 
     void Register() override
@@ -1830,28 +1852,10 @@ class spell_dru_stellar_flare : public AuraScript
     }
 };
 
-// 340694 - Sudden Ambush
-// 384667 - Sudden Ambush
-class spell_dru_sudden_ambush : public AuraScript
-{
-    bool CheckProc(AuraEffect const* aurEff, ProcEventInfo& procInfo)
-    {
-        Spell const* procSpell = procInfo.GetProcSpell();
-        if (!procSpell)
-            return false;
-
-        Optional<int32> comboPoints = procSpell->GetPowerTypeCostAmount(POWER_COMBO_POINTS);
-        if (!comboPoints)
-            return false;
-
-        return roll_chance_i(*comboPoints * aurEff->GetAmount());
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dru_sudden_ambush::CheckProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
-    }
-};
+// Sudden Ambush (340694/384667) removed: confirmed Dragonflight (patch 10.0.0) content via web
+// search - both ids are completely absent from this build (no Spell record at all, local dump
+// or live wago.tools query), matching the same "doesn't exist in Legion" pattern as DK's Death
+// Siphon/Improved Death Strike.
 
 //  93402 - Sunfire
 class spell_dru_sunfire : public SpellScript
@@ -2491,7 +2495,6 @@ void AddSC_druid_spell_scripts()
     RegisterSpellScript(spell_dru_stampeding_roar);
     RegisterSpellScript(spell_dru_starfall_dummy);
     RegisterSpellScript(spell_dru_stellar_flare);
-    RegisterSpellScript(spell_dru_sudden_ambush);
     RegisterSpellScript(spell_dru_sunfire);
     RegisterSpellScript(spell_dru_survival_instincts);
     RegisterSpellScript(spell_dru_swift_flight_passive);
