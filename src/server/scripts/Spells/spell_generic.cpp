@@ -3386,17 +3386,18 @@ class spell_gen_teleporting : public SpellScript
     }
 };
 
+// ExcludeCasterAuraSpell/ExcludeTargetAuraSpell are plain fields on the spell's own client data,
+// not a script-chosen id - real client data legitimately contains dangling references to
+// removed/older-expansion spells (retail itself just no-ops on those), so this isn't validated
+// as a hard requirement; a nonexistent reference just means nothing gets excluded.
 class spell_gen_trigger_exclude_caster_aura_spell : public SpellScript
 {
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellInfo({ spellInfo->ExcludeCasterAuraSpell });
-    }
-
     void HandleTrigger()
     {
-        // Blizz seems to just apply aura without bothering to cast
-        GetCaster()->AddAura(GetSpellInfo()->ExcludeCasterAuraSpell, GetCaster());
+        if (uint32 excludeSpell = GetSpellInfo()->ExcludeCasterAuraSpell)
+            if (sSpellMgr->GetSpellInfo(excludeSpell, GetCastDifficulty()))
+                // Blizz seems to just apply aura without bothering to cast
+                GetCaster()->AddAura(excludeSpell, GetCaster());
     }
 
     void Register() override
@@ -3407,16 +3408,15 @@ class spell_gen_trigger_exclude_caster_aura_spell : public SpellScript
 
 class spell_gen_trigger_exclude_target_aura_spell : public SpellScript
 {
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellInfo({ spellInfo->ExcludeTargetAuraSpell });
-    }
-
     void HandleTrigger()
     {
+        uint32 excludeSpell = GetSpellInfo()->ExcludeTargetAuraSpell;
+        if (!excludeSpell || !sSpellMgr->GetSpellInfo(excludeSpell, GetCastDifficulty()))
+            return;
+
         if (Unit* target = GetHitUnit())
             // Blizz seems to just apply aura without bothering to cast
-            GetCaster()->AddAura(GetSpellInfo()->ExcludeTargetAuraSpell, target);
+            GetCaster()->AddAura(excludeSpell, target);
     }
 
     void Register() override

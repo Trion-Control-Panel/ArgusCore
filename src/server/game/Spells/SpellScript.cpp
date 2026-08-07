@@ -811,15 +811,15 @@ template TC_GAME_API SpellScriptBase::HookList<AuraScript::EnterLeaveCombatHandl
 bool AuraScript::_Validate(SpellInfo const* entry)
 {
     for (auto itr = DoCheckAreaTarget.begin(); itr != DoCheckAreaTarget.end(); ++itr)
-        if (!entry->HasAreaAuraEffect() && !entry->HasEffect(SPELL_EFFECT_PERSISTENT_AREA_AURA) && !entry->HasEffect(SPELL_EFFECT_APPLY_AURA))
+        if (!entry->HasAreaAuraEffect() && !entry->HasEffect(SPELL_EFFECT_PERSISTENT_AREA_AURA) && !entry->HasEffect(SPELL_EFFECT_APPLY_AURA) && !entry->HasEffect(SPELL_EFFECT_APPLY_AURA_ON_PET))
             TC_LOG_ERROR("scripts", "Spell `{}` of script `{}` does not have apply aura effect - handler bound to hook `DoCheckAreaTarget` of AuraScript won't be executed", entry->Id, m_scriptName);
 
     for (auto itr = OnDispel.begin(); itr != OnDispel.end(); ++itr)
-        if (!entry->HasEffect(SPELL_EFFECT_APPLY_AURA) && !entry->HasAreaAuraEffect())
+        if (!entry->HasEffect(SPELL_EFFECT_APPLY_AURA) && !entry->HasEffect(SPELL_EFFECT_APPLY_AURA_ON_PET) && !entry->HasAreaAuraEffect())
             TC_LOG_ERROR("scripts", "Spell `{}` of script `{}` does not have apply aura effect - handler bound to hook `OnDispel` of AuraScript won't be executed", entry->Id, m_scriptName);
 
     for (auto itr = AfterDispel.begin(); itr != AfterDispel.end(); ++itr)
-        if (!entry->HasEffect(SPELL_EFFECT_APPLY_AURA) && !entry->HasAreaAuraEffect())
+        if (!entry->HasEffect(SPELL_EFFECT_APPLY_AURA) && !entry->HasEffect(SPELL_EFFECT_APPLY_AURA_ON_PET) && !entry->HasAreaAuraEffect())
             TC_LOG_ERROR("scripts", "Spell `{}` of script `{}` does not have apply aura effect - handler bound to hook `AfterDispel` of AuraScript won't be executed", entry->Id, m_scriptName);
 
     for (auto itr = OnEffectApply.begin(); itr != OnEffectApply.end(); ++itr)
@@ -887,7 +887,7 @@ bool AuraScript::_Validate(SpellInfo const* entry)
             TC_LOG_ERROR("scripts", "Spell `{}` Effect `{}` of script `{}` did not match dbc effect data - handler bound to hook `OnEffectSplit` of AuraScript won't be executed", entry->Id, itr->ToString(), m_scriptName);
 
     for (auto itr = DoCheckProc.begin(); itr != DoCheckProc.end(); ++itr)
-        if (!entry->HasEffect(SPELL_EFFECT_APPLY_AURA) && !entry->HasAreaAuraEffect())
+        if (!entry->HasEffect(SPELL_EFFECT_APPLY_AURA) && !entry->HasEffect(SPELL_EFFECT_APPLY_AURA_ON_PET) && !entry->HasAreaAuraEffect())
             TC_LOG_ERROR("scripts", "Spell `{}` of script `{}` does not have apply aura effect - handler bound to hook `DoCheckProc` of AuraScript won't be executed", entry->Id, m_scriptName);
 
     for (auto itr = DoCheckEffectProc.begin(); itr != DoCheckEffectProc.end(); ++itr)
@@ -895,15 +895,15 @@ bool AuraScript::_Validate(SpellInfo const* entry)
             TC_LOG_ERROR("scripts", "Spell `{}` Effect `{}` of script `{}` did not match dbc effect data - handler bound to hook `DoCheckEffectProc` of AuraScript won't be executed", entry->Id, itr->ToString(), m_scriptName);
 
     for (auto itr = DoPrepareProc.begin(); itr != DoPrepareProc.end(); ++itr)
-        if (!entry->HasEffect(SPELL_EFFECT_APPLY_AURA) && !entry->HasAreaAuraEffect())
+        if (!entry->HasEffect(SPELL_EFFECT_APPLY_AURA) && !entry->HasEffect(SPELL_EFFECT_APPLY_AURA_ON_PET) && !entry->HasAreaAuraEffect())
             TC_LOG_ERROR("scripts", "Spell `{}` of script `{}` does not have apply aura effect - handler bound to hook `DoPrepareProc` of AuraScript won't be executed", entry->Id, m_scriptName);
 
     for (auto itr = OnProc.begin(); itr != OnProc.end(); ++itr)
-        if (!entry->HasEffect(SPELL_EFFECT_APPLY_AURA) && !entry->HasAreaAuraEffect())
+        if (!entry->HasEffect(SPELL_EFFECT_APPLY_AURA) && !entry->HasEffect(SPELL_EFFECT_APPLY_AURA_ON_PET) && !entry->HasAreaAuraEffect())
             TC_LOG_ERROR("scripts", "Spell `{}` of script `{}` does not have apply aura effect - handler bound to hook `OnProc` of AuraScript won't be executed", entry->Id, m_scriptName);
 
     for (auto itr = AfterProc.begin(); itr != AfterProc.end(); ++itr)
-        if (!entry->HasEffect(SPELL_EFFECT_APPLY_AURA) && !entry->HasAreaAuraEffect())
+        if (!entry->HasEffect(SPELL_EFFECT_APPLY_AURA) && !entry->HasEffect(SPELL_EFFECT_APPLY_AURA_ON_PET) && !entry->HasAreaAuraEffect())
             TC_LOG_ERROR("scripts", "Spell `{}` of script `{}` does not have apply aura effect - handler bound to hook `AfterProc` of AuraScript won't be executed", entry->Id, m_scriptName);
 
     for (auto itr = OnEffectProc.begin(); itr != OnEffectProc.end(); ++itr)
