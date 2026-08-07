@@ -63,14 +63,6 @@ enum DruidSpells
     SPELL_DRUID_CULTIVATION                    = 200390,
     SPELL_DRUID_CULTIVATION_HEAL               = 200389,
     SPELL_DRUID_EARTHWARDEN_AURA               = 203975,
-    SPELL_DRUID_ECLIPSE_DUMMY                  = 79577,
-    SPELL_DRUID_ECLIPSE_LUNAR_AURA             = 48518,
-    SPELL_DRUID_ECLIPSE_LUNAR_SPELL_CNT        = 326055,
-    SPELL_DRUID_ECLIPSE_OOC                    = 329910,
-    SPELL_DRUID_ECLIPSE_SOLAR_AURA             = 48517,
-    SPELL_DRUID_ECLIPSE_SOLAR_SPELL_CNT        = 326053,
-    SPELL_DRUID_ECLIPSE_VISUAL_LUNAR           = 93431,
-    SPELL_DRUID_ECLIPSE_VISUAL_SOLAR           = 93430,
     SPELL_DRUID_EFFLORESCENCE_AURA             = 81262,
     SPELL_DRUID_EFFLORESCENCE_HEAL             = 81269,
     SPELL_DRUID_ENTANGLING_ROOTS               = 339,
@@ -101,7 +93,6 @@ enum DruidSpells
     SPELL_DRUID_INCARNATION_GUARDIAN_OF_URSOC  = 102558,
     SPELL_DRUID_INCARNATION_KING_OF_THE_JUNGLE = 102543,
     SPELL_DRUID_INCARNATION_TREE_OF_LIFE       = 33891,
-    SPELL_DRUID_INNER_PEACE                    = 197073,
     SPELL_DRUID_INNERVATE                      = 29166,
     SPELL_DRUID_INNERVATE_RANK_2               = 326228,
     SPELL_DRUID_INFUSION                       = 37238,
@@ -192,15 +183,6 @@ class spell_dru_abundance : public AuraScript
         AfterEffectRemove += AuraEffectRemoveFn(spell_dru_abundance::HandleOnRemove, EFFECT_0, SPELL_AURA_PERIODIC_HEAL, AURA_EFFECT_HANDLE_REAL);
     }
 };
-
-// Confirmed post-Legion forward drift (War Within-era) - the entire mechanic is gated behind
-// SPELL_DRUID_ASTRAL_COMMUNION_TALENT (450598), a modern talent-tree node that doesn't exist in
-// Legion's talent system, and doesn't appear in any of the 4 reference cores. Removed; the
-// genuine Legion Celestial Alignment behavior lives in spell_dru_celestial_alignment below
-// (rebound to the real id, 194223, in the accompanying SQL fix).
-//
-// spell_dru_astral_smolder removed alongside it - "Astral Smolder" (394058/394061) is a
-// Dragonflight-era Balance talent with no Legion equivalent, 0/4 reference corroboration.
 
 class spell_dru_base_transformer : public SpellScript
 {
@@ -493,42 +475,6 @@ class spell_dru_cat_form : public AuraScript
     }
 };
 
-// 102560 - Incarnation: Chosen of Elune
-// 194223 - Celestial Alignment
-// 383410 - Celestial Alignment
-// 390414 - Incarnation: Chosen of Elune
-class spell_dru_celestial_alignment : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo(
-        {
-            SPELL_DRUID_ECLIPSE_SOLAR_AURA,
-            SPELL_DRUID_ECLIPSE_LUNAR_AURA,
-            SPELL_DRUID_ECLIPSE_VISUAL_SOLAR,
-            SPELL_DRUID_ECLIPSE_VISUAL_LUNAR,
-        });
-    }
-
-    void TriggerEclipses() const
-    {
-        Unit* caster = GetCaster();
-        CastSpellExtraArgs args;
-        args.SetTriggeringSpell(GetSpell());
-        args.SetTriggerFlags(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
-
-        caster->CastSpell(caster, SPELL_DRUID_ECLIPSE_SOLAR_AURA, args);
-        caster->CastSpell(caster, SPELL_DRUID_ECLIPSE_LUNAR_AURA, args);
-        caster->CastSpell(caster, SPELL_DRUID_ECLIPSE_VISUAL_SOLAR, args);
-        caster->CastSpell(caster, SPELL_DRUID_ECLIPSE_VISUAL_LUNAR, args);
-    }
-
-    void Register() override
-    {
-        AfterCast += SpellCastFn(spell_dru_celestial_alignment::TriggerEclipses);
-    }
-};
-
 // 774 - Rejuvenation
 // 155777 - Rejuventation (Germination)
 class spell_dru_cultivation : public AuraScript
@@ -590,166 +536,6 @@ class spell_dru_earthwarden : public AuraScript
     void Register() override
     {
         OnEffectProc += AuraEffectProcFn(spell_dru_earthwarden::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
-
-class spell_dru_eclipse_common
-{
-public:
-    static void SetSpellCount(Unit* unitOwner, uint32 spellId, uint32 amount)
-    {
-        Aura* aura = unitOwner->GetAura(spellId);
-        if (!aura)
-            unitOwner->CastSpell(unitOwner, spellId, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_AURA_STACK, amount));
-        else
-            aura->SetStackAmount(amount);
-    }
-};
-
-// 48517 Eclipse (Solar) + 48518 Eclipse (Lunar)
-class spell_dru_eclipse_aura : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DRUID_ECLIPSE_LUNAR_SPELL_CNT, SPELL_DRUID_ECLIPSE_SOLAR_SPELL_CNT, SPELL_DRUID_ECLIPSE_DUMMY });
-    }
-
-    void HandleRemoved(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
-    {
-        AuraEffect const* auraEffDummy = GetTarget()->GetAuraEffect(SPELL_DRUID_ECLIPSE_DUMMY, EFFECT_0);
-        if (!auraEffDummy)
-            return;
-
-        uint32 spellId = GetSpellInfo()->Id == SPELL_DRUID_ECLIPSE_SOLAR_AURA ? SPELL_DRUID_ECLIPSE_LUNAR_SPELL_CNT : SPELL_DRUID_ECLIPSE_SOLAR_SPELL_CNT;
-        spell_dru_eclipse_common::SetSpellCount(GetTarget(), spellId, auraEffDummy->GetAmount());
-    }
-
-    void Register() override
-    {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_dru_eclipse_aura::HandleRemoved, EFFECT_0, SPELL_AURA_ADD_PCT_MODIFIER, AURA_EFFECT_HANDLE_REAL);
-    }
-};
-
-// 79577 - Eclipse - SPELL_DRUID_ECLIPSE_DUMMY
-class spell_dru_eclipse_dummy : public AuraScript
-{
-    class InitializeEclipseCountersEvent : public BasicEvent
-    {
-    public:
-        InitializeEclipseCountersEvent(Unit* owner, uint32 count) : BasicEvent(), _owner(owner), _count(count) { }
-
-        bool Execute(uint64, uint32) override
-        {
-            spell_dru_eclipse_common::SetSpellCount(_owner, SPELL_DRUID_ECLIPSE_SOLAR_SPELL_CNT, _count);
-            spell_dru_eclipse_common::SetSpellCount(_owner, SPELL_DRUID_ECLIPSE_LUNAR_SPELL_CNT, _count);
-            return true;
-        }
-
-    private:
-        Unit* _owner;
-        uint32 _count;
-    };
-
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo(
-        {
-            SPELL_DRUID_ECLIPSE_SOLAR_SPELL_CNT,
-            SPELL_DRUID_ECLIPSE_LUNAR_SPELL_CNT,
-            SPELL_DRUID_ECLIPSE_SOLAR_AURA,
-            SPELL_DRUID_ECLIPSE_LUNAR_AURA,
-        });
-    }
-
-    void HandleProc(ProcEventInfo& eventInfo)
-    {
-        if (SpellInfo const* spellInfo = eventInfo.GetSpellInfo())
-        {
-            if (spellInfo->SpellFamilyFlags & flag128(0x4, 0x0, 0x0, 0x0)) // Starfire
-                OnSpellCast(SPELL_DRUID_ECLIPSE_SOLAR_SPELL_CNT, SPELL_DRUID_ECLIPSE_LUNAR_SPELL_CNT, SPELL_DRUID_ECLIPSE_SOLAR_AURA);
-            else if (spellInfo->SpellFamilyFlags & flag128(0x1, 0x0, 0x0, 0x0)) // Wrath
-                OnSpellCast(SPELL_DRUID_ECLIPSE_LUNAR_SPELL_CNT, SPELL_DRUID_ECLIPSE_SOLAR_SPELL_CNT, SPELL_DRUID_ECLIPSE_LUNAR_AURA);
-        }
-    }
-
-    void HandleApply(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/)
-    {
-        // counters are applied with a delay
-        GetTarget()->m_Events.AddEventAtOffset(new InitializeEclipseCountersEvent(GetTarget(), aurEff->GetAmount()), 1s);
-    }
-
-    void HandleRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
-    {
-        GetTarget()->RemoveAura(SPELL_DRUID_ECLIPSE_SOLAR_SPELL_CNT);
-        GetTarget()->RemoveAura(SPELL_DRUID_ECLIPSE_LUNAR_SPELL_CNT);
-    }
-
-    void OnOwnerOutOfCombat(bool isNowInCombat)
-    {
-        if (!isNowInCombat)
-            GetTarget()->CastSpell(GetTarget(), SPELL_DRUID_ECLIPSE_OOC, TRIGGERED_FULL_MASK);
-    }
-
-    void Register() override
-    {
-        AfterEffectApply += AuraEffectApplyFn(spell_dru_eclipse_dummy::HandleApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
-        AfterEffectRemove += AuraEffectApplyFn(spell_dru_eclipse_dummy::HandleRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
-        OnProc += AuraProcFn(spell_dru_eclipse_dummy::HandleProc);
-        OnEnterLeaveCombat += AuraEnterLeaveCombatFn(spell_dru_eclipse_dummy::OnOwnerOutOfCombat);
-    }
-
-private:
-    void OnSpellCast(uint32 cntSpellId, uint32 otherCntSpellId, uint32 eclipseAuraSpellId)
-    {
-        Unit* target = GetTarget();
-        if (Aura* aura = target->GetAura(cntSpellId))
-        {
-            uint32 remaining = aura->GetStackAmount();
-            if (remaining == 0)
-                return;
-
-            if (remaining > 1)
-                aura->SetStackAmount(remaining - 1);
-            else
-            {
-                // cast eclipse
-                target->CastSpell(target, eclipseAuraSpellId, TRIGGERED_FULL_MASK);
-
-                // Remove stacks from other one as well
-                // reset remaining power on other spellId
-                target->RemoveAura(cntSpellId);
-                target->RemoveAura(otherCntSpellId);
-            }
-        }
-    }
-};
-
-// 329910 - Eclipse out of combat - SPELL_DRUID_ECLIPSE_OOC
-class spell_dru_eclipse_ooc : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DRUID_ECLIPSE_DUMMY, SPELL_DRUID_ECLIPSE_SOLAR_SPELL_CNT, SPELL_DRUID_ECLIPSE_LUNAR_SPELL_CNT });
-    }
-
-    void Tick(AuraEffect const* /*aurEff*/)
-    {
-        Unit* owner = GetTarget();
-        AuraEffect const* auraEffDummy = owner->GetAuraEffect(SPELL_DRUID_ECLIPSE_DUMMY, EFFECT_0);
-        if (!auraEffDummy)
-            return;
-
-        if (!owner->IsInCombat() && (!owner->HasAura(SPELL_DRUID_ECLIPSE_SOLAR_SPELL_CNT) || !owner->HasAura(SPELL_DRUID_ECLIPSE_LUNAR_SPELL_CNT)))
-        {
-            // Restore 2 stacks to each spell when out of combat
-            spell_dru_eclipse_common::SetSpellCount(owner, SPELL_DRUID_ECLIPSE_SOLAR_SPELL_CNT, auraEffDummy->GetAmount());
-            spell_dru_eclipse_common::SetSpellCount(owner, SPELL_DRUID_ECLIPSE_LUNAR_SPELL_CNT, auraEffDummy->GetAmount());
-        }
-    }
-
-    void Register() override
-    {
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dru_eclipse_ooc::Tick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
 
@@ -818,10 +604,6 @@ class spell_dru_efflorescence_heal : public SpellScript
         OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_dru_efflorescence_heal::FilterTargets, EFFECT_0, TARGET_UNIT_DEST_AREA_ALLY);
     }
 };
-
-// Confirmed post-Legion forward drift - "Embrace of the Dream" (392124/392146/392147) is a
-// Dragonflight-era Restoration talent, 0/4 reference corroboration, no Legion equivalent.
-// Removed (both the proc aura and its effect-selector companion).
 
 // 339 - Entangling Roots
 // 102359 - Mass Entanglement
@@ -1246,31 +1028,6 @@ class spell_dru_wild_charge_moonkin : public SpellScript
     }
 };
 
-// 740 - Tranquility
-class spell_dru_inner_peace : public SpellScript
-{
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellInfo({ SPELL_DRUID_INNER_PEACE })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_4 } })
-            && spellInfo->GetEffect(EFFECT_3).IsAura(SPELL_AURA_MECHANIC_IMMUNITY_MASK)
-            && spellInfo->GetEffect(EFFECT_4).IsAura(SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN);
-    }
-
-    void PreventEffect(WorldObject*& target) const
-    {
-        // Note: Inner Peace talent.
-        if (!GetCaster()->HasAura(SPELL_DRUID_INNER_PEACE))
-            target = nullptr;
-    }
-
-    void Register() override
-    {
-        OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_dru_inner_peace::PreventEffect, EFFECT_3, TARGET_UNIT_CASTER);
-        OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_dru_inner_peace::PreventEffect, EFFECT_4, TARGET_UNIT_CASTER);
-    }
-};
-
 // 40442 - Druid Tier 6 Trinket
 class spell_dru_item_t6_trinket : public AuraScript
 {
@@ -1397,9 +1154,6 @@ class spell_dru_lunar_inspiration : public AuraScript
     }
 };
 
-// Confirmed post-Legion forward drift - "Luxuriant Soil" (392315) is a Dragonflight-era
-// Restoration talent, 0/4 reference corroboration, no Legion equivalent. Removed.
-
 // 33917 - Mangle
 class spell_dru_mangle : public SpellScript
 {
@@ -1444,12 +1198,6 @@ class spell_dru_moonfire : public SpellScript
         OnEffectHitTarget += SpellEffectFn(spell_dru_moonfire::HandleOnHit, EFFECT_0, SPELL_EFFECT_DUMMY);
     }
 };
-
-// Confirmed post-Legion forward drift - this "Nature's Grace" (450347, triggering
-// SPELL_DRUID_DREAMSTATE = 450346) is the War Within Balance/Restoration haste-stacking talent,
-// not the unrelated Vanilla-era "Nature's Grace" of the same name (a passive crit->cast-time
-// mechanic). 0/4 reference corroboration, no Legion equivalent. Removed (both the trigger and
-// its Eclipse-removal companion).
 
 // 274283 - Full Moon
 // 274282 - Half Moon
@@ -1540,10 +1288,6 @@ class spell_dru_primal_fury : public AuraScript
         DoCheckProc += AuraCheckProcFn(spell_dru_primal_fury::CheckProc);
     }
 };
-
-// Confirmed post-Legion forward drift - "Power of the Archdruid" (392302/392303) is a
-// Dragonflight-era Restoration talent, 0/4 reference corroboration, no Legion equivalent.
-// Removed.
 
 // 22570 - Maim
 class spell_dru_maim : public SpellScript
@@ -2690,13 +2434,9 @@ void AddSC_druid_spell_scripts()
     RegisterSpellScript(spell_dru_bristling_fur);
     RegisterSpellScript(spell_dru_bear_form);
     RegisterSpellScript(spell_dru_cat_form);
-    RegisterSpellScript(spell_dru_celestial_alignment);
     RegisterSpellScript(spell_dru_cultivation);
     RegisterSpellScript(spell_dru_dash);
     RegisterSpellScript(spell_dru_earthwarden);
-    RegisterSpellScript(spell_dru_eclipse_aura);
-    RegisterSpellScript(spell_dru_eclipse_dummy);
-    RegisterSpellScript(spell_dru_eclipse_ooc);
     RegisterSpellScript(spell_dru_efflorescence);
     RegisterSpellScript(spell_dru_efflorescence_dummy);
     RegisterSpellScript(spell_dru_efflorescence_heal);
@@ -2714,7 +2454,6 @@ void AddSC_druid_spell_scripts()
     RegisterSpellScript(spell_dru_incarnation_king_of_the_jungle);
     RegisterSpellScript(spell_dru_incarnation_guardian_of_ursoc);
     RegisterSpellScript(spell_dru_wild_charge_moonkin);
-    RegisterSpellScript(spell_dru_inner_peace);
     RegisterSpellScript(spell_dru_innervate);
     RegisterSpellScript(spell_dru_item_t6_trinket);
     RegisterSpellScript(spell_dru_lifebloom);

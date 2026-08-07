@@ -51,22 +51,21 @@ enum WarriorSpells
     SPELL_WARRIOR_CHARGE_SLOW_EFFECT                = 236027,
     SPELL_WARRIOR_COLOSSUS_SMASH                    = 167105,
     SPELL_WARRIOR_COLOSSUS_SMASH_AURA               = 208086,
-    SPELL_WARRIOR_CRITICAL_THINKING_ENERGIZE        = 392776,
     SPELL_WARRIOR_EXECUTE                           = 163201,
     SPELL_WARRIOR_ENRAGE                            = 184362,
     SPELL_WARRIOR_FRESH_MEAT_DEBUFF                 = 316044,
     SPELL_WARRIOR_FRESH_MEAT_TALENT                 = 215568,
     SPELL_WARRIOR_FROTHING_BERSERKER_BUFF           = 215572,
-    SPELL_WARRIOR_FUELED_BY_VIOLENCE_HEAL           = 383104,
     SPELL_WARRIOR_FURIOUS_SLASH                     = 100130,
     SPELL_WARRIOR_GLYPH_OF_THE_BLAZING_TRAIL        = 123779,
     SPELL_WARRIOR_HAMSTRING                         = 1715,
     // Long-lived, stable id (used unchanged from Cataclysm onward per WebSearch/Wowhead patch
     // history) - corroborated by two independent reference sources' own SPELL_WARRIOR_HEROIC_LEAP_DAMAGE.
     SPELL_WARRIOR_HEROIC_LEAP_DAMAGE                = 52174,
-    SPELL_WARRIOR_HEROIC_LEAP_JUMP                  = 178368,
+    // real id "[DND] Cosmetic Heroic Leap (Dest)" - its own EFFECT_2 (TRIGGER_MISSILE) natively
+    // casts 52174, no script needed (178368 has no such trigger and was never the right id)
+    SPELL_WARRIOR_HEROIC_LEAP_JUMP                  = 94954,
     SPELL_WARRIOR_IGNORE_PAIN                       = 190456,
-    SPELL_WARRIOR_IMPROVED_WHIRLWIND                = 12950,
     SPELL_WARRIOR_IN_FOR_THE_KILL                   = 248621,
     SPELL_WARRIOR_IN_FOR_THE_KILL_HASTE             = 248622,
     SPELL_WARRIOR_IMPENDING_VICTORY                 = 202168,
@@ -88,10 +87,8 @@ enum WarriorSpells
     NPC_WARRIOR_RAVAGER                             = 76168,
     SPELL_WARRIOR_RECKLESSNESS                      = 1719,
     SPELL_WARRIOR_REVENGE                           = 6572,
-    SPELL_WARRIOR_RUMBLING_EARTH                    = 184064, // real Legion talent id (275339 is a drift id, confirmed absent)
     SPELL_WARRIOR_SECOND_WIND_HEAL                  = 202147,
     SPELL_WARRIOR_SHIELD_BLOCK_AURA                 = 132404,
-    SPELL_WARRIOR_SHIELD_CHARGE_EFFECT              = 385953,
     SPELL_WARRIOR_SHIELD_SLAM                       = 23922,
     SPELL_WARRIOR_SHIELD_SLAM_MARKER                = 224324,
     SPELL_WARRIOR_SHIELD_WALL                       = 871,
@@ -100,11 +97,7 @@ enum WarriorSpells
     SPELL_WARRIOR_SLAM_ARMS                         = 1464,
     SPELL_WARRIOR_STOICISM                          = 70845,
     SPELL_WARRIOR_STORM_BOLT_STUN                   = 132169,
-    SPELL_WARRIOR_STORM_BOLTS                       = 436162,
-    SPELL_WARRIOR_STRATEGIST                        = 384041,
     SPELL_WARRIOR_SUDDEN_DEATH                      = 52437,
-    SPELL_WARRIOR_SWEEPING_STRIKES_EXTRA_ATTACK_1   = 12723,
-    SPELL_WARRIOR_SWEEPING_STRIKES_EXTRA_ATTACK_2   = 26654,
     SPELL_WARRIOR_TACTICIAN_CD                      = 199854,
     SPELL_WARRIOR_TAUNT                             = 355,
     SPELL_WARRIOR_THUNDER_CLAP                      = 6343,
@@ -115,10 +108,8 @@ enum WarriorSpells
     SPELL_WARRIOR_VICTORIOUS                        = 32216,
     SPELL_WARRIOR_VICTORY_RUSH_HEAL                 = 118779,
     SPELL_WARRIOR_WARBREAKER                        = 209577, // real Legion Artifact ability id (262161 is a later-expansion remake id)
-    SPELL_WARRIOR_WEAKENED_BLOWS                    = 115798,
     SPELL_WARRIOR_WHIRLWIND_ARMS                    = 1680,
     SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA             = 85739,
-    SPELL_WARRIOR_WHIRLWIND_ENERGIZE                = 280715,
     SPELL_WARRIOR_WRECKING_BALL_EFFECT              = 215570,
     SPELL_WARRIOR_WAR_MACHINE_AURA                  = 215566,
 
@@ -133,19 +124,6 @@ enum WarriorMisc
 {
     SPELL_VISUAL_BLAZING_CHARGE = 26423
 };
-
-static void ApplyWhirlwindCleaveAura(Player* caster, Difficulty difficulty, Spell const* triggeringSpell)
-{
-    SpellInfo const* whirlwindCleaveAuraInfo = sSpellMgr->AssertSpellInfo(SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA, difficulty);
-    int32 stackAmount = static_cast<int32>(whirlwindCleaveAuraInfo->StackAmount);
-    caster->ApplySpellMod(whirlwindCleaveAuraInfo, SpellModOp::MaxAuraStacks, stackAmount);
-
-    caster->CastSpell(nullptr, SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA, CastSpellExtraArgsInit{
-        .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-        .TriggeringSpell = triggeringSpell,
-        .SpellValueOverrides = { { SPELLVALUE_AURA_STACK, stackAmount } }
-    });
-}
 
 // 152278 - Anger Management
 class spell_warr_anger_management_proc : public AuraScript
@@ -361,50 +339,17 @@ class spell_warr_bloodthirst : public SpellScript
         });
     }
 
+    // real Bloodthirst (23881) EFFECT_0 is SPELL_EFFECT_NORMALIZED_WEAPON_DMG, not SCHOOL_DAMAGE;
+    // binding to 23881 confirmed correct against the live DB.
     void Register() override
     {
-        // real Bloodthirst (23881, per this class's own header comment) EFFECT_0 is
-        // SPELL_EFFECT_NORMALIZED_WEAPON_DMG, not SCHOOL_DAMAGE. Server.log's error cites spell
-        // 215568 (Fresh Meat) though, not 23881 - the spell_script_names binding for this
-        // scriptname may itself be wrong (bound to the wrong spell id); not verified against the
-        // live DB this pass, flagged as a possible follow-up.
         OnEffectHitTarget += SpellEffectFn(spell_warr_bloodthirst::CastHeal, EFFECT_0, SPELL_EFFECT_NORMALIZED_WEAPON_DMG);
     }
 };
 
-// 384036 - Brutal Vitality
-class spell_warr_brutal_vitality : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_WARRIOR_IGNORE_PAIN });
-    }
-
-    void HandleProc(AuraEffect* aurEff, ProcEventInfo& eventInfo)
-    {
-        _damageAmount += CalculatePct(eventInfo.GetDamageInfo()->GetDamage(), aurEff->GetAmount());
-    }
-
-    void HandleDummyTick(AuraEffect const* /*aurEff*/)
-    {
-        if (_damageAmount == 0)
-            return;
-
-        if (AuraEffect* ignorePainAura = GetTarget()->GetAuraEffect(SPELL_WARRIOR_IGNORE_PAIN, EFFECT_0))
-            ignorePainAura->ChangeAmount(ignorePainAura->GetAmount() + _damageAmount);
-
-        _damageAmount = 0;
-    }
-
-    void Register() override
-    {
-        AfterEffectProc += AuraEffectProcFn(spell_warr_brutal_vitality::HandleProc, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_warr_brutal_vitality::HandleDummyTick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
-    }
-
-private:
-    uint32 _damageAmount = 0;
-};
+// Removed spell_warr_brutal_vitality: Brutal Vitality (384036) is Dragonflight 10.0.0 content
+// (an exclusive choice node with Fueled by Violence), confirmed absent from this build and never
+// bound in spell_script_names.
 
 // 100 - Charge
 class spell_warr_charge : public SpellScript
@@ -521,27 +466,6 @@ class spell_warr_colossus_smash : public SpellScript
     }
 };
 
-// 389306 - Critical Thinking
-class spell_warr_critical_thinking : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_WARRIOR_CRITICAL_THINKING_ENERGIZE });
-    }
-
-    void HandleProc(AuraEffect* aurEff, ProcEventInfo& eventInfo)
-    {
-        if (Optional<int32> rageCost = eventInfo.GetProcSpell()->GetPowerTypeCostAmount(POWER_RAGE))
-            GetTarget()->CastSpell(nullptr, SPELL_WARRIOR_CRITICAL_THINKING_ENERGIZE, CastSpellExtraArgs(TRIGGERED_FULL_MASK)
-                .AddSpellBP0(CalculatePct(*rageCost, aurEff->GetAmount())));
-    }
-
-    void Register() override
-    {
-        AfterEffectProc += AuraEffectProcFn(spell_warr_critical_thinking::HandleProc, EFFECT_1, SPELL_AURA_DUMMY);
-    }
-};
-
 // 71 - Defensive Stance
 // Confirmed genuine Legion 7.3.5 content despite most Warrior stances being removed in 7.0.3:
 // Defensive Stance specifically survived as an Arms talent (not the old baseline stance-swap
@@ -626,24 +550,12 @@ class spell_warr_enrage_proc : public AuraScript
 {
     // FIXME: SPELL_WARRIOR_FRESH_MEAT_DEBUFF (316044) is confirmed absent from this build - real
     // Fresh Meat (215568, SPELL_WARRIOR_FRESH_MEAT_TALENT) tooltip is a plain conditional crit%
-    // bonus for Bloodthirst ("increased critical strike chance against targets above X% health"),
-    // with no mention of a guaranteed-proc-once-per-target debuff mechanic. The Fresh Meat special
-    // casing below (CheckBloodthirstProc/HandleProc) that reads/casts this debuff may be modeling
-    // a mechanic that doesn't match the real ability at all - left in place (guarded by the
-    // now-removed Validate() dependency so it no longer blocks the core Enrage-on-crit proc) but
-    // unresolved rather than guess a replacement debuff id.
+    // bonus for Bloodthirst, with no mention of a guaranteed-proc-once-per-target debuff mechanic.
+    // The Fresh Meat special casing below may be modeling a mechanic that doesn't match the real
+    // ability - left in place but unresolved rather than guess a replacement debuff id.
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellInfo({ SPELL_WARRIOR_FRESH_MEAT_TALENT });
-    }
-
-    static bool CheckRampageProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo)
-    {
-        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
-        if (!spellInfo || !spellInfo->IsAffected(SPELLFAMILY_WARRIOR, { 0x0, 0x0, 0x0, 0x8000000 }))  // Rampage
-            return false;
-
-        return true;
     }
 
     static bool IsBloodthirst(SpellInfo const* spellInfo)
@@ -652,10 +564,21 @@ class spell_warr_enrage_proc : public AuraScript
         return spellInfo->IsAffected(SPELLFAMILY_WARRIOR, { 0x0, 0x400 });
     }
 
-    static bool CheckBloodthirstProc(AuraScript const&, AuraEffect const* aurEff, ProcEventInfo const& eventInfo)
+    static bool IsRampage(SpellInfo const* spellInfo)
+    {
+        return spellInfo->IsAffected(SPELLFAMILY_WARRIOR, { 0x0, 0x0, 0x0, 0x8000000 });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
     {
         SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
-        if (!spellInfo || !IsBloodthirst(spellInfo))
+        if (!spellInfo)
+            return false;
+
+        if (IsRampage(spellInfo))
+            return true;
+
+        if (!IsBloodthirst(spellInfo))
             return false;
 
         // Fresh Meat talent handling
@@ -671,12 +594,11 @@ class spell_warr_enrage_proc : public AuraScript
                 if (!target)
                     return false;
 
-                if (!target->HasAura(SPELL_WARRIOR_FRESH_MEAT_DEBUFF, actor->GetGUID()))
-                    return true;
+                return !target->HasAura(SPELL_WARRIOR_FRESH_MEAT_DEBUFF, actor->GetGUID());
             }
         }
 
-        return roll_chance_i(aurEff->GetAmount());
+        return true;
     }
 
     void HandleProc(ProcEventInfo const& eventInfo)
@@ -708,16 +630,12 @@ class spell_warr_enrage_proc : public AuraScript
         }
     }
 
-    // FIXME: the bound spell (184361, "Enrage" trigger container - confirmed real via Spell.csv
-    // name/tooltip) has zero rows in SpellEffect.db2 for this build - no EFFECT_0/1 to hook at
-    // all, hence both DUMMY registrations below mismatch. The actual stat-buff spell it casts on
-    // proc (184362, SPELL_WARRIOR_ENRAGE) is fully native (2 real effects, haste + damage-taken
-    // modifiers, no DUMMY proc-check effects either) so it's not a rebind target. Left registered
-    // as-is rather than guess a different container id.
+    // The bound spell (184361, "Enrage" trigger container) has zero rows in SpellEffect.db2 for
+    // this build, so a DoCheckEffectProc/DUMMY hook can never match. Both reference cores handle
+    // this the same way: a whole-aura DoCheckProc, which doesn't require any effect to exist.
     void Register() override
     {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_warr_enrage_proc::CheckRampageProc, EFFECT_0, SPELL_AURA_DUMMY);
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_warr_enrage_proc::CheckBloodthirstProc, EFFECT_1, SPELL_AURA_DUMMY);
+        DoCheckProc += AuraCheckProcFn(spell_warr_enrage_proc::CheckProc);
         OnProc += AuraProcFn(spell_warr_enrage_proc::HandleProc);
     }
 };
@@ -875,44 +793,6 @@ class spell_warr_frothing_berserker : public AuraScript
     }
 };
 
-// 383103  - Fueled by Violence
-class spell_warr_fueled_by_violence : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_WARRIOR_FUELED_BY_VIOLENCE_HEAL });
-    }
-
-    void HandleProc(ProcEventInfo& eventInfo)
-    {
-        PreventDefaultAction();
-
-        _nextHealAmount += CalculatePct(eventInfo.GetDamageInfo()->GetDamage(), GetEffectInfo(EFFECT_0).CalcValue(GetTarget()));
-    }
-
-    void HandlePeriodic(AuraEffect const* /*aurEff*/)
-    {
-        if (_nextHealAmount == 0)
-            return;
-
-        Unit* target = GetTarget();
-        CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
-        args.AddSpellBP0(_nextHealAmount);
-
-        target->CastSpell(target, SPELL_WARRIOR_FUELED_BY_VIOLENCE_HEAL, args);
-        _nextHealAmount = 0;
-    }
-
-    void Register() override
-    {
-        OnProc += AuraProcFn(spell_warr_fueled_by_violence::HandleProc);
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_warr_fueled_by_violence::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
-    }
-
-private:
-    uint32 _nextHealAmount = 0;
-};
-
 // 6544 - Heroic leap
 class spell_warr_heroic_leap : public SpellScript
 {
@@ -963,43 +843,6 @@ class spell_warr_heroic_leap : public SpellScript
     }
 };
 
-// Heroic Leap (triggered by Heroic Leap (6544)) - 178368
-// Landing damage (52174) is meant to be data-driven: Spell::EffectJumpDest (SpellEffects.cpp)
-// only runs at SPELL_EFFECT_HANDLE_LAUNCH and hands the actual arrival cast off to
-// MotionMaster::MoveJump's JumpArrivalCastArgs, reading effectInfo->TriggerSpell straight off
-// this spell's own JUMP_DEST effect - no script involvement needed if that field is populated
-// correctly client-side. It evidently isn't here (no landing damage in practice, and there's no
-// sql/TDB_hotfixes_*.sql spell_effect row for 178368 to override it with either), so cast the
-// damage explicitly instead of trusting unverifiable client DBC data. This does mean it fires at
-// the same time as the Glyph/Taunt effects below (launch, not the true visual landing moment a
-// moment later) rather than being frame-perfect with the landing animation - an accepted
-// approximation given the alternative is doing nothing.
-class spell_warr_heroic_leap_jump : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        // Note: Glyph of Heroic Leap / Glyph of Heroic Leap Buff / Improved Heroic Leap
-        // (159708 / 133278 / 157449) removed - confirmed absent from Spell.db2 under any id
-        // or name in 7.3.5.26972 (the old active-glyph system these belonged to was removed
-        // from the game before Legion). See ARGUSCORE_FIXES.md.
-        return ValidateSpellInfo(
-        {
-            SPELL_WARRIOR_HEROIC_LEAP_DAMAGE
-        });
-    }
-
-    void AfterJump(SpellEffIndex /*effIndex*/)
-    {
-        GetCaster()->CastSpell(GetCaster(), SPELL_WARRIOR_HEROIC_LEAP_DAMAGE, true);
-    }
-
-    void Register() override
-    {
-        // real Heroic Leap (178368) EFFECT_1 is SPELL_EFFECT_JUMP_CHARGE, not JUMP_DEST
-        OnEffectHit += SpellEffectFn(spell_warr_heroic_leap_jump::AfterJump, EFFECT_1, SPELL_EFFECT_JUMP_CHARGE);
-    }
-};
-
 // 202168 - Impending Victory
 class spell_warr_impending_victory : public SpellScript
 {
@@ -1021,59 +864,14 @@ class spell_warr_impending_victory : public SpellScript
     }
 };
 
-// 12950 - Improved Whirlwind (attached to 190411 - Whirlwind)
-class spell_improved_whirlwind : public SpellScript
-{
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellInfo({ SPELL_WARRIOR_IMPROVED_WHIRLWIND, SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_2 }, { SPELL_WARRIOR_WHIRLWIND_ENERGIZE, EFFECT_0 } });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->HasAura(SPELL_WARRIOR_IMPROVED_WHIRLWIND);
-    }
-
-    void HandleHit(SpellEffIndex /*effIndex*/) const
-    {
-        int64 const targetsHit = GetUnitTargetCountForEffect(EFFECT_0);
-        if (!targetsHit)
-            return;
-
-        Player* caster = GetCaster()->ToPlayer();
-        if (!caster)
-            return;
-
-        int32 const ragePerTarget = GetEffectValue();
-        int32 const baseRage = GetEffectInfo(EFFECT_0).CalcValue();
-        int32 const maxRage = baseRage + (ragePerTarget * GetEffectInfo(EFFECT_2).CalcValue());
-        int32 const rageGained = std::min<int32>(baseRage + (targetsHit * ragePerTarget), maxRage);
-
-        caster->CastSpell(nullptr, SPELL_WARRIOR_WHIRLWIND_ENERGIZE, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell(),
-            .SpellValueOverrides = {{ SPELLVALUE_BASE_POINT0, rageGained * 10 } }
-        });
-
-        ApplyWhirlwindCleaveAura(caster, GetCastDifficulty(), GetSpell());
-    }
-
-    // FIXME: real Whirlwind (190411, confirmed via SpellEffect.db2) has 6 effects, all
-    // SPELL_EFFECT_TRIGGER_SPELL (alternating EffectTriggerSpell 199667/44949 - the actual
-    // per-target damage sub-spells), no DUMMY effect anywhere. SPELL_WARRIOR_WHIRLWIND_ENERGIZE
-    // (280715) is also confirmed absent, and neither of the two real trigger spells is it - the
-    // rage-gain-per-target-hit mechanic this class implements doesn't map onto the real structure
-    // at all. Left registered as-is (harmless no-op given the mismatch) rather than guess a rewrite.
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_improved_whirlwind::HandleHit, EFFECT_1, SPELL_EFFECT_DUMMY);
-    }
-};
+// 12950 - Whirlwind (Rank 2, attached to 190411 - Whirlwind): real EFFECT_0 (confirmed via
+// SpellEffect.db2) is a SPELL_AURA_PROC_TRIGGER_SPELL whose own EffectTriggerSpell already casts
+// SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA (85739) - the engine handles this natively, no script
+// needed. The removed class modeled a rage-per-target-hit mechanic that doesn't exist for this
+// id in Legion (SPELL_WARRIOR_WHIRLWIND_ENERGIZE, 280715, is confirmed absent from this build).
 
 // 222944 - Inspiring Presence
-// Self-heal proc based on a percentage of damage taken, matching the same idiom already used
-// by the existing spell_warr_fueled_by_violence class in this file.
+// Self-heal proc based on a percentage of damage taken.
 class spell_warr_inspiring_presence : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -1311,28 +1109,9 @@ class spell_warr_rallying_cry : public SpellScript
 // The engine already handles MOD_INCREASE_HEALTH_PERCENT natively
 // (AuraEffect::HandleAuraModIncreaseHealthPercent), so no script is needed at all.
 
-// 50725 - Vigilance
-// Resets the target's Taunt cooldown when Vigilance is placed on them.
-class spell_warr_vigilance_trigger : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_WARRIOR_TAUNT });
-    }
-
-    void HandleScript(SpellEffIndex effIndex)
-    {
-        PreventHitDefaultEffect(effIndex);
-
-        if (Player* target = GetHitPlayer())
-            target->GetSpellHistory()->ResetCooldown(SPELL_WARRIOR_TAUNT, true);
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_warr_vigilance_trigger::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
-    }
-};
+// Removed spell_warr_vigilance_trigger: Vigilance (50720/50725) was removed from the game
+// entirely in patch 7.0.3, the Legion pre-patch - it never existed at any point in this
+// expansion. Confirmed absent from this build under both ids.
 
 // 215556 - War Machine (PvP Honor Talent)
 // Grants a passive buff aura for as long as this talent's proc-trigger aura is active.
@@ -1471,11 +1250,10 @@ struct npc_warr_ravager : public ScriptedAI
 };
 
 // 184367 - Rampage
-// Consumes the Whirlwind Cleave Aura (85739, granted by Whirlwind via ApplyWhirlwindCleaveAura
-// above - the same spell a reference implementation names "Meat Cleaver Proc") so Rampage also hits nearby
-// enemies alongside its primary target; secondary targets take half damage. Enrage generation
-// from Rampage is already handled by spell_warr_enrage_proc elsewhere in this file and is
-// intentionally untouched here.
+// Consumes the Whirlwind Cleave Aura (85739, natively granted by Whirlwind Rank 2's own
+// proc-trigger effect) so Rampage also hits nearby enemies alongside its primary target;
+// secondary targets take half damage. Enrage generation from Rampage is already handled by
+// spell_warr_enrage_proc elsewhere in this file and is intentionally untouched here.
 class spell_warr_rampage : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -1489,32 +1267,14 @@ class spell_warr_rampage : public SpellScript
             caster->RemoveAurasDueToSpell(SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA);
     }
 
-    void HandleDamage(SpellEffIndex /*effIndex*/)
-    {
-        Unit* caster = GetCaster();
-        Unit* target = GetHitUnit();
-        if (!caster || !target)
-            return;
-
-        if (caster == target)
-        {
-            SetHitDamage(0);
-            return;
-        }
-
-        if (target->GetGUID() != caster->GetTarget())
-            SetHitDamage(GetHitDamage() / 2);
-    }
-
-    // FIXME: real Rampage (184367) delivers its damage through 5 separate TRIGGER_SPELL effects
-    // (EFFECT_2-6, each casting a distinct sub-spell: 218617/184707/184709/201364/201363 per its
-    // own tooltip), not a single WEAPON_PERCENT_DAMAGE hit on EFFECT_1 (real EFFECT_1 is DUMMY).
-    // This cleave-halving logic would need to apply per sub-spell rather than here - left
-    // unresolved rather than guess which (if any) of the 5 it should bind to.
+    // Real Rampage (184367) delivers its damage through 5 separate native TRIGGER_SPELL effects
+    // (218617/184707/184709/201364/201363), each with its own distinct, pre-baked weapon-damage
+    // percentage (57/172/114/345/201%) - the primary-vs-secondary-target damage split is already
+    // fully data-driven across those 5 sub-spells, not something to halve manually here (real
+    // EFFECT_1 is DUMMY, not WEAPON_PERCENT_DAMAGE, so no single hit to halve in this spell).
     void Register() override
     {
         OnCast += SpellCastFn(spell_warr_rampage::ConsumeCleaveAura);
-        OnEffectHitTarget += SpellEffectFn(spell_warr_rampage::HandleDamage, EFFECT_1, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
     }
 };
 
@@ -1546,42 +1306,6 @@ class spell_warr_revenge_trigger : public AuraScript
 };
 
 // 275339 - (attached to 46968 - Shockwave)
-class spell_warr_rumbling_earth : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellEffect({ { SPELL_WARRIOR_RUMBLING_EARTH, EFFECT_1 } });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->HasAura(SPELL_WARRIOR_RUMBLING_EARTH);
-    }
-
-    void HandleCooldownReduction(SpellEffIndex /*effIndex*/) const
-    {
-        Unit* caster = GetCaster();
-        Aura const* rumblingEarth = caster->GetAura(SPELL_WARRIOR_RUMBLING_EARTH);
-        if (!rumblingEarth)
-            return;
-
-        AuraEffect const* minTargetCount = rumblingEarth->GetEffect(EFFECT_0);
-        AuraEffect const* cooldownReduction = rumblingEarth->GetEffect(EFFECT_1);
-        if (!minTargetCount || !cooldownReduction)
-            return;
-
-        if (GetUnitTargetCountForEffect(EFFECT_0) >= minTargetCount->GetAmount())
-            GetCaster()->GetSpellHistory()->ModifyCooldown(GetSpellInfo()->Id, Seconds(-cooldownReduction->GetAmount()));
-    }
-
-    // real 46968 (confirmed via SpellEffect.db2) has 4 effects; its SCRIPT_EFFECT is at EFFECT_3,
-    // not EFFECT_1
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_warr_rumbling_earth::HandleCooldownReduction, EFFECT_3, SPELL_EFFECT_SCRIPT_EFFECT);
-    }
-};
-
 // 29838 - Second Wind
 // "When you become Stunned or Incapacitated, you regenerate health over time." Procs when hit
 // by an effect whose mechanic is Stun or Root, then immediately grants the heal-over-time (202147).
@@ -1631,12 +1355,8 @@ class spell_warr_second_wind : public AuraScript
 
 // 202147 - Second Wind (heal)
 // SPELL_AURA_PERIODIC_HEAL's amount is a flat value by default; this converts it to the
-// intended percentage of max health per tick, matching the equivalent older-expansion
-// implementation's CalcAmount pattern (this engine has no PERIODIC_HEAL_PCT aura type).
-// NOTE: EFFECT_0 is assumed for the periodic heal effect (the older-expansion reference used
-// EFFECT_1, but that was a different spell id with its own effect layout) - not independently
-// verified against Legion 7.3.5 DB2 data. If the hook doesn't fire, this index is the first
-// thing to check.
+// intended percentage of max health per tick (this engine has no PERIODIC_HEAL_PCT aura type).
+// EFFECT_0 confirmed via SpellEffect.db2 to be SPELL_AURA_OBS_MOD_HEALTH.
 class spell_warr_second_wind_heal : public AuraScript
 {
     void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
@@ -1735,25 +1455,6 @@ class spell_warr_heavy_repercussions : public AuraScript
     }
 };
 
-// 385952 - Shield Charge
-class spell_warr_shield_charge : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_WARRIOR_SHIELD_CHARGE_EFFECT });
-    }
-
-    void HandleDummy(SpellEffIndex /*effIndex*/)
-    {
-        GetCaster()->CastSpell(GetHitUnit(), SPELL_WARRIOR_SHIELD_CHARGE_EFFECT, true);
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_warr_shield_charge::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
-    }
-};
-
 // 46968 - Shockwave
 class spell_warr_shockwave : public SpellScript
 {
@@ -1825,72 +1526,17 @@ class spell_warr_storm_bolt : public SpellScript
         GetCaster()->CastSpell(GetHitUnit(), SPELL_WARRIOR_STORM_BOLT_STUN, true);
     }
 
+    // real Storm Bolt (107570) EFFECT_1 is SPELL_EFFECT_DUMMY (EFFECT_0 is the native
+    // SCHOOL_DAMAGE), matching both reference cores' own hook choice
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_warr_storm_bolt::HandleOnHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+        OnEffectHitTarget += SpellEffectFn(spell_warr_storm_bolt::HandleOnHit, EFFECT_1, SPELL_EFFECT_DUMMY);
     }
 };
 
-// 107570 - Storm Bolt
-// FIXME: SPELL_WARRIOR_STORM_BOLTS (436162, meant to gate this single-target fallback behind "does
-// the caster NOT have the Storm Bolts multi-target buff") is confirmed absent from this build -
-// it's a much later-expansion-range id, not Legion content. logs/Spell.csv has no "Storm Bolts"
-// (plural) entry at all for this build; only singular "Storm Bolt" variants exist (107570 being
-// the base ability this script targets). No verified Legion-era multi-target buff id found to
-// replace it with - left unresolved rather than guess.
-class spell_warr_storm_bolts: public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_WARRIOR_STORM_BOLTS });
-    }
-
-    bool Load() override
-    {
-        return !GetCaster()->HasAura(SPELL_WARRIOR_STORM_BOLTS);
-    }
-
-    void FilterTargets(std::list<WorldObject*>& targets) const
-    {
-        targets.clear();
-
-        if (Unit* target = GetExplTargetUnit())
-            targets.push_back(target);
-    }
-
-    void Register() override
-    {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_warr_storm_bolts::FilterTargets, EFFECT_0, TARGET_UNIT_DEST_AREA_ENEMY);
-    }
-};
-
-// 384041 - Strategist
-class spell_warr_strategist : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_WARRIOR_SHIELD_SLAM, SPELL_WARRIOR_SHIELD_SLAM_MARKER })
-            && ValidateSpellEffect({ { SPELL_WARRIOR_STRATEGIST, EFFECT_0 } });
-    }
-
-    static bool CheckProc(AuraScript const&, AuraEffect const* aurEff, ProcEventInfo const& /*procEvent*/)
-    {
-        return roll_chance_i(aurEff->GetAmount());
-    }
-
-    void HandleCooldown(AuraEffect const* /*aurEff*/, ProcEventInfo const& /*procEvent*/) const
-    {
-        Unit* caster = GetTarget();
-        caster->GetSpellHistory()->ResetCooldown(SPELL_WARRIOR_SHIELD_SLAM, true);
-        caster->CastSpell(caster, SPELL_WARRIOR_SHIELD_SLAM_MARKER, TRIGGERED_IGNORE_CAST_IN_PROGRESS);
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_warr_strategist::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_warr_strategist::HandleCooldown, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
+// Removed spell_warr_storm_bolts: modeled a single-target-vs-multi-target gate for a "Storm
+// Bolts" (plural) buff (436162) that's confirmed absent from this build and Dragonflight-range
+// content, not Legion - Storm Bolt itself has no AoE target-select effect to fall back from.
 
 // 52437 - Sudden Death
 // Resets Colossus Smash's cooldown when Sudden Death procs, letting Arms open another
@@ -2022,6 +1668,7 @@ class spell_warr_tactician : public AuraScript
 // Confirmed genuine Legion 7.3.5 content: absent from TrinityCore-master (the talent doesn't
 // exist in modern retail's simplified Warrior talent tree), consistent with other
 // Legion-specific talents found and kept in this file (e.g. Valarjar Berserkers).
+// Weakened Blows was removed from Thunder Clap in patch 6.0.2, before Legion.
 class spell_warr_thunder_clap : public SpellScript
 {
     void HandleOnHit()
@@ -2033,8 +1680,6 @@ class spell_warr_thunder_clap : public SpellScript
         Unit* target = GetHitUnit();
         if (!target)
             return;
-
-        caster->CastSpell(target, SPELL_WARRIOR_WEAKENED_BLOWS, true);
 
         if (caster->HasAura(SPELL_WARRIOR_THUNDERSTRUCK))
             caster->CastSpell(target, SPELL_WARRIOR_THUNDERSTRUCK_STUN, true);
@@ -2235,12 +1880,10 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_bladestorm_new);
     RegisterSpellScript(spell_warr_bladestorm_offhand);
     RegisterSpellScript(spell_warr_bloodthirst);
-    RegisterSpellScript(spell_warr_brutal_vitality);
     RegisterSpellScript(spell_warr_charge);
     RegisterSpellScript(spell_warr_charge_drop_fire_periodic);
     RegisterSpellScript(spell_warr_charge_effect);
     RegisterSpellScript(spell_warr_colossus_smash);
-    RegisterSpellScript(spell_warr_critical_thinking);
     RegisterSpellScript(spell_warr_defensive_stance);
     RegisterSpellScript(spell_warr_devastator);
     RegisterSpellScript(spell_warr_odyns_fury);
@@ -2250,12 +1893,9 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_focused_rage_arms);
     RegisterSpellScript(spell_warr_frenzy);
     RegisterSpellScript(spell_warr_frothing_berserker);
-    RegisterSpellScript(spell_warr_fueled_by_violence);
     RegisterSpellScript(spell_warr_heroic_leap);
-    RegisterSpellScript(spell_warr_heroic_leap_jump);
     RegisterSpellAndAuraScriptPair(spell_warr_ignore_pain, spell_warr_ignore_pain_aura);
     RegisterSpellScript(spell_warr_impending_victory);
-    RegisterSpellScript(spell_improved_whirlwind);
     RegisterSpellScript(spell_warr_inspiring_presence);
     RegisterSpellScript(spell_warr_intimidating_shout);
     RegisterSpellScript(spell_warr_item_t10_prot_4p_bonus);
@@ -2266,23 +1906,18 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_rallying_cry);
     RegisterSpellAndAuraScriptPair(spell_warr_ravager_fury_prot, spell_warr_ravager_fury_prot_aura);
     RegisterCreatureAI(npc_warr_ravager);
-    RegisterSpellScript(spell_warr_vigilance_trigger);
     RegisterSpellScript(spell_warr_war_machine);
     RegisterSpellScript(spell_warr_rampage);
     RegisterSpellScript(spell_warr_revenge_trigger);
-    RegisterSpellScript(spell_warr_rumbling_earth);
     RegisterSpellScript(spell_warr_safeguard);
     RegisterSpellScript(spell_warr_second_wind);
     RegisterSpellScript(spell_warr_second_wind_heal);
     RegisterSpellScript(spell_warr_shattering_throw);
     RegisterSpellScript(spell_warr_shield_block);
     RegisterSpellScript(spell_warr_heavy_repercussions);
-    RegisterSpellScript(spell_warr_shield_charge);
     RegisterSpellScript(spell_warr_shockwave);
     RegisterSpellScript(spell_warr_soul_of_the_slaughter);
     RegisterSpellScript(spell_warr_storm_bolt);
-    RegisterSpellScript(spell_warr_storm_bolts);
-    RegisterSpellScript(spell_warr_strategist);
     RegisterSpellScript(spell_warr_sudden_death);
     RegisterSpellScript(spell_warr_trauma);
     RegisterSpellScript(spell_warr_t3_prot_8p_bonus);

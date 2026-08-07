@@ -1451,10 +1451,9 @@ class spell_warl_seed_of_corruption_generic : public AuraScript
 // 17877 - Shadowburn
 class spell_warl_shadowburn : public SpellScript
 {
-    bool Validate(SpellInfo const* spellInfo) override
+    bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_WARLOCK_SHADOWBURN_ENERGIZE })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_3 } });
+        return ValidateSpellInfo({ SPELL_WARLOCK_SHADOWBURN_ENERGIZE });
     }
 
     void HandleEnergize() const
@@ -1471,16 +1470,9 @@ class spell_warl_shadowburn : public SpellScript
         TryEnergize(Object::ToPlayer(GetCaster()), GetHitUnit(), GetSpellInfo(), GetSpell(), nullptr);
     }
 
-    void CalcCritChance(Unit const* victim, float& critChance) const
-    {
-        if (victim->HealthBelowPct(GetEffectInfo(EFFECT_3).CalcValue(GetCaster())))
-            critChance += GetEffectInfo(EFFECT_2).CalcValue(GetCaster());
-    }
-
     void Register() override
     {
         AfterHit += SpellHitFn(spell_warl_shadowburn::HandleEnergize);
-        OnCalcCritChance += SpellOnCalcCritChanceFn(spell_warl_shadowburn::CalcCritChance);
     }
 
 public:
@@ -1699,7 +1691,7 @@ class spell_warl_soul_swap : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_warl_soul_swap::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+        OnEffectHitTarget += SpellEffectFn(spell_warl_soul_swap::HandleHit, EFFECT_0, SPELL_EFFECT_DUMMY);
     }
 };
 

@@ -3874,12 +3874,6 @@ void SpellMgr::LoadSpellInfoCorrections()
         });
     });
 
-    // Maelstrom Weapon (187881) - confirmed absent from this build's Spell.db2 under any id
-    // (187880/187882 are consecutive, no gap for it); see the "Maelstrom Weapon" finding in
-    // ARGUSCORE_FIXES.md and spell_sha_maelstrom_weapon_base::Validate() in spell_shaman.cpp -
-    // the whole 5-stack consumable-buff system this belongs to appears to model a later
-    // (Dragonflight) Enhancement rework with no basis in this build's real spell data.
-
     ApplySpellFix({
         15538, // Gout of Flame
         42490, // Energized!

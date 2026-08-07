@@ -98,6 +98,7 @@ enum ShamanSpells
     // energize spell found nearby. Left as-is - spell_sha_icefury will keep failing Validate()
     // on this dependency even after its own EFFECT_1->EFFECT_2 hook fix.
     SPELL_SHAMAN_FROST_SHOCK_ENERGIZE           = 289439,
+    SPELL_SHAMAN_FROSTBRAND_WEAPON_ENCHANT      = 196834,
     SPELL_SHAMAN_GATHERING_STORMS               = 198299,
     SPELL_SHAMAN_GATHERING_STORMS_BUFF          = 198300,
     SPELL_SHAMAN_GHOST_WOLF                     = 2645,
@@ -131,8 +132,7 @@ enum ShamanSpells
     // energize/overload use of EFFECT_4/EFFECT_5 on this same id (below) has no corroborating
     // data and is likely still wrong; left as-is rather than guess a third id.
     SPELL_SHAMAN_MAELSTROM_CONTROLLER           = 190488,
-    SPELL_SHAMAN_MAELSTROM_WEAPON_MOD_AURA      = 187881,
-    SPELL_SHAMAN_MAELSTROM_WEAPON_OVERLAY       = 187890,
+    SPELL_SHAMAN_MAELSTROM_WEAPON_ENERGIZE      = 187890,
     SPELL_SHAMAN_MASTERY_ELEMENTAL_OVERLOAD     = 168534,
     SPELL_SHAMAN_MOLTEN_ASSAULT                 = 334033,
     SPELL_SHAMAN_NATURES_GUARDIAN_COOLDOWN      = 445698,
@@ -179,13 +179,6 @@ enum MiscNpcs
 {
     NPC_HEALING_RAIN_INVISIBLE_STALKER          = 73400,
     NPC_SPIRIT_WOLF                             = 29264
-};
-
-struct spell_sha_maelstrom_weapon_base
-{
-    static bool Validate();
-    static void GenerateMaelstromWeapon(Unit* shaman, int32 stacks);
-    static void ConsumeMaelstromWeapon(Unit* shaman, Aura* maelstromWeaponVisibleAura, int32 stacks, Spell const* consumingSpell = nullptr);
 };
 
 class WindfuryProcEvent : public BasicEvent
@@ -576,6 +569,10 @@ class spell_sha_chain_lightning_energize : public SpellScript
 };
 
 // 45297 - Chain Lightning Overload
+// FIXME: SPELL_SHAMAN_MAELSTROM_CONTROLLER (190488) only has EFFECT_0/EFFECT_1 in this build's
+// data, not EFFECT_4/EFFECT_5 as this class expects - and those two real effects trigger
+// "Fulmination"/"Fulmination!" (an unrelated Earth Shock mechanic), so 190488 may be the wrong
+// spell entirely for this energize family, not just a wrong effect index. Left unresolved.
 class spell_sha_chain_lightning_overload : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -1381,32 +1378,25 @@ class spell_sha_flametongue_weapon_aura : public AuraScript
     }
 };
 
-// 334196 - Hailstorm
+// 196834 - Frostbrand (Hailstorm's proc source, 210853/210854)
 class spell_sha_hailstorm : public AuraScript
 {
-    void CalcCleaveMod(AuraEffect const* aurEff, SpellModifier*& spellMod) const
+    bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        if (!spellMod)
-        {
-            SpellModifierByClassMask* mod = new SpellModifierByClassMask(GetAura());
-            mod->op = SpellModOp::ChainTargets;
-            mod->type = SPELLMOD_FLAT;
-            mod->spellId = GetId();
-            mod->mask = { 0x80000000, 0x00000000, 0x00000000, 0x00000000 };
+        return ValidateSpellInfo({ SPELL_SHAMAN_HAILSTORM_TALENT, SPELL_SHAMAN_HAILSTORM_BUFF });
+    }
 
-            spellMod = mod;
-        }
-
-        if (AuraEffect const* hailstormPassive = GetUnitOwner()->GetAuraEffect(SPELL_SHAMAN_HAILSTORM_TALENT, EFFECT_0))
-        {
-            int32 targetCap = hailstormPassive->GetAmount() / aurEff->GetBaseAmount();
-            static_cast<SpellModifierByClassMask*>(spellMod)->value = std::min<int32>(targetCap, GetStackAmount()) + 1;
-        }
+    void HandleProc(ProcEventInfo const& /*eventInfo*/) const
+    {
+        if (GetTarget()->HasAura(SPELL_SHAMAN_HAILSTORM_TALENT))
+            GetTarget()->CastSpell(GetTarget(), SPELL_SHAMAN_HAILSTORM_BUFF, CastSpellExtraArgsInit{
+                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR
+            });
     }
 
     void Register() override
     {
-        DoEffectCalcSpellMod += AuraEffectCalcSpellModFn(spell_sha_hailstorm::CalcCleaveMod, EFFECT_1, SPELL_AURA_DUMMY);
+        OnProc += AuraProcFn(spell_sha_hailstorm::HandleProc);
     }
 };
 
@@ -1954,122 +1944,35 @@ class spell_sha_liquid_magma_totem : public SpellScript
     }
 };
 
-bool spell_sha_maelstrom_weapon_base::Validate()
-{
-    // SIGNIFICANT FINDING (see ARGUSCORE_FIXES.md): SPELL_SHAMAN_MAELSTROM_WEAPON_MOD_AURA
-    // (187881) is ALSO confirmed absent from Spell.db2 - not a neighbor-id gap (187880/187882
-    // are consecutive) - so this whole "5-stack consumable buff, spent on Lightning Bolt/Chain
-    // Lightning" system has no basis in this build's real data at all. Real 187880's own tooltip
-    // ("Your auto attacks and Windfury attacks generate $187890s1 Maelstrom") plus 187890's own
-    // SpellEffect data (a plain ENERGIZE-5-Maelstrom effect, MiscValue 11 = POWER_MAELSTROM) show
-    // Legion's actual Maelstrom Weapon is a simple proc-energize passive feeding the Maelstrom
-    // resource bar, not a stacking buff - this entire Generate/Consume apparatus (and the
-    // Hailstorm trigger wired through it) appears to model a much later (Dragonflight)
-    // reimplementation reusing the same name/ids by coincidence. A correct fix needs Hailstorm's
-    // real Legion proc condition, which isn't confirmed from local data - left as a known-broken,
-    // flagged system rather than force a Validate() pass on an unconfirmed redesign.
-    return SpellScriptBase::ValidateSpellInfo
-    ({
-        SPELL_SHAMAN_MAELSTROM_WEAPON_OVERLAY,
-        SPELL_SHAMAN_HAILSTORM_BUFF,
-        SPELL_SHAMAN_HAILSTORM_TALENT
-    }) && SpellScriptBase::ValidateSpellEffect
-    ({
-        { SPELL_SHAMAN_MAELSTROM_WEAPON_MOD_AURA, EFFECT_1 }
-    });
-}
-
-void spell_sha_maelstrom_weapon_base::GenerateMaelstromWeapon(Unit* shaman, int32 stacks)
-{
-    CastSpellExtraArgs args;
-    args.SetTriggerFlags(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
-    while (--stacks >= 0)
-    {
-        uint32 totalStacks = shaman->GetAuraCount(SPELL_SHAMAN_MAELSTROM_WEAPON_MOD_AURA);
-        if (totalStacks >= 4)
-            shaman->CastSpell(shaman, SPELL_SHAMAN_MAELSTROM_WEAPON_OVERLAY, args); // cast action bar overlay
-
-        shaman->CastSpell(shaman, SPELL_SHAMAN_MAELSTROM_WEAPON_MOD_AURA, args);
-    }
-}
-
-void spell_sha_maelstrom_weapon_base::ConsumeMaelstromWeapon(Unit* shaman, Aura* maelstromWeaponAura, int32 stacks, Spell const* consumingSpell)
-{
-    if (shaman->HasAura(SPELL_SHAMAN_HAILSTORM_TALENT))
-        shaman->CastSpell(shaman, SPELL_SHAMAN_HAILSTORM_BUFF, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = consumingSpell,
-            .SpellValueOverrides = { { SPELLVALUE_AURA_STACK, std::min<int32>(stacks, maelstromWeaponAura->GetStackAmount()) } }
-        });
-
-    if (maelstromWeaponAura->ModStackAmount(-stacks))
-        return;
-
-    // not removed
-    uint8 newStacks = maelstromWeaponAura->GetStackAmount();
-    if (newStacks < 5)
-        shaman->RemoveAurasDueToSpell(SPELL_SHAMAN_MAELSTROM_WEAPON_OVERLAY);
-}
-
 // 187880 - Maelstrom Weapon
 class spell_sha_maelstrom_weapon : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return spell_sha_maelstrom_weapon_base::Validate();
+        return ValidateSpellInfo({ SPELL_SHAMAN_MAELSTROM_WEAPON_ENERGIZE });
     }
 
-    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& /*procEvent*/) const
+    bool CheckProc(ProcEventInfo const& eventInfo) const
     {
-        spell_sha_maelstrom_weapon_base::GenerateMaelstromWeapon(GetTarget(), 1);
+        if (DamageInfo const* damageInfo = eventInfo.GetDamageInfo())
+            if (damageInfo->GetAttackType() == BASE_ATTACK || damageInfo->GetAttackType() == OFF_ATTACK)
+                return true;
+
+        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
+        return spellInfo && spellInfo->Id == SPELL_SHAMAN_WINDFURY_ATTACK;
+    }
+
+    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& /*eventInfo*/) const
+    {
+        GetTarget()->CastSpell(GetTarget(), SPELL_SHAMAN_MAELSTROM_WEAPON_ENERGIZE, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR
+        });
     }
 
     void Register() override
     {
+        DoCheckProc += AuraCheckProcFn(spell_sha_maelstrom_weapon::CheckProc);
         OnEffectProc += AuraEffectProcFn(spell_sha_maelstrom_weapon::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
-
-// 187881 - Maelstrom Weapon Mod Aura (spell_script_names still binds this class to the old,
-// nonexistent 344179 id - see the note on spell_sha_maelstrom_weapon_base::Validate() above)
-class spell_sha_maelstrom_weapon_proc : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return spell_sha_maelstrom_weapon_base::Validate();
-    }
-
-    bool CheckProc(ProcEventInfo const& procEvent) const
-    {
-        Spell const* procSpell = procEvent.GetProcSpell();
-        if (!procSpell)
-            return false;
-
-        Aura* maelstromSpellMod = GetTarget()->GetAura(SPELL_SHAMAN_MAELSTROM_WEAPON_MOD_AURA);
-        if (!maelstromSpellMod)
-            return false;
-
-        return procSpell->m_appliedMods.contains(maelstromSpellMod);
-    }
-
-    void RemoveMaelstromAuras(ProcEventInfo const& procEvent) const
-    {
-        spell_sha_maelstrom_weapon_base::ConsumeMaelstromWeapon(GetTarget(), GetAura(), 5, procEvent.GetProcSpell());
-    }
-
-    void ExpireMaelstromAuras(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/) const
-    {
-        Unit* shaman = GetTarget();
-        AuraRemoveMode removeMode = GetTargetApplication()->GetRemoveMode();
-        shaman->RemoveAurasDueToSpell(SPELL_SHAMAN_MAELSTROM_WEAPON_MOD_AURA, ObjectGuid::Empty, 0, removeMode);
-        shaman->RemoveAurasDueToSpell(SPELL_SHAMAN_MAELSTROM_WEAPON_OVERLAY, ObjectGuid::Empty, 0, removeMode);
-    }
-
-    void Register() override
-    {
-        DoCheckProc += AuraCheckProcFn(spell_sha_maelstrom_weapon_proc::CheckProc);
-        OnProc += AuraProcFn(spell_sha_maelstrom_weapon_proc::RemoveMaelstromAuras);
-        AfterEffectRemove += AuraEffectRemoveFn(spell_sha_maelstrom_weapon_proc::ExpireMaelstromAuras, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -2501,42 +2404,6 @@ class spell_sha_stormsurge : public AuraScript
     }
 };
 
-// 384359 - Swirling Maelstrom
-class spell_sha_swirling_maelstrom : public AuraScript
-{
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 } })
-            && spell_sha_maelstrom_weapon_base::Validate();
-    }
-
-    bool CheckHailstormProc(ProcEventInfo const& eventInfo) const
-    {
-        if (eventInfo.GetSpellInfo()->IsAffected(SPELLFAMILY_SHAMAN, { 0x80000000, 0x0, 0x0, 0x0 })) // Frost Shock
-        {
-            Aura* hailstorm = eventInfo.GetActor()->GetAura(SPELL_SHAMAN_HAILSTORM_BUFF);
-            if (!hailstorm || hailstorm->GetStackAmount() < GetEffect(EFFECT_1)->GetAmount())
-                return false;
-
-            if (!eventInfo.GetProcSpell()->m_appliedMods.contains(hailstorm))
-                return false;
-        }
-
-        return true;
-    }
-
-    void EnergizeMaelstrom(AuraEffect const* aurEff, ProcEventInfo const& /*eventInfo*/) const
-    {
-        spell_sha_maelstrom_weapon_base::GenerateMaelstromWeapon(GetTarget(), aurEff->GetAmount());
-    }
-
-    void Register() override
-    {
-        DoCheckProc += AuraCheckProcFn(spell_sha_swirling_maelstrom::CheckHailstormProc);
-        OnEffectProc += AuraEffectProcFn(spell_sha_swirling_maelstrom::EnergizeMaelstrom, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
-
 // 51564 - Tidal Waves
 class spell_sha_tidal_waves : public AuraScript
 {
@@ -2839,6 +2706,8 @@ class spell_sha_undulation_passive : public AuraScript
 };
 
 // 33757 - Windfury Weapon
+// FIXME: SPELL_SHAMAN_WINDFURY_ENCHANTMENT (334302) is confirmed absent from Spell.db2 under any
+// id for this build. Left unresolved rather than guessed at.
 class spell_sha_windfury_weapon : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -3118,7 +2987,6 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_lightning_bolt_overload);
     RegisterSpellScript(spell_sha_liquid_magma_totem);
     RegisterSpellScript(spell_sha_maelstrom_weapon);
-    RegisterSpellScript(spell_sha_maelstrom_weapon_proc);
     RegisterSpellScript(spell_sha_mastery_elemental_overload);
     RegisterSpellScript(spell_sha_mastery_elemental_overload_proc);
     RegisterSpellScript(spell_sha_molten_assault);
@@ -3134,7 +3002,6 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_stormlash_buff);
     RegisterSpellScript(spell_sha_stormsurge);
     RegisterSpellScriptWithArgs(spell_sha_delayed_stormstrike_mod_charge_drop_proc, "spell_sha_stormsurge_proc");
-    RegisterSpellScript(spell_sha_swirling_maelstrom);
     RegisterSpellScript(spell_sha_tidal_waves);
     RegisterSpellScript(spell_sha_t3_6p_bonus);
     RegisterSpellScript(spell_sha_t3_8p_bonus);

@@ -1656,11 +1656,6 @@ class spell_monk_roll_aura : public AuraScript
         amount += 100;
     }
 
-    void CalcImmunityAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
-    {
-        amount -= 100;
-    }
-
     void ChangeRunBackSpeed(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
         GetTarget()->SetSpeed(MOVE_RUN_BACK, GetTarget()->GetSpeed(MOVE_RUN));
@@ -1676,12 +1671,6 @@ class spell_monk_roll_aura : public AuraScript
         // Values need manual correction
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_monk_roll_aura::CalcMovementAmount, EFFECT_0, SPELL_AURA_MOD_SPEED_NO_CONTROL);
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_monk_roll_aura::CalcMovementAmount, EFFECT_2, SPELL_AURA_MOD_MINIMUM_SPEED);
-        // FIXME: real Roll (this class is bound to both 107427/109131) only has 5 effects
-        // (EFFECT_0-4: MOD_SPEED_NO_CONTROL, DISABLE_CASTING_EXCEPT_ABILITIES, MOD_MINIMUM_SPEED,
-        // WATER_WALK, USE_NORMAL_MOVEMENT_SPEED) - no MECHANIC_IMMUNITY effect anywhere, so these
-        // two hooks (EFFECT_5/6) have nothing to bind to in this build's data. Left unresolved.
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_monk_roll_aura::CalcImmunityAmount, EFFECT_5, SPELL_AURA_MECHANIC_IMMUNITY);
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_monk_roll_aura::CalcImmunityAmount, EFFECT_6, SPELL_AURA_MECHANIC_IMMUNITY);
 
         // This is a special aura that sets backward run speed equal to forward speed
         AfterEffectApply += AuraEffectApplyFn(spell_monk_roll_aura::ChangeRunBackSpeed, EFFECT_4, SPELL_AURA_USE_NORMAL_MOVEMENT_SPEED, AURA_EFFECT_HANDLE_REAL);
