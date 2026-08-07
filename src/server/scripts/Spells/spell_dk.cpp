@@ -46,16 +46,12 @@ enum DeathKnightSpells
     SPELL_DK_ARMY_SKELETON_TRANSFORM            = 127527,
     SPELL_DK_ARMY_SPIKED_GHOUL_TRANSFORM        = 127525,
     SPELL_DK_ARMY_SUPER_ZOMBIE_TRANSFORM        = 127526,
-    SPELL_DK_BLINDING_SLEET_SLOW                = 317898,
     SPELL_DK_BLOOD                              = 137008,
-    SPELL_DK_BLOODDRINKER_DEBUFF                = 458687,
     SPELL_DK_BLOOD_PLAGUE                       = 55078,
     SPELL_DK_BLOOD_SHIELD_ABSORB                = 77535,
     SPELL_DK_BLOOD_SHIELD_MASTERY               = 77513,
     SPELL_DK_BLOOD_MIRROR                       = 206977,
     SPELL_DK_BLOOD_MIRROR_DAMAGE                = 221847,
-    SPELL_DK_BLOOD_CHARGE                       = 114851,
-    SPELL_DK_BLOOD_TAP                          = 45529,
     SPELL_DK_GLACIAL_ADVANCE                    = 194913,
     SPELL_DK_GLACIAL_ADVANCE_DAMAGE             = 195975,
     SPELL_DK_BONE_SHIELD                        = 195181,
@@ -71,7 +67,6 @@ enum DeathKnightSpells
     SPELL_DK_DEATH_AND_DECAY_DAMAGE             = 52212,
     SPELL_DK_DEATH_COIL                         = 47541,
     SPELL_DK_DEATH_COIL_DAMAGE                  = 47632,
-    SPELL_DK_DEATH_SIPHON_HEAL                  = 116783,
     SPELL_DK_DEATH_GRIP_DUMMY                   = 243912,
     SPELL_DK_DEATH_GRIP_JUMP                    = 49575,
     SPELL_DK_DEATH_GRIP_TAUNT                   = 51399,
@@ -96,11 +91,10 @@ enum DeathKnightSpells
     SPELL_DK_KILLING_MACHINE_PROC               = 51124,
     SPELL_DK_MARK_OF_BLOOD_HEAL                 = 206945,
     SPELL_DK_NECROSIS_EFFECT                    = 216974,
-    SPELL_DK_OBLITERATION                       = 281238,
-    SPELL_DK_OBLITERATION_RUNE_ENERGIZE         = 281327,
     SPELL_DK_PILLAR_OF_FROST                    = 51271,
     SPELL_DK_RAISE_DEAD_SUMMON                  = 52150,
     SPELL_DK_RECENTLY_USED_DEATH_STRIKE         = 180612,
+    SPELL_DK_RUNIC_EMPOWERMENT                  = 81229,
     SPELL_DK_RUNIC_CORRUPTION                   = 51460,
     SPELL_DK_RUNIC_POWER_ENERGIZE               = 49088,
     SPELL_DK_RUNIC_RETURN                       = 61258,
@@ -309,19 +303,12 @@ class spell_dk_army_transform : public SpellScript
     }
 };
 
-// 207167 - Blinding Sleet
-// Removed spell_dk_blinding_sleet: its only function was casting SPELL_DK_BLINDING_SLEET_SLOW
-// (317898, confirmed absent from this build's Spell.db2) when the disorient expired naturally -
-// real Blinding Sleet's own tooltip in this build ("blinded, causing them to wander disoriented...
-// Damage may cancel the effect") has no follow-up slow at all. Core disorient functionality is
-// handled natively by the base MOD_CONFUSE aura and needs no script.
+// 207167 - Blinding Sleet: real EFFECT_0 is the native MOD_CONFUSE disorient and EFFECT_1 is a
+// native MOD_DECREASE_SPEED (-60%) - the slow is already part of this same spell's own data, not
+// a separately-triggered spell cast on disorient expiry. No script needed.
 
-// 206931 - Blooddrinker
-// Removed spell_dk_blooddrinker: its only function was casting SPELL_DK_BLOODDRINKER_DEBUFF
-// (458687, a TWW/Dragonflight-range id, confirmed absent from this build's Spell.db2) on the
-// target when the channel expired - real Blooddrinker's own tooltip in this build ("Drains
-// health from the target... You can move, parry, dodge...") has no post-channel target debuff
-// at all; that's a later Blood DK rework.
+// 206931 - Blooddrinker: real data is a single native PERIODIC_LEECH effect - no target debuff
+// component at all in this build (that's a later Blood DK rework). No script needed.
 
 // 50842 - Blood Boil
 class spell_dk_blood_boil : public SpellScript
@@ -1230,34 +1217,9 @@ class spell_dk_icy_talons : public AuraScript
     }
 };
 
-// 374277 - Improved Death Strike
-class spell_dk_improved_death_strike : public AuraScript
-{
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellInfo({ SPELL_DK_BLOOD })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_4 } });
-    }
-
-    void CalcHealIncrease(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/) const
-    {
-        if (GetUnitOwner()->HasAura(SPELL_DK_BLOOD))
-            amount = GetEffectInfo(EFFECT_3).CalcValue(GetCaster());
-    }
-
-    void CalcPowerCostReduction(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/) const
-    {
-        if (GetUnitOwner()->HasAura(SPELL_DK_BLOOD))
-            amount = GetEffectInfo(EFFECT_4).CalcValue(GetCaster());
-    }
-
-    void Register() override
-    {
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_improved_death_strike::CalcHealIncrease, EFFECT_0, SPELL_AURA_ADD_PCT_MODIFIER);
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_improved_death_strike::CalcHealIncrease, EFFECT_1, SPELL_AURA_ADD_PCT_MODIFIER);
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_improved_death_strike::CalcPowerCostReduction, EFFECT_2, SPELL_AURA_ADD_FLAT_MODIFIER);
-    }
-};
+// Removed spell_dk_improved_death_strike: Improved Death Strike (374277) is Dragonflight 10.0.0
+// content, confirmed absent from this build under any id (no Spell record, no SpellEffect
+// record, no local dump entry).
 
 // 206940 - Mark of Blood
 class spell_dk_mark_of_blood : public AuraScript
@@ -1300,30 +1262,10 @@ class spell_dk_necrosis : public AuraScript
     }
 };
 
-// 207256 - Obliteration
-class spell_dk_obliteration : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DK_OBLITERATION, SPELL_DK_OBLITERATION_RUNE_ENERGIZE, SPELL_DK_KILLING_MACHINE_PROC })
-            && ValidateSpellEffect({ { SPELL_DK_OBLITERATION, EFFECT_1 } });
-    }
-
-    void HandleProc(AuraEffect* aurEff, ProcEventInfo& /*eventInfo*/)
-    {
-        Unit* target = GetTarget();
-        target->CastSpell(target, SPELL_DK_KILLING_MACHINE_PROC, aurEff);
-
-        if (AuraEffect const* oblitaration = target->GetAuraEffect(SPELL_DK_OBLITERATION, EFFECT_1))
-            if (roll_chance_i(oblitaration->GetAmount()))
-                target->CastSpell(target, SPELL_DK_OBLITERATION_RUNE_ENERGIZE, aurEff);
-    }
-
-    void Register() override
-    {
-        AfterEffectProc += AuraEffectProcFn(spell_dk_obliteration::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
+// 207256 - Obliteration: real EFFECT_0 is a native rune-cost reduction (ADD_FLAT_MODIFIER on
+// Obliterate) and EFFECT_1 is a native PROC_TRIGGER_SPELL already casting Killing Machine (51124)
+// on Frost Strike/Howling Blast - a completely different, fully native mechanic from what this
+// removed class modeled against two ids (281238/281327) confirmed absent from this build.
 
 // 207200 - Permafrost
 class spell_dk_permafrost : public AuraScript
@@ -1531,31 +1473,47 @@ private:
 };
 
 // 81229 - Runic Empowerment (Frost baseline passive)
-// Each Runic Power spent has a chance to instantly recharge a random used rune. Generic
-// across all Runic-Power-costing spells via Spell::GetPowerTypeCostAmount, the same "any
-// X-costing spell" idiom already used elsewhere in this codebase (e.g.
-// spell_rog_relentless_strikes in spell_rogue.cpp). ArgusCore has no
-// PlayerScript::OnModifyPower hook - the reference source used one that does not exist
-// in this engine - so this is a standard proc-aura instead, which also composes correctly
-// with the rest of the proc system rather than needing a new engine-level hook.
-class spell_dk_runic_empowerment : public AuraScript
+// Each Runic Power spent has a chance to instantly recharge a random used rune.
+//
+// 51460 - Runic Corruption (Unholy baseline passive)
+// Each Runic Power spent has a chance to grant the Runic Corruption buff (rune regeneration
+// rate boost) - the same id serves as both the passive and its own granted buff.
+//
+// Both are implemented together below via PlayerScript::OnSpellCast rather than as AuraScript
+// procs: neither id has any real proc-eligibility data anywhere checked (this build's own
+// SpellAuraOptions.db2, or either reference core's spell_proc table), so the generic Aura proc
+// system - which requires that data to ever reach TriggerProcOnEvent, regardless of how correct
+// the hook itself is - can never fire for them. OnSpellCast fires on every successful player
+// spell cast unconditionally, sidestepping the missing data entirely instead of fabricating a
+// ProcFlags value with nothing to verify it against.
+class playerScript_dk_runic_power_procs : public PlayerScript
 {
-    static bool CheckProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& procEvent)
+public:
+    playerScript_dk_runic_power_procs() : PlayerScript("playerScript_dk_runic_power_procs") { }
+
+    void OnSpellCast(Player* player, Spell* spell, bool /*skipCheck*/) override
     {
-        Spell const* procSpell = procEvent.GetProcSpell();
-        return procSpell && procSpell->GetPowerTypeCostAmount(POWER_RUNIC_POWER) > 0;
+        Optional<int32> rpSpent = spell->GetPowerTypeCostAmount(POWER_RUNIC_POWER);
+        if (!rpSpent || *rpSpent <= 0)
+            return;
+
+        if (AuraEffect const* empowerment = player->GetAuraEffect(SPELL_DK_RUNIC_EMPOWERMENT, EFFECT_0))
+            if (roll_chance_i(empowerment->GetAmount() * *rpSpent))
+                RechargeRandomRune(player);
+
+        // real Runic Corruption (51460) EFFECT_0 is the MOD_POWER_REGEN_PERCENT buff itself
+        // (matching its own tooltip); the passive proc-trigger DUMMY is at EFFECT_1
+        if (AuraEffect const* corruption = player->GetAuraEffect(SPELL_DK_RUNIC_CORRUPTION, EFFECT_1))
+            if (roll_chance_i(corruption->GetAmount() * *rpSpent))
+                player->CastSpell(player, SPELL_DK_RUNIC_CORRUPTION, CastSpellExtraArgsInit{
+                    .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+                    .TriggeringSpell = spell
+                });
     }
 
-    void HandleProc(AuraEffect const* aurEff, ProcEventInfo const& procInfo)
+private:
+    static void RechargeRandomRune(Player* player)
     {
-        int32 rpSpent = *procInfo.GetProcSpell()->GetPowerTypeCostAmount(POWER_RUNIC_POWER);
-        if (!roll_chance_i(aurEff->GetAmount() * rpSpent))
-            return;
-
-        Player* player = GetTarget()->ToPlayer();
-        if (!player)
-            return;
-
         std::vector<uint8> usedRunes;
         for (uint8 i = 0; i < MAX_RUNES; ++i)
             if (player->GetRuneCooldown(i))
@@ -1566,54 +1524,6 @@ class spell_dk_runic_empowerment : public AuraScript
 
         player->SetRuneCooldown(Trinity::Containers::SelectRandomContainerElement(usedRunes), 0);
         player->ResyncRunes();
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dk_runic_empowerment::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_dk_runic_empowerment::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
-
-// 51460 - Runic Corruption (Unholy baseline passive)
-// Each Runic Power spent has a chance to grant the Runic Corruption buff (rune regeneration
-// rate boost). Same generic "any Runic-Power-costing spell" idiom as Runic Empowerment
-// above. Reuses the already-existing SPELL_DK_RUNIC_CORRUPTION constant/buff (already cast
-// directly by spell_dk_soul_reaper above) rather than adding a second, separate id - web
-// research surfaced a possible id split across eras (51460 vs a later 51462) for this
-// ability's name; this binds to the same id Soul Reaper already successfully uses, on the
-// assumption a single id serves as both the passive and its own granted buff (matching the
-// shape confirmed for Priest's Focused Will this session) - flagged here in case that
-// assumption needs revisiting.
-class spell_dk_runic_corruption : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DK_RUNIC_CORRUPTION });
-    }
-
-    static bool CheckProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& procEvent)
-    {
-        Spell const* procSpell = procEvent.GetProcSpell();
-        return procSpell && procSpell->GetPowerTypeCostAmount(POWER_RUNIC_POWER) > 0;
-    }
-
-    void HandleProc(AuraEffect const* aurEff, ProcEventInfo const& procInfo)
-    {
-        int32 rpSpent = *procInfo.GetProcSpell()->GetPowerTypeCostAmount(POWER_RUNIC_POWER);
-        if (!roll_chance_i(aurEff->GetAmount() * rpSpent))
-            return;
-
-        GetTarget()->CastSpell(GetTarget(), SPELL_DK_RUNIC_CORRUPTION, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringAura = aurEff
-        });
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dk_runic_corruption::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_dk_runic_corruption::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -1782,28 +1692,9 @@ class spell_dk_frozen_pulse : public AuraScript
     }
 };
 
-// 108196 - Death Siphon
-// Heals for a portion of the damage it deals.
-class spell_dk_death_siphon : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DK_DEATH_SIPHON_HEAL });
-    }
-
-    void HandleScriptEffect(SpellEffIndex /*effIndex*/)
-    {
-        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
-        if (player && GetHitUnit())
-            player->CastSpell(player, SPELL_DK_DEATH_SIPHON_HEAL, CastSpellExtraArgs(TRIGGERED_FULL_MASK)
-                .AddSpellMod(SPELLVALUE_BASE_POINT0, GetHitDamage()));
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_dk_death_siphon::HandleScriptEffect, EFFECT_1, SPELL_EFFECT_SCRIPT_EFFECT);
-    }
-};
+// Removed spell_dk_death_siphon: Death Siphon (108196) was removed in patch 7.0.3, the Legion
+// pre-patch - it never existed at any point in this expansion. Confirmed absent from this build
+// under any id.
 
 // 194844 - Bonestorm
 // Spends up to 90 Runic Power (rounded down to the nearest 10) on cast, extending the aura's
@@ -2567,104 +2458,10 @@ class spell_dk_blood_mirror : public AuraScript
     }
 };
 
-// 114851 - Blood Charge accumulation (Blood Tap's Legion 7.0.3 redesign): every 15 Runic
-// Power spent generates 1 Blood Charge stack (capped at 12 by the buff's own DB2 MaxStack).
-// Two independent reference sources both still carry Blood Tap's pre-7.0.3 mechanic verbatim (2
-// Blood Charges per damaging Death Coil/Frost Strike/Rune Strike hit) - confirmed via
-// Warcraft Wiki patch history this is stale/backward drift for Legion 7.3.5, not the
-// redesigned RP-accumulator version that was actually live for all of Legion (7.0.3 through
-// removal in 8.0.1). Same generic "any Runic-Power-costing spell" idiom as Runic
-// Empowerment/Corruption above.
-class spell_dk_blood_charge : public AuraScript
-{
-    int32 _rpAccumulated = 0;
-
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DK_BLOOD_CHARGE });
-    }
-
-    static bool CheckProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& procEvent)
-    {
-        Spell const* procSpell = procEvent.GetProcSpell();
-        return procSpell && procSpell->GetPowerTypeCostAmount(POWER_RUNIC_POWER) > 0;
-    }
-
-    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& procInfo)
-    {
-        _rpAccumulated += *procInfo.GetProcSpell()->GetPowerTypeCostAmount(POWER_RUNIC_POWER);
-        while (_rpAccumulated >= 15)
-        {
-            _rpAccumulated -= 15;
-            GetTarget()->CastSpell(GetTarget(), SPELL_DK_BLOOD_CHARGE, true);
-        }
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dk_blood_charge::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_dk_blood_charge::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
-
-// 45529 - Blood Tap: consumes 5 Blood Charges to instantly ready a random fully-depleted
-// rune. None of the four reference cores implement this spell's own cast handler at all -
-// only the (wrong-era) charge-generation side exists in any of them - so this is written
-// fresh against the confirmed Legion 7.0.3+ tooltip. ArgusCore's rune model has no rune-type/
-// "Death Rune" concept anywhere in the engine (confirmed by grepping the whole server tree),
-// so the historical "...as a Death Rune" tooltip wording is functionally identical here to
-// simply readying the rune - same GetRuneCooldown/SetRuneCooldown/ResyncRunes idiom already
-// used by spell_dk_runic_empowerment above.
-class spell_dk_blood_tap : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DK_BLOOD_CHARGE });
-    }
-
-    SpellCastResult CheckCast()
-    {
-        Player* caster = GetCaster()->ToPlayer();
-        if (!caster)
-            return SPELL_FAILED_DONT_REPORT;
-
-        Aura* bloodCharge = caster->GetAura(SPELL_DK_BLOOD_CHARGE);
-        if (!bloodCharge || bloodCharge->GetStackAmount() < 5)
-            return SPELL_FAILED_NO_CHARGES_REMAIN;
-
-        return SPELL_CAST_OK;
-    }
-
-    void HandleOnCast()
-    {
-        Player* caster = GetCaster()->ToPlayer();
-        if (!caster)
-            return;
-
-        Aura* bloodCharge = caster->GetAura(SPELL_DK_BLOOD_CHARGE);
-        if (!bloodCharge || bloodCharge->GetStackAmount() < 5)
-            return;
-
-        bloodCharge->ModStackAmount(-5);
-
-        std::vector<uint8> usedRunes;
-        for (uint8 i = 0; i < MAX_RUNES; ++i)
-            if (caster->GetRuneCooldown(i))
-                usedRunes.push_back(i);
-
-        if (usedRunes.empty())
-            return;
-
-        caster->SetRuneCooldown(Trinity::Containers::SelectRandomContainerElement(usedRunes), 0);
-        caster->ResyncRunes();
-    }
-
-    void Register() override
-    {
-        OnCheckCast += SpellCheckCastFn(spell_dk_blood_tap::CheckCast);
-        OnCast += SpellCastFn(spell_dk_blood_tap::HandleOnCast);
-    }
-};
+// Removed spell_dk_blood_charge/spell_dk_blood_tap: both bound ids (114851/45529) are confirmed
+// absent from this build under any id - no Spell record, no SpellEffect record, no local dump
+// entry. Blood Tap's presence for all of Legion (per Warcraft Wiki patch history) doesn't hold up
+// against this build's actual client data.
 
 // 205223 - Consumption (Artifact — heals caster for a percent of damage dealt)
 class spell_dk_consumption : public SpellScript
@@ -2885,15 +2682,12 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_obliterate);
     RegisterSpellScript(spell_dk_frozen_pulse);
     RegisterSpellScript(spell_dk_glacial_advance);
-    RegisterSpellScript(spell_dk_death_siphon);
     RegisterSpellScript(spell_dk_bonestorm);
     RegisterSpellScript(spell_dk_dark_succor);
     RegisterSpellScript(spell_dk_sudden_doom);
     RegisterSpellScript(spell_dk_army_transform);
     RegisterSpellScript(spell_dk_blood_boil);
-    RegisterSpellScript(spell_dk_blood_charge);
     RegisterSpellScript(spell_dk_blood_mirror);
-    RegisterSpellScript(spell_dk_blood_tap);
     RegisterSpellScript(spell_dk_bone_shield);
     RegisterSpellScript(spell_dk_change_duration);
     RegisterSpellScript(spell_dk_consumption);
@@ -2930,11 +2724,9 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_hook);
     RegisterSpellScript(spell_dk_howling_blast);
     RegisterSpellScript(spell_dk_icy_talons);
-    RegisterSpellScript(spell_dk_improved_death_strike);
     RegisterSpellScript(spell_dk_mark_of_blood);
     RegisterSpellScript(spell_dk_necrosis);
     RegisterSpellScript(spell_dk_necrotic_strike);
-    RegisterSpellScript(spell_dk_obliteration);
     RegisterSpellScript(spell_dk_permafrost);
     RegisterSpellScript(spell_dk_pet_geist_transform);
     RegisterSpellScript(spell_dk_pet_skeleton_transform);
@@ -2944,8 +2736,6 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_pvp_4p_bonus);
     RegisterSpellScript(spell_dk_raise_dead);
     RegisterSpellScript(spell_dk_rime);
-    RegisterSpellScript(spell_dk_runic_empowerment);
-    RegisterSpellScript(spell_dk_runic_corruption);
     // FIXME: real Soul Reaper (130736) EFFECT_1 is a plain DUMMY (not PERIODIC_DUMMY - no
     // periodic component at all) with EffectTriggerSpell 215711, and there's no EFFECT_2 (only
     // 2 effects total). Its own real tooltip in this build ("Bursting a Festering Wound on an
@@ -2959,5 +2749,5 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_tombstone);
     RegisterSpellScript(spell_dk_vampiric_blood);
     RegisterSpellScript(spell_dk_will_of_the_necropolis);
-
+    new playerScript_dk_runic_power_procs();
 }
