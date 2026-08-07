@@ -125,7 +125,11 @@ enum DemonHunterSpells
     SPELL_DH_ILLIDANS_GRASP                        = 205630,
     SPELL_DH_ILLIDANS_GRASP_DAMAGE                 = 208618,
     SPELL_DH_ILLIDANS_GRASP_JUMP_DEST              = 208175,
-    SPELL_DH_IMMOLATION_AURA                       = 258920,
+    // real id (258920 is confirmed absent from this build - no Spell record at all); 178740 is
+    // Havoc's, 219830 is Vengeance's, both structurally identical and both bound to this script.
+    // Cross-referenced independently via SPELL_DH_IMMOLATION_AURA_VISUAL's own tooltip
+    // ("$@spelldesc178740").
+    SPELL_DH_IMMOLATION_AURA                       = 178740,
     SPELL_DH_IMMOLATION_AURA_VISUAL                = 201122,
     SPELL_DH_INFERNAL_STRIKE_CAST                  = 189110,
     SPELL_DH_INFERNAL_STRIKE_IMPACT_DAMAGE         = 189112,
@@ -754,6 +758,9 @@ class spell_dh_razor_spikes : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_dh_razor_spikes::CheckProc);
+        // real 209400 EFFECT_0 is SPELL_AURA_ADD_FLAT_MODIFIER (the passive damage-increase half of
+        // the tooltip); HandleProc was defined but never wired up, so the snare (210003) never fired
+        OnEffectProc += AuraEffectProcFn(spell_dh_razor_spikes::HandleProc, EFFECT_0, SPELL_AURA_ADD_FLAT_MODIFIER);
     }
 };
 
@@ -1079,7 +1086,16 @@ class spell_dh_fel_rush_charge : public SpellScript
 
     void HandleDamage(SpellEffIndex /*effIndex*/) const
     {
-        GetCaster()->CastSpell(GetCaster(), SPELL_DH_FEL_RUSH_DMG, CastSpellExtraArgsInit{
+        // real Fel Rush Damage (192611) targets TARGET_DEST_DEST + TARGET_UNIT_LINE_CASTER_TO_DEST_ENEMY
+        // (a line from caster to the stored destination) - it needs an actual destination to search
+        // along, or its own implicit-target resolution finds zero enemies and nobody ever takes
+        // damage. 197922/197923 were themselves cast at an explicit Position (see
+        // spell_dh_fel_rush::HandleDash), so that same destination is still available here.
+        WorldLocation const* dest = GetExplTargetDest();
+        if (!dest)
+            return;
+
+        GetCaster()->CastSpell(*dest, SPELL_DH_FEL_RUSH_DMG, CastSpellExtraArgsInit{
             .TriggerFlags = TRIGGERED_FULL_MASK,
             .TriggeringSpell = GetSpell()
         });
@@ -1124,14 +1140,18 @@ class spell_dh_fel_rush_dash_AuraScript : public AuraScript
         caster->SetPlayHoverAnim(false);
     }
 
-    void CalcSpeed(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
-    {
-        amount = 1400;
-    }
+    // Previously overrode EFFECT_3 (SPELL_AURA_MOD_MINIMUM_SPEED) to a hardcoded 1400 - real
+    // 197923 already carries 650 natively on both EFFECT_1 (SPELL_AURA_MOD_SPEED_NO_CONTROL) and
+    // EFFECT_3 (SPELL_AURA_MOD_MINIMUM_SPEED), a matched pair (same shape Monk's Roll uses in
+    // spell_monk.cpp, just without needing Roll's own "Values need manual correction" fixup - this
+    // spell's real data needed no correction at all). The 1400 override was simply wrong, not a
+    // needed fix, and combined with MOD_SPEED_NO_CONTROL previously being unimplemented at the
+    // engine level (see AuraEffect::HandleAuraModSpeedNoControl / Unit::UpdateSpeed), nothing ever
+    // capped the resulting speed - player-driven input kept compounding on top while airborne.
+    // No script-side amount override needed now that both are read correctly by the engine.
 
     void Register() override
     {
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dh_fel_rush_dash_AuraScript::CalcSpeed, EFFECT_3, SPELL_AURA_MOD_MINIMUM_SPEED);
         AfterEffectRemove += AuraEffectRemoveFn(spell_dh_fel_rush_dash_AuraScript::AfterRemove, EFFECT_9, SPELL_AURA_MOD_MINIMUM_SPEED_RATE, AURA_EFFECT_HANDLE_SEND_FOR_CLIENT_MASK);
     }
 };
@@ -2578,7 +2598,9 @@ class spell_dh_soul_cleave : public SpellScript
     }
 };
 
-// 228477 - Soul Cleave (damage)
+// 228478 - Soul Cleave (damage, triggered by 228477's own EFFECT_1 SPELL_EFFECT_TRIGGER_SPELL -
+// confirmed correctly bound to 228478 in spell_script_names; this header previously mislabeled
+// it as 228477 itself, whose real EFFECT_1 is TRIGGER_SPELL, not WEAPON_PERCENT_DAMAGE)
 // Doubles the base weapon-percent damage, then scales the total by how much Pain is being spent
 // (0-300, floored at 50% since spending zero Pain still deals half as much again as the base
 // hit) - and is the one that actually spends the Pain, clearing Gluttony's buff in the process.
@@ -2722,13 +2744,6 @@ class spell_dh_metamorphosis : public SpellScript
 
 // 201453 - Metamorphosis (temporary immunity while leaping)
 // Havoc gets a brief immunity window during the leap animation; Vengeance doesn't.
-// NOTE: the reference also drives the landing-impact trigger (Havoc: cast 200166's stun/damage/
-// snare burst; Vengeance: proc Infernal Strike's landing damage, plus Sigil of Flame if Flame
-// Crash is talented) from this same spell's OnRemove, keyed off an EFFECT_1 aura type
-// (SPELL_AURA_ALLOW_ONLY_ABILITY) that doesn't exist anywhere in ArgusCore's engine. Left that
-// half unported rather than guess at a different effect index/aura type without real client
-// data to verify against - the leap, transform, and Demon Reborn interaction above are
-// unaffected, but no landing burst fires yet.
 class spell_dh_metamorphosis_immunity : public SpellScript
 {
     void PreventImmunity(SpellEffIndex effIndex)
@@ -2749,8 +2764,52 @@ class spell_dh_metamorphosis_immunity : public SpellScript
     }
 };
 
+// 201453 - Metamorphosis (landing trigger)
+// A previous pass claimed real 201453 EFFECT_1's aura type "doesn't exist anywhere in ArgusCore's
+// engine" and left the landing burst unported - that was wrong. Real EFFECT_1 is aura 263, which
+// is SPELL_AURA_DISABLE_CASTING_EXCEPT_ABILITIES in ArgusCore (the same restriction the reference
+// calls SPELL_AURA_ALLOW_ONLY_ABILITY under a different name - it's implemented, via
+// AuraEffect::HandleNoImmediateEffect / Spell::CheckCast, confirmed in SpellAuraEffects.cpp) and
+// it's only active for the leap's duration, so its removal is exactly "the leap animation ended,
+// caster has landed". Fires Havoc's impact burst (200166) there; Vengeance's own landing
+// interaction (proccing Infernal Strike's impact, plus Sigil of Flame if Flame Crash is talented)
+// isn't confirmed against real data here and is left unimplemented rather than guessed at.
+class spell_dh_metamorphosis_immunity_AuraScript : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DH_METAMORPHOSIS_IMPACT_DAMAGE, SPELL_DH_METAMORPHOSIS_VENGEANCE_TRANSFORM });
+    }
+
+    void HandleLanding(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (GetTargetApplication()->GetRemoveMode() == AURA_REMOVE_BY_DEATH)
+            return;
+
+        Unit* caster = GetTarget();
+        if (!caster || caster->HasAura(SPELL_DH_METAMORPHOSIS_VENGEANCE_TRANSFORM))
+            return;
+
+        caster->CastSpell(caster, SPELL_DH_METAMORPHOSIS_IMPACT_DAMAGE, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR
+        });
+    }
+
+    void Register() override
+    {
+        AfterEffectRemove += AuraEffectRemoveFn(spell_dh_metamorphosis_immunity_AuraScript::HandleLanding, EFFECT_1, SPELL_AURA_DISABLE_CASTING_EXCEPT_ABILITIES, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
 // 162264 - Metamorphosis (Havoc buffs)
 // Adds Leech while transformed, boosted further if Soul Rending is talented.
+// NOTE: real 162264 EFFECT_3 is SPELL_AURA_MOD_LEECH (443), confirmed matching this hook exactly -
+// but SPELL_AURA_MOD_LEECH is bound to AuraEffect::HandleNULL in ArgusCore's own
+// AuraEffectHandler[] array (SpellAuraEffects.cpp), i.e. genuinely unimplemented at the engine
+// level. CalcAmount here computes the correct bonus, but nothing currently applies it - the Leech
+// stat itself never changes. Left as-is rather than invent a lifesteal mechanism; needs a real
+// HandleModLeech engine implementation, out of scope for a script-level fix. Same gap affects
+// spell_dh_metamorphosis_buffs_veng below (EFFECT_2, same aura type).
 class spell_dh_metamorphosis_buffs : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -2932,7 +2991,7 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_flaming_soul);
     RegisterSpellScript(spell_dh_fueled_by_pain);
     RegisterSpellScript(spell_dh_metamorphosis);
-    RegisterSpellScript(spell_dh_metamorphosis_immunity);
+    RegisterSpellAndAuraScriptPair(spell_dh_metamorphosis_immunity, spell_dh_metamorphosis_immunity_AuraScript);
     RegisterSpellScript(spell_dh_metamorphosis_buffs);
     RegisterSpellScript(spell_dh_metamorphosis_buffs_veng);
     RegisterSpellScript(spell_dh_metamorphosis_impact);

@@ -8587,8 +8587,23 @@ void Unit::UpdateSpeed(UnitMoveType mtype)
 
             if (mtype == MOVE_RUN)
             {
+                // aura 373 SPELL_AURA_MOD_SPEED_NO_CONTROL: forced movement (charge/dash-style
+                // effects) meant to override player-directed speed entirely, not just floor it.
+                // Unlike aura 437 (SPELL_AURA_MOD_MINIMUM_SPEED_RATE), whose amount is an absolute
+                // yards/sec value (confirmed by the existing, already-working formula below), this
+                // aura's amount is a percentage - same idiom as SPELL_AURA_MOD_INCREASE_SPEED's
+                // AddPct usage a few lines up. Confirmed by sanity-checking real values against a
+                // known ability: Monk's Roll (107427/109131) carries 175/275 here across its two
+                // ranks - read as an absolute yards/sec value (÷ playerBaseMoveSpeed ≈ 7.0) that's
+                // a ~25-39x speed multiplier, absurd for a short dash; read as a percentage
+                // (1 + amount/100) it's a sane ~2.75-3.75x burst, consistent with how Roll actually
+                // plays. Checked first and, when present, skips the floor-only MOD_MINIMUM_SPEED_RATE
+                // logic below - without an override, player-driven acceleration stacking on top of a
+                // speed floor during effects like Fel Rush's airborne dash had nothing capping it.
+                if (int32 lockedSpeedMod = GetMaxPositiveAuraModifier(SPELL_AURA_MOD_SPEED_NO_CONTROL))
+                    speed = 1.0f + lockedSpeedMod / 100.0f;
                 // force minimum speed rate @ aura 437 SPELL_AURA_MOD_MINIMUM_SPEED_RATE
-                if (int32 minSpeedMod = GetMaxPositiveAuraModifier(SPELL_AURA_MOD_MINIMUM_SPEED_RATE))
+                else if (int32 minSpeedMod = GetMaxPositiveAuraModifier(SPELL_AURA_MOD_MINIMUM_SPEED_RATE))
                 {
                     float minSpeed = minSpeedMod / (IsControlledByPlayer() ? playerBaseMoveSpeed[mtype] : baseMoveSpeed[mtype]);
                     if (speed < minSpeed)
