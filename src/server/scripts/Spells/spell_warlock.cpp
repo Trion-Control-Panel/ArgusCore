@@ -60,7 +60,14 @@ enum WarlockSpells
     // wago.tools SpellEffect data - only 2 real effects (EFFECT_0 the damage-increase %,
     // EFFECT_1 the health-threshold %), matching drain_life's own EFFECT_0/EFFECT_1 usage
     SPELL_WARLOCK_DEATHS_EMBRACE                    = 234876,
-    SPELL_WARLOCK_DEMONBOLT_ENERGIZE                = 280127,
+    // FIXME: 62388 is confirmed absent from Spell.db2 under any id for this build. Used as a
+    // self-cast internal marker aura (range gate for Demonic Circle: Teleport) - both DestinyCore
+    // and AshamaneCore use SendFakeAuraUpdate (a client-only fake aura display) for this exact
+    // purpose instead of a real CastSpell, but that API doesn't exist anywhere in ArgusCore's
+    // engine. Needs either a genuine real spell id or a considered engine-level decision (e.g. a
+    // custom serverside marker, matching the precedent already used for Paladin's
+    // SPELL_PALADIN_IMMUNE_SHIELD_MARKER), not a guessed id swap. spell_warl_demonic_circle_summon
+    // stays unbound until this is resolved.
     SPELL_WARLOCK_DEMONIC_CIRCLE_ALLOW_CAST         = 62388,
     SPELL_WARLOCK_DEMONIC_CIRCLE_SUMMON             = 48018,
     SPELL_WARLOCK_DEMONBOLT                         = 157695,
@@ -121,6 +128,15 @@ enum WarlockSpells
     SPELL_WARLOCK_DEMONSKIN                         = 219272,
     SPELL_WARLOCK_SOUL_LEECH                        = 228974,
     SPELL_WARLOCK_SOUL_LEECH_ABSORB                 = 108366,
+    // FIXME: both 281490 (this constant) and 6353 (spell_warl_soul_fire's own binding target,
+    // its header comment) are confirmed absent from Spell.db2 under any id for this build. Four
+    // same-named "Soul Fire" candidates were found (131381, 138554, 150289, 166864), all with an
+    // identical single-effect SPELL_EFFECT_SCHOOL_DAMAGE structure and near-identical tooltip
+    // text - none could be confidently disambiguated as the real Legion 7.3.5 id (no era-specific
+    // NameSubtext, no reference-core corroboration found). Left unresolved rather than guessed
+    // at. This was a live bug: spell_warl_soul_fire was actively bound to 6353 in the DB (an
+    // earlier migration, 2025_05_30_04), so Soul Fire has been silently non-functional since -
+    // unbinding below since a wrong-but-bound id is no better than an unbound one.
     SPELL_WARLOCK_SOUL_FIRE_ENERGIZE                = 281490,
     // SPELL_WARLOCK_SOUL_SWAP_CD_MARKER (94229) turned out to be a vestigial dependency -
     // spell_warl_soul_swap checked it in Validate() but never actually used it, so it was dropped
@@ -754,28 +770,6 @@ class spell_warl_deaths_embrace_drain_life : public AuraScript
     void Register() override
     {
         DoEffectCalcDamageAndHealing += AuraEffectCalcHealingFn(spell_warl_deaths_embrace_drain_life::CalculateHeal, EFFECT_0, SPELL_AURA_PERIODIC_LEECH);
-    }
-};
-
-// 264178 - Demonbolt
-class spell_warl_demonbolt : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo ({ SPELL_WARLOCK_DEMONBOLT_ENERGIZE });
-    }
-
-    void HandleAfterCast() const
-    {
-        GetCaster()->CastSpell(GetCaster(), SPELL_WARLOCK_DEMONBOLT_ENERGIZE, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
-    }
-
-    void Register() override
-    {
-        AfterCast += SpellCastFn(spell_warl_demonbolt::HandleAfterCast);
     }
 };
 
@@ -2323,7 +2317,6 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_dark_pact);
     RegisterSpellScript(spell_warl_deaths_embrace_dots);
     RegisterSpellScript(spell_warl_deaths_embrace_drain_life);
-    RegisterSpellScript(spell_warl_demonbolt);
     RegisterSpellScript(spell_warl_demonic_circle_summon);
     RegisterSpellScript(spell_warl_demonic_circle_teleport);
     RegisterSpellScript(spell_warl_devour_magic);

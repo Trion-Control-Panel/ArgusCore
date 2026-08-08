@@ -43,7 +43,6 @@
 enum PaladinSpells
 {
     SPELL_PALADIN_ARDENT_DEFENDER_HEAL           = 66235,
-    SPELL_PALADIN_ART_OF_WAR_TRIGGERED           = 231843,
     SPELL_PALADIN_AURA_OF_SACRIFICE               = 183416,
     SPELL_PALADIN_AURA_OF_SACRIFICE_ALLY          = 210372,
     SPELL_PALADIN_AURA_OF_SACRIFICE_DAMAGE        = 210380,
@@ -82,7 +81,6 @@ enum PaladinSpells
     SPELL_PALADIN_FINAL_STAND                    = 204077,
     SPELL_PALADIN_FLASH_OF_LIGHT                 = 19750,
     SPELL_PALADIN_FINAL_STAND_EFFECT             = 204079,
-    SPELL_PALADIN_FINAL_VERDICT                  = 383329,
     SPELL_PALADIN_FIRST_AVENGER                  = 203776,
     SPELL_PALADIN_FORBEARANCE                    = 25771,
     SPELL_PALADIN_GREATER_BLESSING_OF_KINGS      = 203538,
@@ -123,7 +121,7 @@ enum PaladinSpells
     SPELL_PALADIN_LIGHT_HAMMER_HEALING           = 119952,
     SPELL_PALADIN_LIGHT_HAMMER_PERIODIC          = 114918,
     SPELL_PALADIN_RIGHTEOUS_DEFENSE_TAUNT        = 31790,
-    SPELL_PALADIN_RIGHTEOUS_VERDICT_AURA         = 267611,
+    SPELL_PALADIN_RIGHTEOUS_VERDICT_AURA         = 238996,
     SPELL_PALADIN_SEAL_OF_RIGHTEOUSNESS          = 25742,
     SPELL_PALADIN_SERAPHIM                       = 152262,
     SPELL_PALADIN_SHIELD_OF_THE_RIGHTEOUS        = 53600,
@@ -185,32 +183,6 @@ class spell_pal_ardent_defender : public AuraScript
     void Register() override
     {
         OnEffectAbsorb += AuraEffectAbsorbFn(spell_pal_ardent_defender::HandleAbsorb, EFFECT_0);
-    }
-};
-
-// 267344 - Art of War
-class spell_pal_art_of_war : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_PALADIN_ART_OF_WAR_TRIGGERED, SPELL_PALADIN_BLADE_OF_JUSTICE });
-    }
-
-    bool CheckProc(AuraEffect const* aurEff, ProcEventInfo& /*eventInfo*/)
-    {
-        return roll_chance_i(aurEff->GetAmount());
-    }
-
-    void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
-    {
-        GetTarget()->GetSpellHistory()->ResetCooldown(SPELL_PALADIN_BLADE_OF_JUSTICE, true);
-        GetTarget()->CastSpell(GetTarget(), SPELL_PALADIN_ART_OF_WAR_TRIGGERED, TRIGGERED_IGNORE_CAST_IN_PROGRESS);
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_art_of_war::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_pal_art_of_war::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -965,32 +937,6 @@ class spell_pal_eye_for_an_eye : public AuraScript
     }
 };
 
-// 383328 - Final Verdict
-class spell_pal_final_verdict : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_PALADIN_FINAL_VERDICT });
-    }
-
-    void HandleDummy(SpellEffIndex /*effIndex*/) const
-    {
-        if (!roll_chance_i(GetEffectValue()))
-            return;
-
-        Unit* caster = GetCaster();
-        caster->CastSpell(caster, SPELL_PALADIN_FINAL_VERDICT, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_pal_final_verdict::HandleDummy, EFFECT_1, SPELL_EFFECT_DUMMY);
-    }
-};
-
 // 234299 - Fist of Justice
 class spell_pal_fist_of_justice : public AuraScript
 {
@@ -1172,25 +1118,6 @@ class spell_pal_infusion_of_light : public AuraScript
 
         DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_infusion_of_light::CheckHolyLightProc, EFFECT_1, SPELL_AURA_DUMMY);
         OnEffectProc += AuraEffectProcFn(spell_pal_infusion_of_light::HandleProc, EFFECT_1, SPELL_AURA_DUMMY);
-    }
-};
-
-// 327193 - Moment of Glory
-class spell_pal_moment_of_glory : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_PALADIN_AVENGERS_SHIELD });
-    }
-
-    void HandleOnHit()
-    {
-        GetCaster()->GetSpellHistory()->ResetCooldown(SPELL_PALADIN_AVENGERS_SHIELD);
-    }
-
-    void Register() override
-    {
-        OnHit += SpellHitFn(spell_pal_moment_of_glory::HandleOnHit);
     }
 };
 
@@ -1861,7 +1788,7 @@ class spell_pal_righteous_protector : public AuraScript
     Optional<SpellPowerCost> _baseHolyPowerCost;
 };
 
-// 267610 - Righteous Verdict
+// 238062 - Righteous Verdict
 class spell_pal_righteous_verdict : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellEntry*/) override
@@ -2030,30 +1957,6 @@ class spell_pal_aura_of_sacrifice_ally : public AuraScript
     }
 };
 
-// 469304 - Steed of Liberty
-class spell_pal_steed_of_liberty : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_PALADIN_BLESSING_OF_FREEDOM });
-    }
-
-    void HandleProc(AuraEffect const* aurEff, ProcEventInfo const& /*eventInfo*/) const
-    {
-        Unit* target = GetTarget();
-        target->CastSpell(target, SPELL_PALADIN_BLESSING_OF_FREEDOM, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringAura = aurEff,
-            .SpellValueOverrides = { { SPELLVALUE_DURATION, aurEff->GetAmount() } }
-        });
-    }
-
-    void Register() override
-    {
-        OnEffectProc += AuraEffectProcFn(spell_pal_steed_of_liberty::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
-
 // 85256 - Templar's Verdict
 class spell_pal_templar_s_verdict : public SpellScript
 {
@@ -2214,7 +2117,6 @@ class spell_pal_zeal : public AuraScript
 void AddSC_paladin_spell_scripts()
 {
     RegisterSpellScript(spell_pal_ardent_defender);
-    RegisterSpellScript(spell_pal_art_of_war);
     RegisterSpellScript(spell_pal_avengers_shield);
     RegisterSpellScript(spell_pal_awakening);
     RegisterSpellScript(spell_pal_blessing_of_protection);
@@ -2243,14 +2145,12 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_divine_steed);
     RegisterSpellScript(spell_pal_divine_storm);
     RegisterSpellScript(spell_pal_eye_for_an_eye);
-    RegisterSpellScript(spell_pal_final_verdict);
     RegisterSpellScript(spell_pal_fist_of_justice);
     RegisterSpellScript(spell_pal_glyph_of_holy_light);
     RegisterSpellScript(spell_pal_grand_crusader);
     RegisterSpellScript(spell_pal_hammer_of_the_righteous);
     RegisterSpellScript(spell_pal_hand_of_sacrifice);
     RegisterSpellScript(spell_pal_infusion_of_light);
-    RegisterSpellScript(spell_pal_moment_of_glory);
     RegisterSpellScript(spell_pal_judgment);
     RegisterSpellScript(spell_pal_judgment_of_light);
     RegisterSpellScript(spell_pal_judgment_of_light_proc);
@@ -2280,7 +2180,6 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_shield_of_vengeance);
     RegisterSpellScript(spell_pal_aura_of_sacrifice);
     RegisterSpellScript(spell_pal_aura_of_sacrifice_ally);
-    RegisterSpellScript(spell_pal_steed_of_liberty);
     RegisterSpellScript(spell_pal_templar_s_verdict);
     RegisterSpellScript(spell_pal_word_of_glory);
     RegisterSpellScript(spell_pal_t3_6p_bonus);

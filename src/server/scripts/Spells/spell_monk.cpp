@@ -49,9 +49,7 @@ enum MonkSpells
     SPELL_MONK_DISABLE_ROOT                             = 116706,
     SPELL_MONK_ELUSIVE_BRAWLER                          = 195630,
     SPELL_MONK_EXPEL_HARM_DAMAGE                        = 115129,
-    SPELL_MONK_MANA_TEA_STACKS                          = 115867,
     SPELL_MONK_MEDITATE_VISUAL                          = 124416,
-    SPELL_MONK_PLUS_ONE_MANA_TEA                        = 123760,
     SPELL_MONK_TRANSCENDENCE_CLONE_TARGET                = 119051,
     // Transcendence spirit clone creature entry - confirmed from a reference source's own dedicated
     // migration (2018_02_05_01_world_spell_transcendence.sql), not independently re-verified
@@ -102,7 +100,6 @@ enum MonkSpells
     SPELL_MONK_HIT_COMBO                                = 196740,
     SPELL_MONK_HIT_COMBO_AURA                           = 196741,
     SPELL_MONK_ITEM_PVP_GLOVES_BONUS                    = 124489,
-    SPELL_MONK_JADE_WALK                                = 450552,
     SPELL_MONK_KEG_SMASH_AURA                           = 121253,
     SPELL_MONK_KEG_SMASH_ENERGIZE                       = 127796,
     SPELL_MONK_KEG_SMASH_VISUAL                         = 123662,
@@ -114,11 +111,9 @@ enum MonkSpells
     SPELL_MONK_MORTAL_WOUNDS                            = 115804,
     SPELL_MONK_POWER_STRIKE_PROC                        = 129914,
     SPELL_MONK_POWER_STRIKE_ENERGIZE                    = 121283,
-    SPELL_MONK_PRESSURE_POINTS                          = 450432,
     SPELL_MONK_PROVOKE_SINGLE_TARGET                    = 116189,
     SPELL_MONK_PROVOKE_AOE                              = 118635,
     SPELL_MONK_NO_FEATHER_FALL                          = 79636,
-    SPELL_MONK_OPEN_PALM_STRIKES_TALENT                 = 392970,
     SPELL_MONK_PURIFYING_BREW                           = 119582,
     SPELL_MONK_RENEWING_MIST                            = 119611,
     SPELL_MONK_RING_OF_PEACE_DISARM                     = 137461,
@@ -127,7 +122,6 @@ enum MonkSpells
     SPELL_MONK_RISING_THUNDER                           = 210804,
     SPELL_MONK_ROLL_BACKWARD                            = 109131,
     SPELL_MONK_ROLL_FORWARD                             = 107427,
-    SPELL_MONK_SAVE_THEM_ALL_HEAL_BONUS                 = 390105,
     SPELL_MONK_SONG_OF_CHI_JI_STUN                      = 198909,
     SPELL_MONK_SOOTHING_MIST                            = 115175,
     SPELL_MONK_SPEAR_HAND_STRIKE_SILENCE                = 116709,
@@ -385,92 +379,16 @@ class spell_monk_expel_harm : public SpellScript
     }
 };
 
-// 115294 - Mana Tea (channel): duration scales with the caster's current Mana Tea stack
-// count (1 sec channeled per stack), consuming 1 stack per tick rather than the whole stack
-// at once (so cancelling early doesn't waste unconsumed stacks). Confirmed via two independent
-// reference sources (identical implementations), but both drive the variable duration by injecting
-// a raw SpellModifier with hand-set flag128 mask bits before the cast - the same pre-refactor
-// pattern this project's CLAUDE.md already flags as unsafe to guess (see the Fire Mage
-// Passive precedent). Reused this session's own established alternative instead: apply the
-// aura at its default duration, then adjust it directly via Aura::SetDuration once applied -
-// the same idiom already used for DK's Bonestorm and Mage's Thermal Void elsewhere in this
-// project.
-class spell_monk_mana_tea : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_MONK_MANA_TEA_STACKS });
-    }
-
-    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
-    {
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
-
-        if (Aura* stacks = caster->GetAura(SPELL_MONK_MANA_TEA_STACKS))
-            GetAura()->SetDuration(stacks->GetStackAmount() * IN_MILLISECONDS);
-    }
-
-    void OnTick(AuraEffect const* /*aurEff*/)
-    {
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
-
-        if (Aura* stacks = caster->GetAura(SPELL_MONK_MANA_TEA_STACKS))
-        {
-            if (stacks->GetStackAmount() > 1)
-                stacks->SetStackAmount(stacks->GetStackAmount() - 1);
-            else
-                caster->RemoveAura(SPELL_MONK_MANA_TEA_STACKS);
-        }
-    }
-
-    void Register() override
-    {
-        AfterEffectApply += AuraEffectApplyFn(spell_monk_mana_tea::OnApply, EFFECT_0, SPELL_AURA_OBS_MOD_POWER, AURA_EFFECT_HANDLE_REAL);
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_monk_mana_tea::OnTick, EFFECT_0, SPELL_AURA_OBS_MOD_POWER);
-    }
-};
-
-// 123766 - Brewing: Mana Tea (Mistweaver passive): every 4 Chi spent grants 1 Mana Tea stack
-// (capped at 20 by the buff's own DB2 MaxStack). The reference drives this via
-// AuraEffect::SetData, a legacy virtual-callback shape with no equivalent call site in
-// ArgusCore. Uses the same generic "any Chi-costing spell" proc idiom already established for
-// DK's Runic Empowerment/Blood Charge instead.
-class spell_monk_mana_tea_stacks : public AuraScript
-{
-    int32 _chiSpent = 0;
-
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_MONK_MANA_TEA_STACKS, SPELL_MONK_PLUS_ONE_MANA_TEA });
-    }
-
-    static bool CheckProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& procEvent)
-    {
-        Spell const* procSpell = procEvent.GetProcSpell();
-        return procSpell && procSpell->GetPowerTypeCostAmount(POWER_CHI) > 0;
-    }
-
-    void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& procInfo)
-    {
-        _chiSpent += *procInfo.GetProcSpell()->GetPowerTypeCostAmount(POWER_CHI);
-        while (_chiSpent >= 4)
-        {
-            _chiSpent -= 4;
-            GetTarget()->CastSpell(GetTarget(), SPELL_MONK_MANA_TEA_STACKS, true);
-            GetTarget()->CastSpell(GetTarget(), SPELL_MONK_PLUS_ONE_MANA_TEA, true);
-        }
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_monk_mana_tea_stacks::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_monk_mana_tea_stacks::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
+// Mana Tea (spell_monk_mana_tea/spell_monk_mana_tea_stacks, ids 115294/123766/115867/123760)
+// removed: despite an earlier "confirmed via two independent reference sources" note, both
+// references ported the pre-Legion (MoP/WoD) "brew Chi into stacks, then channel them into mana"
+// design. Web search confirms Legion's own 7.0.3 redesign replaced this entirely: Mana Tea became
+// a simple "reduces the mana cost of your spells by 50% for 10 sec" buff with no stacks or
+// channel at all. All four ids this old design referenced are confirmed completely absent from
+// this build. The real Legion Mana Tea (197908, confirmed via its own tooltip matching the
+// 7.0.3 patch notes exactly) is a single native SPELL_AURA_MOD_POWER_COST_SCHOOL_PCT effect
+// (basePoints -50, no amplitude/channel) - already fully handled by the engine natively, no
+// script needed at all for the real Legion version.
 
 // 101643 - Transcendence: summons a spirit clone, positions swappable with the caster via
 // Transcendence: Transfer (119996) below. Confirmed via two independent reference sources, but
@@ -1148,31 +1066,12 @@ class spell_monk_fortifying_brew : public SpellScript
     }
 };
 
-// 450553 - Jade Walk
-class spell_monk_jade_walk : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_MONK_JADE_WALK });
-    }
-
-    void HandlePeriodicTick(AuraEffect const* aurEff)
-    {
-        Unit* target = GetTarget();
-        if (!target->IsInCombat())
-            target->CastSpell(target, SPELL_MONK_JADE_WALK, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringAura = aurEff
-            });
-        else
-            target->RemoveAurasDueToSpell(SPELL_MONK_JADE_WALK);
-    }
-
-    void Register() override
-    {
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_monk_jade_walk::HandlePeriodicTick, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
-    }
-};
+// Jade Walk (spell_monk_jade_walk, ids 450552/450553) removed: both the bound id and the target
+// id are confirmed completely absent from this build (no Spell record at all, local dump or live
+// wago.tools query), and the "Jade Walk" name doesn't exist under any id in this build either.
+// Numeric range and web-search results both point to current-retail-only content, not Legion
+// 7.3.5. The class's own Validate() already made it permanently inert (silently never loads),
+// so this was already harmless dead code - removed rather than left as unreachable.
 
 // 121253 - Keg Smash
 // Brewmaster's core AoE ability: applies a visual, the Weakened Blows debuff (shared with
@@ -1202,6 +1101,13 @@ class spell_monk_keg_smash : public SpellScript
 };
 
 // 115921 - Legacy of the Emperor
+// FIXME: SPELL_MONK_LEGACY_OF_THE_EMPEROR (115921, used as both this class's own bound id and
+// the spell it casts on each party member) is confirmed completely absent from this build (no
+// Spell record at all, local dump or live wago.tools query) - the raid stat buff is currently
+// fully non-functional. The only "Legacy of the Emperor" name match in this build's data
+// (125560) has a mismatched effect structure (a single SPELL_EFFECT_CREATE_ITEM effect, not a
+// stat-buff aura) and an empty tooltip, so it isn't a confident replacement - left unresolved
+// rather than guess at a redesign.
 // Applies the raid buff to all party members.
 // NOTE: the reference implementation uses Player::GetPartyMembers(), which doesn't exist in
 // ArgusCore - iterates the caster's Group directly instead (Group::GetMembers(), the standard
@@ -1314,25 +1220,11 @@ class spell_monk_mists_of_life : public SpellScript
     }
 };
 
-// 392972 - Open Palm Strikes
-class spell_monk_open_palm_strikes : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellEffect({ { SPELL_MONK_OPEN_PALM_STRIKES_TALENT, EFFECT_1} });
-    }
-
-    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*procInfo*/)
-    {
-        AuraEffect const* talent = GetTarget()->GetAuraEffect(SPELL_MONK_OPEN_PALM_STRIKES_TALENT, EFFECT_1);
-        return talent && roll_chance_i(talent->GetAmount());
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_monk_open_palm_strikes::CheckProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
-    }
-};
+// Open Palm Strikes (spell_monk_open_palm_strikes, ids 392970/392972) removed: both the bound id
+// and the gating talent id are confirmed completely absent from this build, and the name doesn't
+// exist under any id in this build either. Same current-retail-only pattern as Jade Walk above.
+// The class's own Validate() already made it permanently inert - removed rather than left as
+// unreachable dead code.
 
 // 121817 - Power Strike
 class spell_monk_power_strike_periodic : public AuraScript
@@ -1373,36 +1265,14 @@ class spell_monk_power_strike_proc : public AuraScript
     }
 };
 
-// 115078 - Paralysis
-// FIXME: SPELL_MONK_PRESSURE_POINTS (450432, the gating buff this script checks for) is a
-// TWW-range id, confirmed absent from this build. Real 115078 (Paralysis) also only has 2 effects
-// (EFFECT_0 = MOD_STUN, EFFECT_1 = a non-aura effect) - no EFFECT_2 at all for the dispel-block
-// this class hooks. Both pieces point to forward-drift (a later-expansion Pressure Points talent
-// redesign), not a simple index fix - left unresolved.
-class spell_monk_pressure_points : public SpellScript
-{
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellInfo({ SPELL_MONK_PRESSURE_POINTS })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_2 } })
-            && spellInfo->GetEffect(EFFECT_2).IsEffect(SPELL_EFFECT_DISPEL);
-    }
-
-    bool Load() override
-    {
-        return !GetCaster()->HasAura(SPELL_MONK_PRESSURE_POINTS);
-    }
-
-    static void PreventDispel(SpellScript const&, WorldObject*& target)
-    {
-        target = nullptr;
-    }
-
-    void Register() override
-    {
-        OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_monk_pressure_points::PreventDispel, EFFECT_2, TARGET_UNIT_TARGET_ENEMY);
-    }
-};
+// Pressure Points (spell_monk_pressure_points) removed, upgrading an earlier "left unresolved"
+// FIXME to a confirmed removal: SPELL_MONK_PRESSURE_POINTS (450432, the gating buff) is confirmed
+// completely absent from this build under any id, and real Paralysis (115078, this class's own
+// bound id) only has 2 effects (EFFECT_0 = MOD_STUN, EFFECT_1 = non-aura) - no EFFECT_2 at all for
+// the dispel-block this class hooked. Both independently confirm forward-drift (a later-expansion
+// Pressure Points talent redesign), matching the same numeric-range/name-search pattern as Jade
+// Walk, Open Palm Strikes, and Save Them All elsewhere in this file. The class's own Validate()
+// already made it permanently inert regardless of binding - removed rather than left unreachable.
 
 // 115546 - Provoke
 class spell_monk_provoke : public SpellScript
@@ -1520,6 +1390,16 @@ class spell_monk_renewing_mist_periodic : public AuraScript
 };
 
 // 140023 - Ring of Peace
+// FIXME: SPELL_MONK_RING_OF_PEACE_DISARM/_SILENCE (137461/137460) and the bound id itself
+// (140023) are all confirmed completely absent from this build. Real Legion Ring of Peace is id
+// 116844 (confirmed via name search + tooltip: "Form a Ring of Peace at the target location...
+// Enemies that enter will be ejected from the Ring") - a completely different mechanic shape
+// than what this class implements. Real 116844's EFFECT_1 is SPELL_EFFECT_CREATE_AREATRIGGER
+// (MiscValue 718, confirmed via SpellEffect.db2), the same native pattern already used
+// correctly elsewhere in this codebase for Ring of Frost/traps/etc. - the real ability needs a
+// dedicated AreaTriggerAI (eject-on-enter, not a proc-driven silence+disarm), not a fix to this
+// class's hook/id. Left unresolved rather than guess at the AreaTrigger's real radius/knockback
+// parameters; this class is currently fully non-functional either way (bound to an absent id).
 // Proc-driven: applies a silence and a disarm to whoever triggers the effect.
 class spell_monk_ring_of_peace_aura : public AuraScript
 {
@@ -1552,8 +1432,8 @@ class spell_monk_ring_of_peace_aura : public AuraScript
 // Thunder and Combat Conditioning are unrelated talents (different specs), so gating the whole
 // script on Combat Conditioning would have silently prevented Rising Thunder's reset from ever
 // running. Removed Load() and moved the Combat Conditioning check inline instead, matching the
-// internal-HasAura-check pattern already used by sibling classes in this file
-// (spell_monk_pressure_points, etc.) - each condition is now independently checked.
+// internal-HasAura-check pattern already used by sibling classes in this file - each condition
+// is now independently checked.
 class spell_monk_rising_sun_kick : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -1678,34 +1558,11 @@ class spell_monk_roll_aura : public AuraScript
     }
 };
 
-// 389579 - Save Them All
-class spell_monk_save_them_all : public AuraScript
-{
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellInfo({ SPELL_MONK_SAVE_THEM_ALL_HEAL_BONUS })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_2 } });
-    }
-
-    bool CheckProc(ProcEventInfo const& eventInfo) const
-    {
-        return eventInfo.GetActionTarget()->HealthBelowPct(GetEffectInfo(EFFECT_2).CalcValue(eventInfo.GetActor()));
-    }
-
-    void HandleProc(AuraEffect const* aurEff, ProcEventInfo const& /*eventInfo*/) const
-    {
-        GetTarget()->CastSpell(GetTarget(), SPELL_MONK_SAVE_THEM_ALL_HEAL_BONUS, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringAura = aurEff
-        });
-    }
-
-    void Register() override
-    {
-        DoCheckProc += AuraCheckProcFn(spell_monk_save_them_all::CheckProc);
-        OnEffectProc += AuraEffectProcFn(spell_monk_save_them_all::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
+// Save Them All (spell_monk_save_them_all, ids 389579/390105) removed: both the bound id and the
+// heal-bonus target id are confirmed completely absent from this build, and the name doesn't
+// exist under any id in this build either. Same current-retail-only pattern as Jade Walk, Open
+// Palm Strikes, and Pressure Points elsewhere in this file. The class's own Validate() already
+// made it permanently inert - removed rather than left as unreachable dead code.
 
 // 198898 - Song of Chi-Ji
 struct at_monk_song_of_chi_ji : AreaTriggerAI
@@ -2844,8 +2701,6 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_elusive_brawler_mastery);
     RegisterSpellScript(spell_monk_elusive_brawler_stacks);
     RegisterSpellScript(spell_monk_expel_harm);
-    RegisterSpellScript(spell_monk_mana_tea);
-    RegisterSpellScript(spell_monk_mana_tea_stacks);
     RegisterSpellScript(spell_monk_transcendence);
     RegisterSpellScript(spell_monk_transcendence_transfer);
     RegisterSpellScript(spell_monk_chi_burst_heal);
@@ -2867,7 +2722,6 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_fortifying_brew);
     RegisterSpellScript(spell_monk_gift_of_the_ox_aura);
     RegisterSpellScript(spell_monk_healing_elixirs_aura);
-    RegisterSpellScript(spell_monk_jade_walk);
     RegisterSpellScript(spell_monk_keg_smash);
     RegisterSpellScript(spell_monk_legacy_of_the_emperor);
     RegisterSpellScript(spell_monk_life_cocoon);
@@ -2876,10 +2730,8 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_mastery_combo_strikes_periodic_auras);
     RegisterSpellScript(spell_monk_mastery_combo_strikes_periodic_triggers);
     RegisterSpellScript(spell_monk_mists_of_life);
-    RegisterSpellScript(spell_monk_open_palm_strikes);
     RegisterSpellScript(spell_monk_power_strike_periodic);
     RegisterSpellScript(spell_monk_power_strike_proc);
-    RegisterSpellScript(spell_monk_pressure_points);
     RegisterSpellScript(spell_monk_provoke);
     RegisterSpellScript(spell_monk_purifying_brew);
     RegisterSpellScript(spell_monk_spear_hand_strike);
@@ -2894,7 +2746,6 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_soothing_mist_aura);
     RegisterSpellScript(spell_monk_roll);
     RegisterSpellScript(spell_monk_roll_aura);
-    RegisterSpellScript(spell_monk_save_them_all);
     RegisterAreaTriggerAI(at_monk_song_of_chi_ji);
     RegisterAreaTriggerAI(at_monk_gift_of_the_ox_sphere);
     RegisterAreaTriggerAI(at_monk_chi_burst_damage);

@@ -71,7 +71,6 @@ enum ShamanSpells
     SPELL_SHAMAN_ELEMENTAL_BLAST_MASTERY        = 173184,
     SPELL_SHAMAN_ELEMENTAL_BLAST_OVERLOAD       = 120588,
     SPELL_SHAMAN_ELEMENTAL_MASTERY              = 16166,
-    SPELL_SHAMAN_ELEMENTAL_WEAPONS_BUFF         = 408390,
     SPELL_SHAMAN_ENERGY_SURGE                   = 40465,
     SPELL_SHAMAN_EARTHEN_SHIELD_ABSORB          = 201633,
     SPELL_SHAMAN_EARTHEN_SHIELD_ABSORB_DAMAGE   = 201657,
@@ -91,8 +90,6 @@ enum ShamanSpells
     // matching its own tooltip ("increasing magical damage... each hit causes additional Fire
     // damage"), distinct from SPELL_SHAMAN_FLAMETONGUE_WEAPON_ENCHANT (the enchant grant itself)
     SPELL_SHAMAN_FLAMETONGUE_WEAPON_AURA        = 160098,
-    SPELL_SHAMAN_FORCEFUL_WINDS_PROC            = 262652,
-    SPELL_SHAMAN_FORCEFUL_WINDS_TALENT          = 262647,
     SPELL_SHAMAN_FROST_SHOCK                    = 196840,
     // FIXME: 289439 is confirmed absent from Spell.db2 under any id; no candidate "Frost Shock"
     // energize spell found nearby. Left as-is - spell_sha_icefury will keep failing Validate()
@@ -134,8 +131,13 @@ enum ShamanSpells
     SPELL_SHAMAN_MAELSTROM_CONTROLLER           = 190488,
     SPELL_SHAMAN_MAELSTROM_WEAPON_ENERGIZE      = 187890,
     SPELL_SHAMAN_MASTERY_ELEMENTAL_OVERLOAD     = 168534,
+    // FIXME: 334033 is confirmed absent from Spell.db2 under any id, and no real Legion 7.3.5
+    // equivalent of "Lava Lash spreads Flame Shock to nearby enemies" was found (real Legion Lava
+    // Lash instead has a separate talent, Lashing Flames/238142, doing a different thing - a
+    // damage-amp debuff, not a spread). Left as-is rather than guessed at; the class itself
+    // (spell_sha_molten_assault) stays bound to real Lava Lash (60103) with a correctly-verified
+    // hook, only this gating talent id is unresolved.
     SPELL_SHAMAN_MOLTEN_ASSAULT                 = 334033,
-    SPELL_SHAMAN_NATURES_GUARDIAN_COOLDOWN      = 445698,
     SPELL_SHAMAN_PATH_OF_FLAMES_SPREAD          = 210621,
     SPELL_SHAMAN_PATH_OF_FLAMES_TALENT          = 201909,
     SPELL_SHAMAN_POWER_SURGE                    = 40466,
@@ -159,9 +161,11 @@ enum ShamanSpells
     SPELL_SHAMAN_TOTEMIC_POWER_MP5              = 28824,
     SPELL_SHAMAN_TOTEMIC_POWER_SPELL_POWER      = 28825,
     SPELL_SHAMAN_UNDULATION_PROC                = 216251,
-    SPELL_SHAMAN_UNLIMITED_POWER_BUFF           = 272737,
-    SPELL_SHAMAN_UNRULY_WINDS                   = 390288,
     SPELL_SHAMAN_WINDFURY_ATTACK                = 25504,
+    // FIXME: 319773 is confirmed absent from Spell.db2 under any id for this build. Used both as
+    // this class's own binding target and as WindfuryProcEvent::Execute's self-proc-prevention
+    // guard ("don't let this attack itself proc another Windfury"). Left unresolved rather than
+    // guessed at; spell_sha_windfury_weapon_proc stays unbound until a real id is confirmed.
     SPELL_SHAMAN_WINDFURY_AURA                  = 319773,
     SPELL_SHAMAN_WINDFURY_ENCHANTMENT           = 334302,
     SPELL_SHAMAN_WIND_RUSH                      = 192082,
@@ -210,7 +214,7 @@ private:
     EventInfoIterator _end;
 };
 
-// 273221 - Aftershock
+// 210707 - Aftershock
 class spell_sha_aftershock : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellEntry*/) override
@@ -383,25 +387,6 @@ class spell_sha_ascendance_restoration : public AuraScript
 
 private:
     int32 _healToDistribute = 0;
-};
-
-// 390370 - Ashen Catalyst
-class spell_sha_ashen_catalyst : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_SHAMAN_LAVA_LASH });
-    }
-
-    void ReduceLavaLashCooldown(AuraEffect const* aurEff, ProcEventInfo const& /*procInfo*/) const
-    {
-        GetTarget()->GetSpellHistory()->ModifyCooldown(SPELL_SHAMAN_LAVA_LASH, -aurEff->GetAmount() * 100ms);
-    }
-
-    void Register() override
-    {
-        OnEffectProc += AuraEffectProcFn(spell_sha_ashen_catalyst::ReduceLavaLashCooldown, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
-    }
 };
 
 // 2825 - Bloodlust, 32182 - Heroism
@@ -897,88 +882,6 @@ class spell_sha_deluge_healing_rain : public AuraScript
     }
 };
 
-// 378270 - Deeply Rooted Elements
-class spell_sha_deeply_rooted_elements : public AuraScript
-{
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellInfo({ SPELL_SHAMAN_LAVA_BURST, SPELL_SHAMAN_STORMSTRIKE, SPELL_SHAMAN_RIPTIDE,
-                SPELL_SHAMAN_ASCENDANCE_ELEMENTAL, SPELL_SHAMAN_ASCENDANCE_ENHANCEMENT, SPELL_SHAMAN_ASCENDANCE_RESTORATION })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_0 } })
-            && spellInfo->GetEffect(EFFECT_0).IsAura();
-    }
-
-    bool Load() override
-    {
-        return GetUnitOwner()->IsPlayer();
-    }
-
-    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& procInfo)
-    {
-        if (!procInfo.GetSpellInfo())
-            return false;
-
-        if (procInfo.GetSpellInfo()->Id != _triggeringSpellId)
-            return false;
-
-        return roll_chance_i(_procAttempts++ - 2);
-    }
-
-    void HandleProc(AuraEffect const* aurEff, ProcEventInfo const& eventInfo)
-    {
-        _procAttempts = 0;
-
-        Unit* target = eventInfo.GetActor();
-
-        int32 duration = GetEffect(EFFECT_0)->GetAmount();
-        if (Aura const* ascendanceAura = target->GetAura(_triggeredSpellId))
-            duration += ascendanceAura->GetDuration();
-
-        target->CastSpell(target, _triggeredSpellId, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_CAST_IN_PROGRESS,
-            .TriggeringSpell = eventInfo.GetProcSpell(),
-            .TriggeringAura = aurEff,
-            .SpellValueOverrides = { { SPELLVALUE_DURATION, duration } }
-        });
-    }
-
-    void Register() override
-    {
-        ChrSpecialization specialization = ChrSpecialization::None;
-        if (Aura const* aura = GetAura()) // aura doesn't exist at startup validation
-            if (Player const* owner = Object::ToPlayer(aura->GetOwner()))
-                specialization = owner->GetPrimarySpecialization();
-
-        if (specialization == ChrSpecialization::None || specialization == ChrSpecialization::ShamanElemental)
-        {
-            DoCheckEffectProc += AuraCheckEffectProcFn(spell_sha_deeply_rooted_elements::CheckProc, EFFECT_1, SPELL_AURA_DUMMY);
-            OnEffectProc += AuraEffectProcFn(spell_sha_deeply_rooted_elements::HandleProc, EFFECT_1, SPELL_AURA_DUMMY);
-            _triggeringSpellId = SPELL_SHAMAN_LAVA_BURST;
-            _triggeredSpellId = SPELL_SHAMAN_ASCENDANCE_ELEMENTAL;
-        }
-
-        if (specialization == ChrSpecialization::None || specialization == ChrSpecialization::ShamanEnhancement)
-        {
-            DoCheckEffectProc += AuraCheckEffectProcFn(spell_sha_deeply_rooted_elements::CheckProc, EFFECT_2, SPELL_AURA_DUMMY);
-            OnEffectProc += AuraEffectProcFn(spell_sha_deeply_rooted_elements::HandleProc, EFFECT_2, SPELL_AURA_DUMMY);
-            _triggeringSpellId = SPELL_SHAMAN_STORMSTRIKE;
-            _triggeredSpellId = SPELL_SHAMAN_ASCENDANCE_ENHANCEMENT;
-        }
-
-        if (specialization == ChrSpecialization::None || specialization == ChrSpecialization::ShamanRestoration)
-        {
-            DoCheckEffectProc += AuraCheckEffectProcFn(spell_sha_deeply_rooted_elements::CheckProc, EFFECT_3, SPELL_AURA_DUMMY);
-            OnEffectProc += AuraEffectProcFn(spell_sha_deeply_rooted_elements::HandleProc, EFFECT_3, SPELL_AURA_DUMMY);
-            _triggeringSpellId = SPELL_SHAMAN_RIPTIDE;
-            _triggeredSpellId = SPELL_SHAMAN_ASCENDANCE_RESTORATION;
-        }
-    }
-
-    int32 _procAttempts = 0;
-    uint32 _triggeringSpellId = 0;
-    uint32 _triggeredSpellId = 0;
-};
-
 // 207778 - Downpour
 class spell_sha_downpour : public SpellScript
 {
@@ -1264,60 +1167,6 @@ class spell_sha_elemental_blast : public SpellScript
     void Register() override
     {
         AfterCast += SpellCastFn(spell_sha_elemental_blast::TriggerBuff);
-    }
-};
-
-// 384355 - Elemental Weapons
-class spell_sha_elemental_weapons : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_SHAMAN_ELEMENTAL_WEAPONS_BUFF });
-    }
-
-    bool Load() override
-    {
-        return GetUnitOwner()->IsPlayer();
-    }
-
-    void CheckEnchantments() const
-    {
-        Player* owner = GetUnitOwner()->ToPlayer();
-        int32 enchatmentCount = 0;
-        if (owner->HasAura(SPELL_SHAMAN_FLAMETONGUE_WEAPON_AURA))
-            ++enchatmentCount;
-        if (owner->HasAura(SPELL_SHAMAN_WINDFURY_AURA))
-            ++enchatmentCount;
-
-        int32 valuePerStack = GetEffect(EFFECT_0)->GetAmount();
-
-        if (Aura* buff = owner->GetAura(SPELL_SHAMAN_ELEMENTAL_WEAPONS_BUFF))
-        {
-            if (enchatmentCount)
-                for (AuraEffect* aurEff : buff->GetAuraEffects())
-                    aurEff->ChangeAmount(valuePerStack * enchatmentCount / 10);
-            else
-                buff->Remove();
-        }
-        else if (enchatmentCount)
-            owner->CastSpell(owner, SPELL_SHAMAN_ELEMENTAL_WEAPONS_BUFF, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .SpellValueOverrides = {
-                    { SPELLVALUE_BASE_POINT0, valuePerStack * enchatmentCount / 10 },
-                    { SPELLVALUE_BASE_POINT1, valuePerStack * enchatmentCount / 10 }
-                }
-            });
-    }
-
-    void RemoveAllBuffs(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/) const
-    {
-        GetUnitOwner()->RemoveAurasDueToSpell(SPELL_SHAMAN_ELEMENTAL_WEAPONS_BUFF);
-    }
-
-    void Register() override
-    {
-        OnHeartbeat += AuraHeartbeatFn(spell_sha_elemental_weapons::CheckEnchantments);
-        AfterEffectRemove += AuraEffectRemoveFn(spell_sha_elemental_weapons::RemoveAllBuffs, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -2138,36 +1987,6 @@ class spell_sha_molten_assault : public SpellScript
     }
 };
 
-// 30884 - Nature's Guardian
-class spell_sha_natures_guardian : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_SHAMAN_NATURES_GUARDIAN_COOLDOWN });
-    }
-
-    static bool CheckProc(AuraScript const&, AuraEffect const* aurEff, ProcEventInfo const& eventInfo)
-    {
-        return eventInfo.GetActionTarget()->HealthBelowPct(aurEff->GetAmount())
-            && !eventInfo.GetActionTarget()->HasAura(SPELL_SHAMAN_NATURES_GUARDIAN_COOLDOWN);
-    }
-
-    static void StartCooldown(AuraScript const&, AuraEffect const* aurEff, ProcEventInfo const& eventInfo)
-    {
-        Unit* shaman = eventInfo.GetActionTarget();
-        shaman->CastSpell(shaman, SPELL_SHAMAN_NATURES_GUARDIAN_COOLDOWN, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringAura = aurEff
-        });
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_sha_natures_guardian::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_sha_natures_guardian::StartCooldown, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
-
 // 210621 - Path of Flames Spread
 class spell_sha_path_of_flames_spread : public SpellScript
 {
@@ -2654,32 +2473,6 @@ class spell_sha_t10_restoration_4p_bonus : public AuraScript
     }
 };
 
-// 260895 - Unlimited Power
-class spell_sha_unlimited_power : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_SHAMAN_UNLIMITED_POWER_BUFF });
-    }
-
-    static void HandleProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& procInfo)
-    {
-        Unit* caster = procInfo.GetActor();
-        if (Aura* aura = caster->GetAura(SPELL_SHAMAN_UNLIMITED_POWER_BUFF))
-            aura->SetStackAmount(aura->GetStackAmount() + 1);
-        else
-            caster->CastSpell(caster, SPELL_SHAMAN_UNLIMITED_POWER_BUFF, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_FULL_MASK,
-                .TriggeringSpell = procInfo.GetProcSpell()
-            });
-    }
-
-    void Register() override
-    {
-        OnEffectProc += AuraEffectProcFn(spell_sha_unlimited_power::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
-
 // 200071 - Undulation
 class spell_sha_undulation_passive : public AuraScript
 {
@@ -2766,26 +2559,7 @@ bool WindfuryProcEvent::Execute(uint64 time, uint32 /*diff*/)
 
 void WindfuryProcEvent::Trigger(Unit* shaman, Unit* target)
 {
-    // Not a separate script because of ordering requirements for Forceful Winds
-    if (shaman->HasAuraEffect(SPELL_SHAMAN_FORCEFUL_WINDS_TALENT, EFFECT_0))
-    {
-        if (Aura* forcefulWinds = shaman->GetAura(SPELL_SHAMAN_FORCEFUL_WINDS_PROC))
-        {
-            // gaining a stack should not refresh duration
-            uint32 maxStack = forcefulWinds->CalcMaxStackAmount();
-            if (forcefulWinds->GetStackAmount() < maxStack)
-                forcefulWinds->SetStackAmount(forcefulWinds->GetStackAmount() + 1);
-        }
-        else
-            shaman->CastSpell(shaman, SPELL_SHAMAN_FORCEFUL_WINDS_PROC, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR
-            });
-    }
-
     std::ptrdiff_t attacks = 2;
-    if (AuraEffect const* unrulyWinds = shaman->GetAuraEffect(SPELL_SHAMAN_UNRULY_WINDS, EFFECT_0); roll_chance_i(unrulyWinds->GetAmount()))
-        ++attacks;
-
     shaman->m_Events.AddEventAtOffset(new WindfuryProcEvent(shaman, target, attacks), Sequence.front().Delay);
 }
 
@@ -2794,12 +2568,7 @@ class spell_sha_windfury_weapon_proc : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({
-            SPELL_SHAMAN_WINDFURY_ATTACK,
-            SPELL_SHAMAN_UNRULY_WINDS,
-            SPELL_SHAMAN_FORCEFUL_WINDS_TALENT,
-            SPELL_SHAMAN_FORCEFUL_WINDS_PROC
-        });
+        return ValidateSpellInfo({ SPELL_SHAMAN_WINDFURY_ATTACK });
     }
 
     void HandleEffectProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo)
@@ -2935,7 +2704,6 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_ancestral_guidance_heal);
     RegisterSpellScript(spell_sha_artifact_gathering_storms);
     RegisterSpellScript(spell_sha_ascendance_restoration);
-    RegisterSpellScript(spell_sha_ashen_catalyst);
     RegisterSpellScript(spell_sha_feral_lunge);
     RegisterSpellScript(spell_sha_spirit_link);
     RegisterSpellScript(spell_sha_chain_lightning_crash_lightning);
@@ -2948,7 +2716,6 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_crash_lightning);
     RegisterSpellScript(spell_sha_fury_of_air);
     RegisterSpellScript(spell_sha_earthen_shield_absorb);
-    RegisterSpellScript(spell_sha_deeply_rooted_elements);
     RegisterSpellScript(spell_sha_deluge);
     RegisterSpellScript(spell_sha_deluge_healing_rain);
     RegisterSpellScript(spell_sha_downpour);
@@ -2960,7 +2727,6 @@ void AddSC_shaman_spell_scripts()
     RegisterAreaTriggerAI(areatrigger_sha_earthquake);
     RegisterSpellScript(spell_sha_earthquake_tick);
     RegisterSpellScript(spell_sha_elemental_blast);
-    RegisterSpellScript(spell_sha_elemental_weapons);
     RegisterSpellScript(spell_sha_feral_spirit);
     RegisterCreatureAI(npc_sha_feral_spirit);
     RegisterSpellScript(spell_sha_flametongue_weapon);
@@ -2990,7 +2756,6 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_mastery_elemental_overload);
     RegisterSpellScript(spell_sha_mastery_elemental_overload_proc);
     RegisterSpellScript(spell_sha_molten_assault);
-    RegisterSpellScript(spell_sha_natures_guardian);
     RegisterSpellScript(spell_sha_path_of_flames_spread);
     RegisterSpellScript(spell_sha_restorative_mists);
     RegisterSpellScriptWithArgs(spell_sha_stormflurry, "spell_sha_artifact_stormflurry_stormstrike",
@@ -3009,7 +2774,6 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_t9_elemental_4p_bonus);
     RegisterSpellScript(spell_sha_t10_elemental_4p_bonus);
     RegisterSpellScript(spell_sha_t10_restoration_4p_bonus);
-    RegisterSpellScript(spell_sha_unlimited_power);
     RegisterSpellScript(spell_sha_undulation_passive);
     RegisterSpellScript(spell_sha_windfury_weapon);
     RegisterSpellScript(spell_sha_windfury_weapon_proc);

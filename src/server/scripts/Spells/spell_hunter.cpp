@@ -466,24 +466,10 @@ class spell_hun_chimaera_shot : public SpellScript
     }
 };
 
-// 378750 - Cobra Sting
-class spell_hun_cobra_sting : public AuraScript
-{
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 } });
-    }
-
-    bool RollProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*procInfo*/)
-    {
-        return roll_chance_i(GetEffect(EFFECT_1)->GetAmount());
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_hun_cobra_sting::RollProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
-    }
-};
+// Cobra Sting (378750) removed: confirmed Dragonflight (patch 10.0.0) content via web search -
+// didn't exist yet in Legion 7.3.5 (also removed again in patch 11.0.0). Id completely absent
+// from this build (no Spell record at all, local dump), and the class was never bound in the DB
+// either, so nothing to unbind.
 
 // 5116 - Concussive Shot (attached to 193455 - Cobra Shot and 56641 - Steady Shot)
 // FIXME: SPELL_HUNTER_STEADY_SHOT (56641) is confirmed absent from this build (ValidateSpellEffect
@@ -1462,9 +1448,10 @@ class spell_hun_posthaste : public SpellScript
     }
 };
 
-// 257044 - Rapid Fire
 // 200108 - Ranger's Net
 // When the root wears off, grants the target a burst of movement speed.
+// (Stale "257044 - Rapid Fire" header line removed - that id isn't referenced anywhere in this
+// class; Rapid Fire isn't handled in this file at all.)
 class spell_hun_rangers_net : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -1570,27 +1557,10 @@ class spell_hun_scatter_shot : public SpellScript
     }
 };
 
-// 459533 - Scrappy
-class spell_hun_scrappy : public AuraScript
-{
-    static constexpr std::array<uint32, 2> AffectedSpellIds = { SPELL_HUNTER_BINDING_SHOT, SPELL_HUNTER_INTIMIDATION };
-
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo(AffectedSpellIds);
-    }
-
-    void HandleEffectProc(AuraEffect const* aurEff, ProcEventInfo const& /*eventInfo*/) const
-    {
-        for (uint32 spellId : AffectedSpellIds)
-            GetTarget()->GetSpellHistory()->ModifyCooldown(spellId, -Milliseconds(aurEff->GetAmount()));
-    }
-
-    void Register() override
-    {
-        OnEffectProc += AuraEffectProcFn(spell_hun_scrappy::HandleEffectProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
+// Scrappy (459533) removed: confirmed The War Within (patch 11.0.0) content via web search -
+// didn't exist yet in Legion 7.3.5 (also removed again in patch 12.0.0). Id completely absent
+// from this build (no Spell record at all, local dump or live wago.tools query), and the class
+// was never bound in the DB either, so nothing to unbind.
 
 // 56641 - Steady Shot
 // 201078 - Snake Hunter
@@ -1939,7 +1909,6 @@ void AddSC_hunter_spell_scripts()
     RegisterSpellScript(spell_hun_camouflage);
     RegisterSpellScript(spell_hun_carve);
     RegisterSpellScript(spell_hun_chimaera_shot);
-    RegisterSpellScript(spell_hun_cobra_sting);
     RegisterSpellScript(spell_hun_concussive_shot);
     RegisterSpellScript(spell_hun_exhilaration);
     RegisterAreaTriggerAI(areatrigger_hun_high_explosive_trap);
@@ -1974,7 +1943,6 @@ void AddSC_hunter_spell_scripts()
     RegisterSpellScript(spell_hun_raptor_strike);
     RegisterSpellScript(spell_hun_roar_of_sacrifice);
     RegisterSpellScript(spell_hun_scatter_shot);
-    RegisterSpellScript(spell_hun_scrappy);
     RegisterSpellScript(spell_hun_sentinel);
     RegisterSpellScript(spell_hun_snake_hunter);
     RegisterSpellScript(spell_hun_steady_shot);

@@ -72,7 +72,6 @@ enum RogueSpells
     SPELL_ROGUE_NUMBING_POISON_DEBUFF               = 5760,
     SPELL_ROGUE_PREMEDITATION_PASSIVE               = 196979, // real id "Premeditation" Passive (343160 is a later-expansion remake id)
     SPELL_ROGUE_PREMEDITATION_AURA                  = 235777, // real id, tooltip-linked to 196979 (343173 is a later-expansion remake id)
-    SPELL_ROGUE_PREMEDITATION_ENERGIZE              = 343170,
     SPELL_ROGUE_PREY_ON_THE_WEAK_TALENT             = 131511,
     SPELL_ROGUE_PREY_ON_THE_WEAK                    = 131511, // real id "Prey on the Weak" (255909 is a later-expansion remake id)
     SPELL_ROGUE_RELENTLESS_STRIKES                  = 58423,
@@ -676,7 +675,7 @@ class spell_rog_cannonball_barrage_aura : public AuraScript
     }
 };
 
-// 385627 - Kingsbane
+// 192759 - Kingsbane
 class spell_rog_kingsbane : public AuraScript
 {
     bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo& procInfo)
@@ -821,28 +820,6 @@ class spell_rog_premeditation : public AuraScript
     }
 };
 
-// 343173 - Premeditation (proc)
-class spell_rog_premeditation_proc : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_ROGUE_PREMEDITATION_ENERGIZE });
-    }
-
-    void HandleProc(AuraEffect* aurEff, ProcEventInfo& /*procInfo*/)
-    {
-        GetCaster()->CastSpell(GetCaster(), SPELL_ROGUE_PREMEDITATION_ENERGIZE, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringAura = aurEff
-        });
-    }
-
-    void Register() override
-    {
-        OnEffectProc += AuraEffectProcFn(spell_rog_premeditation_proc::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
-
 // 131511 - Prey on the Weak
 // Called by Cheap Shot - 1833 and Kidney Shot - 408
 class spell_rog_prey_on_the_weak : public AuraScript
@@ -894,7 +871,7 @@ class spell_rog_restless_blades : public AuraScript
     }
 };
 
-// 315508 - Roll the Bones
+// 193316 - Roll the Bones
 class spell_rog_roll_the_bones : public SpellScript
 {
     static uint32 constexpr Spells[] = { SPELL_ROGUE_SKULL_AND_CROSSBONES, SPELL_ROGUE_GRAND_MELEE, SPELL_ROGUE_RUTHLESS_PRECISION,
@@ -1153,28 +1130,6 @@ class spell_rog_fan_of_knives : public SpellScript
     void Register() override
     {
         OnCast += SpellCastFn(spell_rog_fan_of_knives::HandleOnCast);
-    }
-};
-
-// 277925 - Shuriken Tornado
-class spell_rog_shuriken_tornado : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_ROGUE_SHURIKEN_STORM_DAMAGE });
-    }
-
-    void HandlePeriodicEffect(AuraEffect const* aurEff) const
-    {
-        GetTarget()->CastSpell(nullptr, SPELL_ROGUE_SHURIKEN_STORM_DAMAGE, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_POWER_COST | TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringAura = aurEff
-        });
-    }
-
-    void Register() override
-    {
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_rog_shuriken_tornado::HandlePeriodicEffect, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
     }
 };
 
@@ -1507,7 +1462,6 @@ void AddSC_rogue_spell_scripts()
     RegisterSpellScript(spell_rog_pickpocket);
     RegisterSpellScript(spell_rog_poisoned_knife);
     RegisterSpellScript(spell_rog_premeditation);
-    RegisterSpellScript(spell_rog_premeditation_proc);
     RegisterSpellScript(spell_rog_prey_on_the_weak);
     RegisterSpellScript(spell_rog_restless_blades);
     RegisterSpellScript(spell_rog_roll_the_bones);
@@ -1519,7 +1473,6 @@ void AddSC_rogue_spell_scripts()
     RegisterSpellScript(spell_rog_shadowstrike);
     RegisterSpellScript(spell_rog_shadow_focus);
     RegisterSpellScript(spell_rog_shuriken_storm);
-    RegisterSpellScript(spell_rog_shuriken_tornado);
     RegisterSpellScript(spell_rog_saber_slash);
     RegisterSpellScript(spell_rog_stealth);
     RegisterSpellScript(spell_rog_weaponmaster);

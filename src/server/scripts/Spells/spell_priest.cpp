@@ -77,11 +77,8 @@ enum PriestSpells
     SPELL_PRIEST_DIVINE_IMAGE_EMPOWER_STACK         = 405963,
     SPELL_PRIEST_DIVINE_SERVICE                     = 391233,
     SPELL_PRIEST_DIVINE_STAR_HOLY                   = 110744,
-    SPELL_PRIEST_DIVINE_STAR_SHADOW                 = 122121,
     SPELL_PRIEST_DIVINE_STAR_HOLY_DAMAGE            = 122128,
     SPELL_PRIEST_DIVINE_STAR_HOLY_HEAL              = 110745,
-    SPELL_PRIEST_DIVINE_STAR_SHADOW_DAMAGE          = 390845,
-    SPELL_PRIEST_DIVINE_STAR_SHADOW_HEAL            = 390981,
     SPELL_PRIEST_DIVINE_WRATH                       = 40441,
     SPELL_PRIEST_EMPOWERED_RENEW_HEAL               = 391359,
     // SPELL_PRIEST_EPIPHANY / EPIPHANY_HIGHLIGHT removed - 414553/414556 is a Shadowlands-era
@@ -98,11 +95,8 @@ enum PriestSpells
     SPELL_PRIEST_FOCUSED_MENDING                    = 372354,
     SPELL_PRIEST_GUARDIAN_SPIRIT_HEAL               = 48153,
     SPELL_PRIEST_HALO_HOLY                          = 120517,
-    SPELL_PRIEST_HALO_SHADOW                        = 120644,
     SPELL_PRIEST_HALO_HOLY_DAMAGE                   = 120696,
     SPELL_PRIEST_HALO_HOLY_HEAL                     = 120692,
-    SPELL_PRIEST_HALO_SHADOW_DAMAGE                 = 390964,
-    SPELL_PRIEST_HALO_SHADOW_HEAL                   = 390971,
     SPELL_PRIEST_HEAL                               = 2060,
     SPELL_PRIEST_HEALING_LIGHT                      = 196809,
     SPELL_PRIEST_HEAVENS_WRATH                      = 421558,
@@ -218,7 +212,6 @@ enum PriestSpells
     SPELL_PRIEST_VOID_SHIELD                        = 199144,
     SPELL_PRIEST_VOID_SHIELD_EFFECT                 = 199145,
     SPELL_PRIEST_VOID_SHIFT                         = 108968,
-    SPELL_PRIEST_VOID_TENDRILS_SUMMON                = 127665,
     SPELL_PRIEST_WEAKENED_SOUL                      = 6788,
     SPELL_PRIEST_WHISPERING_SHADOWS                 = 406777,
     SPELL_PRIEST_WHISPERING_SHADOWS_DUMMY           = 391286,
@@ -627,25 +620,7 @@ class spell_pri_circle_of_healing : public SpellScript
     }
 };
 
-// 122121 - Divine Star (Shadow)
-class spell_pri_divine_star_shadow : public SpellScript
-{
-    void HandleHitTarget(SpellEffIndex effIndex)
-    {
-        Unit* caster = GetCaster();
-
-        if (caster->GetPowerType() != GetEffectInfo().MiscValue)
-            PreventHitDefaultEffect(effIndex);
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_pri_divine_star_shadow::HandleHitTarget, EFFECT_2, SPELL_EFFECT_ENERGIZE);
-    }
-};
-
 // 110744 - Divine Star (Holy)
-// 122121 - Divine Star (Shadow)
 struct areatrigger_pri_divine_star : AreaTriggerAI
 {
     using AreaTriggerAI::AreaTriggerAI;
@@ -705,11 +680,9 @@ struct areatrigger_pri_divine_star : AreaTriggerAI
         constexpr TriggerCastFlags TriggerFlags = TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_CAST_IN_PROGRESS;
 
         if (caster->IsValidAttackTarget(unit))
-            caster->CastSpell(unit, at->GetSpellId() == SPELL_PRIEST_DIVINE_STAR_SHADOW ? SPELL_PRIEST_DIVINE_STAR_SHADOW_DAMAGE : SPELL_PRIEST_DIVINE_STAR_HOLY_DAMAGE,
-                TriggerFlags);
+            caster->CastSpell(unit, SPELL_PRIEST_DIVINE_STAR_HOLY_DAMAGE, TriggerFlags);
         else if (caster->IsValidAssistTarget(unit))
-            caster->CastSpell(unit, at->GetSpellId() == SPELL_PRIEST_DIVINE_STAR_SHADOW ? SPELL_PRIEST_DIVINE_STAR_SHADOW_HEAL : SPELL_PRIEST_DIVINE_STAR_HOLY_HEAL,
-                TriggerFlags);
+            caster->CastSpell(unit, SPELL_PRIEST_DIVINE_STAR_HOLY_HEAL, TriggerFlags);
 
         _affectedUnits.push_back(unit->GetGUID());
     }
@@ -866,25 +839,7 @@ class spell_pri_focused_will : public AuraScript
     }
 };
 
-// 120644 - Halo (Shadow)
-class spell_pri_halo_shadow : public SpellScript
-{
-    void HandleHitTarget(SpellEffIndex effIndex)
-    {
-        Unit* caster = GetCaster();
-
-        if (caster->GetPowerType() != GetEffectInfo().MiscValue)
-            PreventHitDefaultEffect(effIndex);
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_pri_halo_shadow::HandleHitTarget, EFFECT_1, SPELL_EFFECT_ENERGIZE);
-    }
-};
-
 // 120517 - Halo (Holy)
-// 120644 - Halo (Shadow)
 struct areatrigger_pri_halo : AreaTriggerAI
 {
     areatrigger_pri_halo(AreaTrigger* areatrigger) : AreaTriggerAI(areatrigger) {}
@@ -894,11 +849,9 @@ struct areatrigger_pri_halo : AreaTriggerAI
         if (Unit* caster = at->GetCaster())
         {
             if (caster->IsValidAttackTarget(unit))
-                caster->CastSpell(unit, at->GetSpellId() == SPELL_PRIEST_HALO_SHADOW ? SPELL_PRIEST_HALO_SHADOW_DAMAGE : SPELL_PRIEST_HALO_HOLY_DAMAGE,
-                    TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_CAST_IN_PROGRESS);
+                caster->CastSpell(unit, SPELL_PRIEST_HALO_HOLY_DAMAGE, TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_CAST_IN_PROGRESS);
             else if (caster->IsValidAssistTarget(unit))
-                caster->CastSpell(unit, at->GetSpellId() == SPELL_PRIEST_HALO_SHADOW ? SPELL_PRIEST_HALO_SHADOW_HEAL : SPELL_PRIEST_HALO_HOLY_HEAL,
-                    TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_CAST_IN_PROGRESS);
+                caster->CastSpell(unit, SPELL_PRIEST_HALO_HOLY_HEAL, TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_CAST_IN_PROGRESS);
         }
     }
 };
@@ -2225,24 +2178,6 @@ class spell_pri_void_bolt : public SpellScript
     }
 };
 
-// 108920 - Void Tendrils
-// Summons a root-effect totem at the target location.
-class spell_pri_void_tendrils : public SpellScript
-{
-    void HandleOnHit()
-    {
-        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
-        Unit* target = GetHitUnit();
-        if (player && target)
-            player->CastSpell(target, SPELL_PRIEST_VOID_TENDRILS_SUMMON, true);
-    }
-
-    void Register() override
-    {
-        OnHit += SpellHitFn(spell_pri_void_tendrils::HandleOnHit);
-    }
-};
-
 // 109186 - Surge of Light
 class spell_pri_surge_of_light : public AuraScript
 {
@@ -2773,14 +2708,12 @@ void AddSC_priest_spell_scripts()
     RegisterSpellScript(spell_pri_atonement_passive);
     RegisterSpellScript(spell_pri_benediction);
     RegisterSpellScript(spell_pri_circle_of_healing);
-    RegisterSpellScript(spell_pri_divine_star_shadow);
     RegisterAreaTriggerAI(areatrigger_pri_divine_star);
     RegisterSpellScript(spell_pri_evangelism);
     RegisterSpellScript(spell_pri_guardian_spirit);
     RegisterSpellScript(spell_pri_focused_will);
     RegisterSpellScript(spell_pri_void_shift);
     RegisterSpellScript(spell_pri_spirit_shell);
-    RegisterSpellScript(spell_pri_halo_shadow);
     RegisterAreaTriggerAI(areatrigger_pri_halo);
     RegisterSpellScript(spell_pri_holy_words);
     RegisterAreaTriggerAI(areatrigger_pri_power_word_barrier);
@@ -2816,7 +2749,6 @@ void AddSC_priest_spell_scripts()
     RegisterSpellScript(spell_pri_void_eruption);
     RegisterSpellScript(spell_pri_voidform);
     RegisterSpellScript(spell_pri_void_bolt);
-    RegisterSpellScript(spell_pri_void_tendrils);
     RegisterSpellScript(spell_pri_surge_of_light);
     RegisterSpellScript(spell_pri_trail_of_light);
     RegisterSpellScript(spell_pri_train_of_thought);

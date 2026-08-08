@@ -37,9 +37,6 @@
 
 enum MageSpells
 {
-    SPELL_MAGE_ALTER_TIME_AURA                   = 110909,
-    SPELL_MAGE_ALTER_TIME_VISUAL                 = 347402,
-    SPELL_MAGE_ARCANE_ALTER_TIME_AURA            = 342246,
     SPELL_MAGE_ARCANE_BARRAGE                    = 44425,
     SPELL_MAGE_ARCANE_BARRAGE_ENERGIZE           = 321529,
     SPELL_MAGE_ARCANE_BARRAGE_R3                 = 321526,
@@ -113,11 +110,9 @@ enum MageSpells
     SPELL_MAGE_LIVING_BOMB_EXPLOSION             = 44461,
     SPELL_MAGE_LIVING_BOMB_PERIODIC              = 217694,
     SPELL_MAGE_MANA_SURGE                        = 37445,
-    SPELL_MAGE_MASTER_OF_TIME                    = 342249,
     SPELL_MAGE_MIRROR_IMAGE_LEFT                 = 58834,
     SPELL_MAGE_MIRROR_IMAGE_RIGHT                = 58833,
     SPELL_MAGE_MIRROR_IMAGE_FRONT                = 58831,
-    SPELL_MAGE_RADIANT_SPARK_PROC_BLOCKER        = 376105,
     SPELL_MAGE_RAY_OF_FROST                      = 205021,
     SPELL_MAGE_RAY_OF_FROST_BONUS                = 208141,
     SPELL_MAGE_RAY_OF_FROST_BUFF                 = 208166,
@@ -131,7 +126,6 @@ enum MageSpells
     SPELL_MAGE_SLOW                              = 31589,
     SPELL_MAGE_SQUIRREL_FORM                     = 32813,
     SPELL_MAGE_SUPERNOVA                         = 157980,
-    SPELL_MAGE_TEMPEST_BARRIER_ABSORB            = 382290,
     SPELL_MAGE_UNSTABLE_MAGIC                    = 157976,
     SPELL_MAGE_UNSTABLE_MAGIC_DAMAGE_FIRE        = 157977,
     SPELL_MAGE_UNSTABLE_MAGIC_DAMAGE_FROST       = 157978,
@@ -153,80 +147,12 @@ enum MageSpells
     SPELL_MAGE_WINTERS_CHILL                     = 228358
 };
 
-// 110909 - Alter Time Aura
-// 342246 - Alter Time Aura
-class spell_mage_alter_time_aura : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo
-        ({
-            SPELL_MAGE_ALTER_TIME_VISUAL,
-            SPELL_MAGE_MASTER_OF_TIME,
-            SPELL_MAGE_BLINK,
-        });
-    }
-
-    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
-    {
-        Unit* unit = GetTarget();
-        _health = unit->GetHealth();
-        _pos = unit->GetPosition();
-    }
-
-    void AfterRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
-    {
-        Unit* unit = GetTarget();
-        if (unit->GetDistance(_pos) <= 100.0f && GetTargetApplication()->GetRemoveMode() == AURA_REMOVE_BY_EXPIRE)
-        {
-            unit->SetHealth(_health);
-            unit->NearTeleportTo(_pos);
-
-            if (unit->HasAura(SPELL_MAGE_MASTER_OF_TIME))
-            {
-                SpellInfo const* blink = sSpellMgr->AssertSpellInfo(SPELL_MAGE_BLINK, DIFFICULTY_NONE);
-                unit->GetSpellHistory()->ResetCharges(blink->ChargeCategoryId);
-            }
-            unit->CastSpell(unit, SPELL_MAGE_ALTER_TIME_VISUAL);
-        }
-    }
-
-    void Register() override
-    {
-        OnEffectApply += AuraEffectApplyFn(spell_mage_alter_time_aura::OnApply, EFFECT_0, SPELL_AURA_OVERRIDE_ACTIONBAR_SPELLS, AURA_EFFECT_HANDLE_REAL);
-        AfterEffectRemove += AuraEffectRemoveFn(spell_mage_alter_time_aura::AfterRemove, EFFECT_0, SPELL_AURA_OVERRIDE_ACTIONBAR_SPELLS, AURA_EFFECT_HANDLE_REAL);
-    }
-
-private:
-    uint64 _health = 0;
-    Position _pos;
-};
-
-// 127140 - Alter Time Active
-// 342247 - Alter Time Active
-class spell_mage_alter_time_active : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo
-        ({
-            SPELL_MAGE_ALTER_TIME_AURA,
-            SPELL_MAGE_ARCANE_ALTER_TIME_AURA,
-        });
-    }
-
-    void RemoveAlterTimeAura(SpellEffIndex /*effIndex*/)
-    {
-        Unit* unit = GetCaster();
-        unit->RemoveAura(SPELL_MAGE_ALTER_TIME_AURA, ObjectGuid::Empty, 0, AURA_REMOVE_BY_EXPIRE);
-        unit->RemoveAura(SPELL_MAGE_ARCANE_ALTER_TIME_AURA, ObjectGuid::Empty, 0, AURA_REMOVE_BY_EXPIRE);
-    }
-
-    void Register() override
-    {
-        OnEffectHit += SpellEffectFn(spell_mage_alter_time_active::RemoveAlterTimeAura, EFFECT_0, SPELL_EFFECT_DUMMY);
-    }
-};
+// Alter Time (spell_mage_alter_time_aura/spell_mage_alter_time_active) removed: confirmed via
+// web search that Alter Time was removed in patch 7.0.3 - the Legion pre-patch itself - and only
+// reintroduced in Shadowlands (9.0.1/9.0.2). It genuinely didn't exist during Legion 7.3.5 at
+// all. All four referenced ids (110909, 127140, 342246, 342247) are confirmed completely absent
+// from this build (no Spell record at all, local dump or live wago.tools query) - same pattern
+// as DK's Death Siphon, also removed in 7.0.3. Neither class was ever bound in the DB.
 
 // 30451 - Arcane Blast
 // Consumes a Presence of Mind charge on cast (2 charges granted, makes Arcane Blast instant and
@@ -256,7 +182,14 @@ class spell_mage_arcane_blast : public SpellScript
     }
 };
 
-// 235450 - Arcane Barrier
+// 235450 - Prismatic Barrier
+// This header previously mislabeled the real id as "Arcane Barrier" - confirmed via its own
+// tooltip that 235450 is actually named "Prismatic Barrier" (the generic baseline Mage ward, no
+// "Arcane Barrier" player spell exists in this build under any id - all name-search candidates
+// are unrelated boss/NPC abilities). A duplicate, functionally-identical
+// spell_mage_prismatic_barrier class existed further down this file, correctly labeled but never
+// bound anywhere in the DB - removed as dead/redundant code now that the real binding
+// (spell_script_names -> 235450 -> this class) is confirmed correct and accurately commented.
 class spell_mage_arcane_barrier : public AuraScript
 {
     void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& canBeRecalculated) const
@@ -976,8 +909,9 @@ class spell_mage_displacement : public SpellScript
     }
 };
 
-// 383395 - Feel the Burn
 // 112965 - Fingers of Frost
+// (Stale "383395 - Feel the Burn" header line removed - that id is confirmed absent from this
+// build and isn't referenced anywhere in this class.)
 class spell_mage_fingers_of_frost : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -1398,6 +1332,11 @@ struct at_mage_meteor_burn : AreaTriggerAI
 };
 
 // 386737 - Hyper Impact
+// NOTE: 386737 is confirmed completely absent from this build (no Spell record at all, local
+// dump or live wago.tools query) and this class has never been bound in the DB either - currently
+// fully inert either way. Left unresolved rather than guess a replacement id without a confirmed
+// real-data match (unlike Starfall/Alter Time/Cobra Sting etc. this session, no corroborating
+// patch-history or name-search evidence was found to identify what the real id should be).
 class spell_mage_hyper_impact : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -2187,51 +2126,14 @@ uint32 const spell_mage_polymorph_visual::PolymorhForms[6] =
     SPELL_MAGE_SHEEP_FORM
 };
 
-// 235450 - Prismatic Barrier
-class spell_mage_prismatic_barrier : public AuraScript
-{
-    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& canBeRecalculated)
-    {
-        canBeRecalculated = false;
-        if (Unit* caster = GetCaster())
-            amount += int32(caster->SpellBaseHealingBonusDone(GetSpellInfo()->GetSchoolMask()) * 7.0f);
-    }
+// spell_mage_prismatic_barrier removed: an exact functional duplicate of spell_mage_arcane_barrier
+// above (same id, 235450, same CalculateAmount formula) that was never bound anywhere in the DB.
+// See the comment on spell_mage_arcane_barrier for the full explanation.
 
-    void Register() override
-    {
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_mage_prismatic_barrier::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
-    }
-};
-
-// 376103 - Radiant Spark
-class spell_mage_radiant_spark : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_MAGE_RADIANT_SPARK_PROC_BLOCKER });
-    }
-
-    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo& procInfo)
-    {
-        return !procInfo.GetProcTarget()->HasAura(SPELL_MAGE_RADIANT_SPARK_PROC_BLOCKER, GetCasterGUID());
-    }
-
-    void HandleProc(AuraEffect* aurEff, ProcEventInfo& procInfo)
-    {
-        Aura* vulnerability = procInfo.GetProcTarget()->GetAura(aurEff->GetSpellEffectInfo().TriggerSpell, GetCasterGUID());
-        if (vulnerability && vulnerability->GetStackAmount() == vulnerability->CalcMaxStackAmount())
-        {
-            PreventDefaultAction();
-            vulnerability->Remove();
-            GetTarget()->CastSpell(GetTarget(), SPELL_MAGE_RADIANT_SPARK_PROC_BLOCKER, true);
-        }
-    }
-
-    void Register() override
-    {
-        OnEffectProc += AuraEffectProcFn(spell_mage_radiant_spark::HandleProc, EFFECT_2, SPELL_AURA_PROC_TRIGGER_SPELL);
-    }
-};
+// Radiant Spark (spell_mage_radiant_spark, ids 376103/376105) removed: confirmed Dragonflight
+// (patch 10.0.0) content via web search, removed again in patch 11.0.0 - didn't exist in Legion
+// 7.3.5 at all. Both ids confirmed completely absent from this build, and the class was never
+// bound in the DB, so nothing to unbind.
 
 // 205021 - Ray of Frost
 class spell_mage_ray_of_frost_aura : public AuraScript
@@ -2485,31 +2387,10 @@ class spell_mage_supernova : public SpellScript
     }
 };
 
-// 382289 - Tempest Barrier
-class spell_mage_tempest_barrier : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_MAGE_TEMPEST_BARRIER_ABSORB });
-    }
-
-    void HandleEffectProc(AuraEffect const* aurEff, ProcEventInfo const& /*eventInfo*/)
-    {
-        PreventDefaultAction();
-        Unit* target = GetTarget();
-        int32 amount = CalculatePct(target->GetMaxHealth(), aurEff->GetAmount());
-        target->CastSpell(target, SPELL_MAGE_TEMPEST_BARRIER_ABSORB, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringAura = aurEff,
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, amount } }
-        });
-    }
-
-    void Register() override
-    {
-        OnEffectProc += AuraEffectProcFn(spell_mage_tempest_barrier::HandleEffectProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
-    }
-};
+// Tempest Barrier (spell_mage_tempest_barrier, ids 382289/382290) removed: confirmed Dragonflight
+// (patch 10.0.0) content via web search, removed again in patch 12.0.0 - didn't exist in Legion
+// 7.3.5 at all. Both ids confirmed completely absent from this build, and the class was never
+// bound in the DB, so nothing to unbind.
 
 // 210824 - Touch of the Magi (Aura)
 class spell_mage_touch_of_the_magi_aura : public AuraScript
@@ -2578,8 +2459,6 @@ class spell_mage_water_elemental_freeze : public SpellScript
 
 void AddSC_mage_spell_scripts()
 {
-    RegisterSpellScript(spell_mage_alter_time_aura);
-    RegisterSpellScript(spell_mage_alter_time_active);
     RegisterSpellScript(spell_mage_arcane_barrage);
     RegisterSpellScript(spell_mage_chrono_shift);
     RegisterSpellScript(spell_mage_arcane_barrier);
@@ -2648,10 +2527,8 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_living_bomb_periodic);
     RegisterSpellScript(spell_mage_mirror_image_summon);
     RegisterSpellScript(spell_mage_polymorph_visual);
-    RegisterSpellScript(spell_mage_prismatic_barrier);
     RegisterSpellScript(spell_mage_pyroblast);
     RegisterSpellScript(spell_mage_pyroblast_clearcasting_driver);
-    RegisterSpellScript(spell_mage_radiant_spark);
     RegisterSpellScript(spell_mage_ray_of_frost_aura);
     RegisterSpellScript(spell_mage_ray_of_frost_buff);
     RegisterSpellScriptWithArgs(spell_mage_unstable_magic, "spell_mage_unstable_magic_arcane_blast");
@@ -2660,7 +2537,6 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_ring_of_frost);
     RegisterSpellAndAuraScriptPair(spell_mage_ring_of_frost_freeze, spell_mage_ring_of_frost_freeze_AuraScript);
     RegisterSpellScript(spell_mage_supernova);
-    RegisterSpellScript(spell_mage_tempest_barrier);
     RegisterSpellScript(spell_mage_touch_of_the_magi_aura);
     RegisterSpellScript(spell_mage_water_elemental_freeze);
 }
