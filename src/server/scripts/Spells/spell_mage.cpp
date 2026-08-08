@@ -786,7 +786,7 @@ class spell_mage_combustion : public AuraScript
         if (!caster)
             return;
 
-        amount += int32(caster->GetUInt32Value(PLAYER_FIELD_COMBAT_RATING_1 + CR_CRIT_SPELL));
+        amount += int32(caster->GetUInt32Value(PLAYER_FIELD_COMBAT_RATING_1 + AsUnderlyingType(CR_CRIT_SPELL)));
     }
 
     void Register() override
