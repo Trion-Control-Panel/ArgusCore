@@ -24,11 +24,11 @@
 -- Corruption" by name; 57934 already carries its own "// 57934 - Tricks of the Trade" header
 -- comment in spell_rogue.cpp) - adding the missing bindings here too, so the spell_proc rows are
 -- actually meaningful instead of silently inert.
-INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+INSERT IGNORE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (27243, 'spell_warl_seed_of_corruption_dummy'),
 (57934, 'spell_rog_tricks_of_the_trade');
 
-INSERT INTO `spell_proc` (`SpellId`) VALUES
+INSERT IGNORE INTO `spell_proc` (`SpellId`) VALUES
 (27243),
 (57934),
 (116095),

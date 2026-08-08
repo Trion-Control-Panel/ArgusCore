@@ -53,9 +53,9 @@ DELETE FROM `spell_script_names` WHERE `ScriptName` IN (
 -- statistically equivalent to a flat 30% refund). SPELL_SHAMAN_AFTERSHOCK_ENERGIZE (210712) was
 -- already correctly set to the real companion id, only the class's own binding was wrong. Never
 -- bound in the DB before now.
-INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+INSERT IGNORE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (210707, 'spell_sha_aftershock');
-INSERT INTO `spell_proc` (`SpellId`) VALUES
+INSERT IGNORE INTO `spell_proc` (`SpellId`) VALUES
 (210707);
 
 -- Left flagged, not fixed this pass (no confident low-risk id found, matching this session's

@@ -26,7 +26,7 @@
 DELETE FROM `spell_script_names` WHERE `ScriptName` IN (
     'spell_pri_prayer_of_mending_dummy', 'spell_pri_prayer_of_mending', 'spell_pri_prayer_of_mending_jump'
 );
-INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+INSERT IGNORE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (33076, 'spell_pri_prayer_of_mending_dummy'),
 (41635, 'spell_pri_prayer_of_mending'),
 (155793, 'spell_pri_prayer_of_mending_jump');
@@ -46,7 +46,7 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 --     SpellAuraOptions proc data in this build (unlike the other six) - bound below, but no
 --     spell_proc row added for it; needs individual investigation like this session's earlier
 --     Misdirection/Brain Freeze findings.
-INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+INSERT IGNORE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (195178, 'spell_pri_atonement_passive'),
 (63733, 'spell_pri_holy_words'),
 (187464, 'spell_pri_shadow_mend_periodic_damage'),
@@ -63,7 +63,7 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- check used a broken grep pipeline that silently missed this). 41635 (Prayer of Mending's own
 -- proc-driven heal/jump) and 63733/15286 confirmed real native data with no existing row, and are
 -- included below.
-INSERT INTO `spell_proc` (`SpellId`) VALUES
+INSERT IGNORE INTO `spell_proc` (`SpellId`) VALUES
 (63733),
 (15286),
 (41635);

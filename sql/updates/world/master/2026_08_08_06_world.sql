@@ -32,9 +32,9 @@ DELETE FROM `spell_script_names` WHERE `ScriptName` = 'spell_pri_void_tendrils';
 -- Fate (Discipline)") is confirmed completely absent - Discipline didn't have this talent yet in
 -- Legion 7.3.5, so no binding is added for it (left as-is, not fixed - no confident replacement
 -- id found). Binding + spell_proc added for the real Shadow variant only.
-INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+INSERT IGNORE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (109142, 'spell_pri_twist_of_fate');
-INSERT INTO `spell_proc` (`SpellId`) VALUES
+INSERT IGNORE INTO `spell_proc` (`SpellId`) VALUES
 (109142);
 
 -- Two further items checked and left flagged (not fixed this pass - no confident low-risk fix

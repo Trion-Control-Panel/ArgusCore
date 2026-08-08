@@ -17,7 +17,7 @@
 -- Misdirection (34477) was checked too but has NO native SpellAuraOptions data at all for this
 -- build - a bare stub row would do nothing (no data to fall back to), so it's deliberately NOT
 -- included here; needs individual investigation instead of a guessed row.
-INSERT INTO `spell_proc` (`SpellId`) VALUES
+INSERT IGNORE INTO `spell_proc` (`SpellId`) VALUES
 (185789),
 (199527),
 (201082);

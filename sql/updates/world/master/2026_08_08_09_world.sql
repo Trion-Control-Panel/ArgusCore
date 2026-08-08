@@ -17,7 +17,7 @@ DELETE FROM `spell_script_names` WHERE `ScriptName` = 'spell_rog_shuriken_tornad
 -- 235777 when Stealth is applied) was never bound either - binding it now to the real trigger id,
 -- 1784 (Stealth), restores the whole mechanic with no scripting changes needed for the
 -- combo-point grant itself.
-INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+INSERT IGNORE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (1784, 'spell_rog_premeditation');
 
 -- Roll the Bones (spell_rog_roll_the_bones, never bound) rebound from 315508 (confirmed a
@@ -32,7 +32,7 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- talent in a later expansion) to the real Legion Artifact-era id 192759 (confirmed via exact
 -- tooltip match, "Kingslayers" Artifact weapon flavor text, and matching real EFFECT_4
 -- SPELL_AURA_PROC_TRIGGER_SPELL structure, exactly matching the class's own hook).
-INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+INSERT IGNORE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (193316, 'spell_rog_roll_the_bones'),
 (192759, 'spell_rog_kingsbane');
 
@@ -42,7 +42,7 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- - not RPPM, a plain "always eligible" style native chance), so a bare SpellId-only row is
 -- enough to restore function. Roll the Bones doesn't need one - its hook is a plain
 -- OnEffectHitTarget, not proc-based.
-INSERT INTO `spell_proc` (`SpellId`) VALUES
+INSERT IGNORE INTO `spell_proc` (`SpellId`) VALUES
 (192759);
 
 -- Dedicated pass on classes with no spell_script_names row at all (same check as the Priest
@@ -62,7 +62,7 @@ INSERT INTO `spell_proc` (`SpellId`) VALUES
 -- EffectTriggerSpell it fires into (198023, confirmed real EFFECT_0 SPELL_AURA_PERIODIC_DUMMY,
 -- 100ms period, matching the class's own hook exactly). Missed on the first pass through this
 -- migration - caught on a recheck by re-reading the class in full instead of just its Register().
-INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+INSERT IGNORE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (13877, 'spell_rog_blade_flurry'),
 (198031, 'spell_rog_honor_among_thieves'),
 (76806, 'spell_rog_mastery_main_gauche'),
@@ -75,7 +75,7 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- spell_proc coverage for the three of those seven that didn't already have a row from the
 -- earlier server-wide migration (13877, 76806, 79096, and 14161 already did - not re-inserted,
 -- would violate the primary key). All three confirmed real native SpellAuraOptions data.
-INSERT INTO `spell_proc` (`SpellId`) VALUES
+INSERT IGNORE INTO `spell_proc` (`SpellId`) VALUES
 (198031),
 (198020),
 (79134);

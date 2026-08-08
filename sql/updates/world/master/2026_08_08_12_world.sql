@@ -40,7 +40,7 @@ DELETE FROM `spell_script_names` WHERE `ScriptName` = 'spell_warl_soul_fire';
 --     apply it. Left unbound for Unstable Affliction specifically pending that follow-up.
 --   spell_warl_deaths_embrace_drain_life -> Drain Life (234153). Confirmed real EFFECT_0 is
 --     SPELL_AURA_PERIODIC_LEECH, matching the class's own hook exactly.
-INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+INSERT IGNORE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (980, 'spell_warl_deaths_embrace_dots'),
 (146739, 'spell_warl_deaths_embrace_dots'),
 (234153, 'spell_warl_deaths_embrace_drain_life');

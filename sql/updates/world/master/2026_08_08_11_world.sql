@@ -24,7 +24,7 @@
 -- actually consumes that buff and resets Lava Burst's cooldown - spell_sha_lava_surge_proc - was
 -- ALSO unbound. Bound both together (same lesson as Rogue's Turn the Tables from an earlier pass
 -- this session: verify the full chain, not just the first id in a class's own header comment).
-INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+INSERT IGNORE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (108281, 'spell_sha_ancestral_guidance'),
 (204288, 'spell_sha_earth_shield'),
 (170374, 'spell_sha_earthen_rage_passive'),
@@ -45,7 +45,7 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- is still correct here. Mastery: Elemental Overload (168534) and Undulation (200071) were
 -- checked too but have NO native SpellAuraOptions data at all for this build - bare stub rows
 -- would do nothing, so they're deliberately NOT included; need individual investigation.
-INSERT INTO `spell_proc` (`SpellId`) VALUES
+INSERT IGNORE INTO `spell_proc` (`SpellId`) VALUES
 (201900),
 (77756),
 (201845);

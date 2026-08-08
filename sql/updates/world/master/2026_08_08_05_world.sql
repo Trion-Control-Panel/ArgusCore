@@ -7,7 +7,7 @@
 -- 238996 (the buff it casts, a native SPELL_AURA_ADD_PCT_MODIFIER keyed to Blade of Justice via
 -- SpellClassMask - matches the "next Blade of Justice deals increased damage" tooltip exactly).
 -- Rebound both constants in spell_paladin.cpp; adding the binding here since it never existed.
-INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+INSERT IGNORE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (238062, 'spell_pal_righteous_verdict');
 
 -- Three classes removed from spell_paladin.cpp entirely (none were ever bound in the DB, so no
@@ -60,7 +60,7 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- Righteous Protector (204074) was checked too but has NO native SpellAuraOptions data at all for
 -- this build - a bare stub row would do nothing, so it's deliberately NOT included here; needs
 -- individual investigation instead of a guessed row.
-INSERT INTO `spell_proc` (`SpellId`) VALUES
+INSERT IGNORE INTO `spell_proc` (`SpellId`) VALUES
 (248033),
 (196926),
 (223817),

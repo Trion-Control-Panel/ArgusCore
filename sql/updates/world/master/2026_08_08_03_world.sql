@@ -29,7 +29,7 @@
 -- SPELL_MAGE_CONJURE_REFRESHMENT (116136), which is a different, correctly-used *internal*
 -- outcome spell (a plain CREATE_ITEM effect the script casts when solo, no script needed for
 -- that half) alongside SPELL_MAGE_CONJURE_REFRESHMENT_TABLE (167145, the grouped variant).
-INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+INSERT IGNORE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (190336, 'spell_mage_conjure_refreshment');
 
 -- spell_proc coverage: Chrono Shift (235711), Blazing Barrier (235313), Burning Determination
@@ -46,7 +46,7 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- Brain Freeze (190447), Fingers of Frost (112965), and Improved Mana Gems (37447/61062) were
 -- checked too but have NO native SpellAuraOptions data at all for this build - bare stub rows
 -- would do nothing, so they're deliberately NOT included here; need individual investigation.
-INSERT INTO `spell_proc` (`SpellId`) VALUES
+INSERT IGNORE INTO `spell_proc` (`SpellId`) VALUES
 (235711),
 (235313),
 (198063),
