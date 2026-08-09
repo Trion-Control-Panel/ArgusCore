@@ -88,6 +88,8 @@ enum DeathKnightSpells
     SPELL_DK_GOREFIENDS_GRASP                   = 108199,
     SPELL_DK_HEARTBREAKER_ENERGIZE              = 210738,
     SPELL_DK_HEARTBREAKER_TALENT                = 221536,
+    SPELL_DK_ICY_TALONS                         = 194878,
+    SPELL_DK_ICY_TALONS_BUFF                    = 194879,
     SPELL_DK_KILLING_MACHINE_PROC               = 51124,
     SPELL_DK_MARK_OF_BLOOD_HEAL                 = 206945,
     SPELL_DK_NECROSIS_EFFECT                    = 216974,
@@ -100,7 +102,6 @@ enum DeathKnightSpells
     SPELL_DK_RUNIC_RETURN                       = 61258,
     SPELL_DK_SLUDGE_BELCHER                     = 207313,
     SPELL_DK_SLUDGE_BELCHER_SUMMON              = 212027,
-    SPELL_DK_SOUL_REAPER_DAMAGE                 = 114867,
     SPELL_DK_UNHOLY                             = 137007,
     SPELL_DK_UNHOLY_VIGOR                       = 196263,
     SPELL_DK_PURGATORY_STACKS                   = 116888,
@@ -113,7 +114,8 @@ enum DeathKnightSpells
     // version anyway. Real Legion Shadow Infusion is 198943 (see spell_dk_shadow_infusion).
     SPELL_DK_SHADOW_INFUSION                    = 198943,
     SPELL_DK_DARK_TRANSFORMATION                = 63560,
-    SPELL_DK_SOUL_REAPER_OLD_DEBUFF             = 130736,
+    SPELL_DK_SOUL_REAPER                        = 130736,
+    SPELL_DK_SOUL_REAPER_HASTE                  = 215711,
     SPELL_DK_CORPSE_SHIELD_TRANSFER             = 212753,
     SPELL_DK_CORPSE_SHIELD_KILL                 = 212756,
     SPELL_DK_CONSUMPTION_HEAL                   = 205224,
@@ -652,7 +654,7 @@ class spell_dk_death_strike : public SpellScript
     }
 };
 
-// 89832 - Death Strike Enabler - SPELL_DK_DEATH_STRIKE_ENABLER
+// 89832 - Death Strike Enabler - SPELL_DK_DEATH_STRIKE_ENABLER (server-side tracking id, not a real spell)
 class spell_dk_death_strike_enabler : public AuraScript
 {
     // Amount of seconds we calculate damage over
@@ -1195,27 +1197,15 @@ class spell_dk_howling_blast : public SpellScript
     }
 };
 
-// 194878 - Icy Talons
-class spell_dk_icy_talons : public AuraScript
-{
-    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo) const
-    {
-        if (Spell const* procSpell = eventInfo.GetProcSpell())
-            return procSpell->GetPowerTypeCostAmount(POWER_RUNIC_POWER) > 0;
-
-        return false;
-    }
-
-    // FIXME: real Icy Talons (194878) EFFECT_0 has no aura component at all (plain DUMMY, not
-    // PROC_TRIGGER_SPELL_WITH_VALUE) - its companion stacking buff (194879, referenced by
-    // 194878's own tooltip) has a single MOD_MELEE_RANGED_HASTE_2 effect instead. This proc gate
-    // may not need to exist at all if Frost Strike's own DB2 proc data already handles applying/
-    // stacking 194879 natively - not confirmed from local data, left as-is.
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dk_icy_talons::CheckProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL_WITH_VALUE);
-    }
-};
+// 194878 - Icy Talons: moved to spell_dk_frost_strike below. Real 194878 has no aura component
+// (plain SPELL_EFFECT_DUMMY) and neither it nor Frost Strike (49143/66196/222026) has a native
+// EffectTriggerSpell link to the buff (194879), so the old proc-gate AuraScript here could never
+// fire regardless of its check logic - the whole trigger has to be scripted from the Frost Strike
+// hit itself, gated on HasSpell(SPELL_DK_ICY_TALONS) (the established talent-known idiom used
+// elsewhere in this codebase, e.g. spell_hun_animal_instincts). Legion 7.3.5's own tooltip
+// ("Frost Strike also increases your melee attack speed...") confirms the trigger is Frost Strike
+// specifically, not any Runic Power-spending ability (that broader BFA 8.0.1+ behavior was wrong
+// for this build).
 
 // Removed spell_dk_improved_death_strike: Improved Death Strike (374277) is Dragonflight 10.0.0
 // content, confirmed absent from this build under any id (no Spell record, no SpellEffect
@@ -1415,62 +1405,8 @@ class spell_dk_rime : public AuraScript
     }
 };
 
-// 114866, 130735, 130736 - Soul Reaper (three per-copy spell ids sharing this script)
-class spell_dk_soul_reaper : public AuraScript
-{
-public:
-    explicit spell_dk_soul_reaper(SpellEffIndex auraEffectIndex, Optional<SpellEffIndex> healthLimitEffectIndex)
-        : _auraEffectIndex(auraEffectIndex), _healthLimitEffectIndex(healthLimitEffectIndex) { }
-
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        // Note: SPELL_DK_SOUL_REAPER (114866) is an older per-expansion copy id not present in
-        // 7.3.5.26972's client data; it isn't otherwise referenced by this class (only
-        // SPELL_DK_SOUL_REAPER_DAMAGE is actually cast), so it's dropped from this check rather
-        // than blocking registration for the real Legion copy (130736). See ARGUSCORE_FIXES.md.
-        return ValidateSpellInfo({ SPELL_DK_SOUL_REAPER_DAMAGE, SPELL_DK_RUNIC_CORRUPTION });
-    }
-
-    void HandleOnTick(AuraEffect const* aurEff) const
-    {
-        Unit* target = GetTarget();
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
-
-        if (!_healthLimitEffectIndex || target->GetHealthPct() < float(GetEffectInfo(*_healthLimitEffectIndex).CalcValue(caster)))
-            caster->CastSpell(target, SPELL_DK_SOUL_REAPER_DAMAGE, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringAura = aurEff
-            });
-    }
-
-    void RemoveEffect(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/) const
-    {
-        if (GetTargetApplication()->GetRemoveMode() != AURA_REMOVE_BY_DEATH)
-            return;
-
-        Player* caster = Object::ToPlayer(GetCaster());
-        if (!caster)
-            return;
-
-        if (caster->isHonorOrXPTarget(GetTarget()))
-            caster->CastSpell(caster, SPELL_DK_RUNIC_CORRUPTION, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringAura = aurEff
-            });
-    }
-
-    void Register() override
-    {
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dk_soul_reaper::HandleOnTick, _auraEffectIndex, SPELL_AURA_PERIODIC_DUMMY);
-        AfterEffectRemove += AuraEffectRemoveFn(spell_dk_soul_reaper::RemoveEffect, _auraEffectIndex, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
-    }
-
-private:
-    SpellEffIndex _auraEffectIndex;
-    Optional<SpellEffIndex> _healthLimitEffectIndex;
-};
+// 130736 - Soul Reaper: immediate strike (native) + Festering-Wound-burst-triggered stacking
+// Haste (215711). No AuraScript needed here; see spell_dk_apocalypse/spell_dk_scourge_strike.
 
 // 81229 - Runic Empowerment (Frost baseline passive)
 // Each Runic Power spent has a chance to instantly recharge a random used rune.
@@ -2282,14 +2218,22 @@ class spell_dk_tombstone : public AuraScript
     }
 };
 
-// 66196, 222026 - Frost Strike (Shattering Strikes bonus damage on 5-stack Razorice)
+// 66196, 222026 - Frost Strike (Shattering Strikes bonus damage on 5-stack Razorice, and Icy Talons)
 class spell_dk_frost_strike : public SpellScript
 {
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_DK_ICY_TALONS_BUFF });
+    }
+
     void HandleOnHit(SpellEffIndex /*effIndex*/)
     {
         Unit* caster = GetCaster();
         if (!caster)
             return;
+
+        if (caster->HasSpell(SPELL_DK_ICY_TALONS))
+            caster->CastSpell(caster, SPELL_DK_ICY_TALONS_BUFF, true);
 
         if (Aura* shatteringStrikes = caster->GetAura(207057))
         {
@@ -2493,7 +2437,7 @@ class spell_dk_apocalypse : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_DK_FESTERING_WOUND, SPELL_DK_FESTERING_WOUND_BURST });
+        return ValidateSpellInfo({ SPELL_DK_FESTERING_WOUND, SPELL_DK_FESTERING_WOUND_BURST, SPELL_DK_SOUL_REAPER, SPELL_DK_SOUL_REAPER_HASTE });
     }
 
     void HandleOnHit(SpellEffIndex /*effIndex*/)
@@ -2510,11 +2454,14 @@ class spell_dk_apocalypse : public SpellScript
             if (count > cap)
                 count = cap;
 
+            bool soulReaperActive = target->HasAura(SPELL_DK_SOUL_REAPER, caster->GetGUID());
             for (int32 i = 0; i < count; ++i)
             {
                 caster->CastSpell(target, SPELL_DK_FESTERING_WOUND_BURST, true);
                 caster->CastSpell(caster, SPELL_DK_RUNIC_POWER_REGEN, true);
                 caster->CastSpell(target, SPELL_DK_APOCALYPSE_SUMMON, true);
+                if (soulReaperActive)
+                    caster->CastSpell(caster, SPELL_DK_SOUL_REAPER_HASTE, true);
             }
             wounds->ModStackAmount(-count);
         }
@@ -2535,7 +2482,7 @@ class spell_dk_scourge_strike : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_DK_FESTERING_WOUND, SPELL_DK_FESTERING_WOUND_BURST });
+        return ValidateSpellInfo({ SPELL_DK_FESTERING_WOUND, SPELL_DK_FESTERING_WOUND_BURST, SPELL_DK_SOUL_REAPER, SPELL_DK_SOUL_REAPER_HASTE });
     }
 
     void HandleOnHit(SpellEffIndex /*effIndex*/)
@@ -2549,6 +2496,9 @@ class spell_dk_scourge_strike : public SpellScript
         {
             caster->CastSpell(target, SPELL_DK_FESTERING_WOUND_BURST, true);
             wounds->ModStackAmount(-1);
+
+            if (target->HasAura(SPELL_DK_SOUL_REAPER, caster->GetGUID()))
+                caster->CastSpell(caster, SPELL_DK_SOUL_REAPER_HASTE, true);
         }
     }
 
@@ -2723,7 +2673,6 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_heartbreaker);
     RegisterSpellScript(spell_dk_hook);
     RegisterSpellScript(spell_dk_howling_blast);
-    RegisterSpellScript(spell_dk_icy_talons);
     RegisterSpellScript(spell_dk_mark_of_blood);
     RegisterSpellScript(spell_dk_necrosis);
     RegisterSpellScript(spell_dk_necrotic_strike);
@@ -2736,15 +2685,6 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_pvp_4p_bonus);
     RegisterSpellScript(spell_dk_raise_dead);
     RegisterSpellScript(spell_dk_rime);
-    // FIXME: real Soul Reaper (130736) EFFECT_1 is a plain DUMMY (not PERIODIC_DUMMY - no
-    // periodic component at all) with EffectTriggerSpell 215711, and there's no EFFECT_2 (only
-    // 2 effects total). Its own real tooltip in this build ("Bursting a Festering Wound on an
-    // enemy afflicted by Soul Reaper grants $215711s1% Haste... stacking up to 3 times") doesn't
-    // match this class's "deal bonus damage if target is still below X% health after a delay"
-    // logic at all - that's the classic Soul Reaper execute mechanic, but this build's spell
-    // implements a different (Festering-Wound-burst-grants-haste) design instead. Needs a
-    // rewrite against the real mechanic, not an index swap - left unresolved.
-    RegisterSpellScriptWithArgs(spell_dk_soul_reaper, "spell_dk_soul_reaper", EFFECT_1, EFFECT_2);
     RegisterSpellScript(spell_dk_t20_2p_rune_empowered);
     RegisterSpellScript(spell_dk_tombstone);
     RegisterSpellScript(spell_dk_vampiric_blood);

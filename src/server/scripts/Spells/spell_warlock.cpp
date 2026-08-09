@@ -60,15 +60,6 @@ enum WarlockSpells
     // wago.tools SpellEffect data - only 2 real effects (EFFECT_0 the damage-increase %,
     // EFFECT_1 the health-threshold %), matching drain_life's own EFFECT_0/EFFECT_1 usage
     SPELL_WARLOCK_DEATHS_EMBRACE                    = 234876,
-    // FIXME: 62388 is confirmed absent from Spell.db2 under any id for this build. Used as a
-    // self-cast internal marker aura (range gate for Demonic Circle: Teleport) - both DestinyCore
-    // and AshamaneCore use SendFakeAuraUpdate (a client-only fake aura display) for this exact
-    // purpose instead of a real CastSpell, but that API doesn't exist anywhere in ArgusCore's
-    // engine. Needs either a genuine real spell id or a considered engine-level decision (e.g. a
-    // custom serverside marker, matching the precedent already used for Paladin's
-    // SPELL_PALADIN_IMMUNE_SHIELD_MARKER), not a guessed id swap. spell_warl_demonic_circle_summon
-    // stays unbound until this is resolved.
-    SPELL_WARLOCK_DEMONIC_CIRCLE_ALLOW_CAST         = 62388,
     SPELL_WARLOCK_DEMONIC_CIRCLE_SUMMON             = 48018,
     SPELL_WARLOCK_DEMONBOLT                         = 157695,
     SPELL_WARLOCK_DEMONIC_CALLING                   = 205145,
@@ -781,38 +772,46 @@ class spell_warl_demonic_circle_summon : public AuraScript
         // If effect is removed by expire remove the summoned demonic circle too.
         if (!(mode & AURA_EFFECT_HANDLE_REAPPLY))
             GetTarget()->RemoveGameObject(GetId(), true);
-
-        GetTarget()->RemoveAura(SPELL_WARLOCK_DEMONIC_CIRCLE_ALLOW_CAST);
-    }
-
-    void HandleDummyTick(AuraEffect const* /*aurEff*/)
-    {
-        if (GameObject* circle = GetTarget()->GetGameObject(GetId()))
-        {
-            // Here we check if player is in demonic circle teleport range, if so add
-            // WARLOCK_DEMONIC_CIRCLE_ALLOW_CAST; allowing him to cast the WARLOCK_DEMONIC_CIRCLE_TELEPORT.
-            // If not in range remove the WARLOCK_DEMONIC_CIRCLE_ALLOW_CAST.
-
-            SpellInfo const* spellInfo = sSpellMgr->AssertSpellInfo(SPELL_WARLOCK_DEMONIC_CIRCLE_TELEPORT, GetCastDifficulty());
-
-            if (GetTarget()->IsWithinDist(circle, spellInfo->GetMaxRange(true)))
-            {
-                if (!GetTarget()->HasAura(SPELL_WARLOCK_DEMONIC_CIRCLE_ALLOW_CAST))
-                    GetTarget()->CastSpell(GetTarget(), SPELL_WARLOCK_DEMONIC_CIRCLE_ALLOW_CAST, true);
-            }
-            else
-                GetTarget()->RemoveAura(SPELL_WARLOCK_DEMONIC_CIRCLE_ALLOW_CAST);
-        }
     }
 
     void Register() override
     {
         OnEffectRemove += AuraEffectApplyFn(spell_warl_demonic_circle_summon::HandleRemove, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_warl_demonic_circle_summon::HandleDummyTick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
 
 // 48020 - Demonic Circle: Teleport
+// Range gate: real Demonic Circle: Teleport used a client-only "fake aura" marker (62388) to grey
+// out the button when out of range - confirmed genuinely absent from Spell.db2 across three
+// separate 7.3.5 client builds (not even a blank placeholder row, unlike ArgusCore's own real
+// serverside custom-spell markers such as SPELL_PALADIN_IMMUNE_SHIELD_MARKER/61988), and
+// ArgusCore's engine has no SendFakeAuraUpdate equivalent either. Rather than guess at either a
+// nonexistent id or unverified engine-level custom-spell infrastructure, this is reimplemented
+// without any marker spell at all: a direct OnCheckCast range check against the summoned circle's
+// own GameObject position, using the spell's own native max range - functionally identical
+// gameplay result (can't teleport if you've wandered too far from your circle) with no dependency
+// on a phantom id.
+class spell_warl_demonic_circle_teleport_check : public SpellScript
+{
+    SpellCastResult CheckCast()
+    {
+        Player* player = GetCaster()->ToPlayer();
+        if (!player)
+            return SPELL_FAILED_DONT_REPORT;
+
+        GameObject* circle = player->GetGameObject(SPELL_WARLOCK_DEMONIC_CIRCLE_SUMMON);
+        if (!circle || !player->IsWithinDist(circle, GetSpellInfo()->GetMaxRange(true)))
+            return SPELL_FAILED_OUT_OF_RANGE;
+
+        return SPELL_CAST_OK;
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_warl_demonic_circle_teleport_check::CheckCast);
+    }
+};
+
 class spell_warl_demonic_circle_teleport : public AuraScript
 {
     void HandleTeleport(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
@@ -2319,6 +2318,7 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_deaths_embrace_drain_life);
     RegisterSpellScript(spell_warl_demonic_circle_summon);
     RegisterSpellScript(spell_warl_demonic_circle_teleport);
+    RegisterSpellScript(spell_warl_demonic_circle_teleport_check);
     RegisterSpellScript(spell_warl_devour_magic);
     RegisterSpellScript(spell_warl_doom);
     RegisterSpellScript(spell_warl_drain_soul);

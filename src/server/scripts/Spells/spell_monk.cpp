@@ -70,8 +70,6 @@ enum MonkSpells
     NPC_MONK_SEF_EARTH_SPIRIT                            = 69792,
     SPELL_MONK_CHI_BURST_DAMAGE                         = 148135,
     SPELL_MONK_CHI_BURST_HEAL                           = 130654,
-    SPELL_MONK_CHI_TORPEDO_DAMAGE                       = 117993,
-    SPELL_MONK_CHI_TORPEDO_HEAL                         = 124040,
     SPELL_MONK_CHI_WAVE_DAMAGE_MISSILE                  = 132467,
     SPELL_MONK_CHI_WAVE_HEAL                            = 132463,
     SPELL_MONK_CHI_WAVE_HEAL_MISSILE                    = 132464,
@@ -80,9 +78,7 @@ enum MonkSpells
     SPELL_MONK_CRACKLING_JADE_LIGHTNING_CHANNEL         = 117952,
     SPELL_MONK_CRACKLING_JADE_LIGHTNING_KNOCKBACK       = 117962,
     SPELL_MONK_CRACKLING_JADE_LIGHTNING_KNOCKBACK_CD    = 117953,
-    SPELL_MONK_DIZZYING_HAZE                            = 116330,
     SPELL_MONK_ENVELOPING_MIST                          = 124682,
-    SPELL_MONK_ENVELOPING_MIST_HEAL                     = 132120,
     SPELL_MONK_ESSENCE_FONT_HEAL                        = 191840,
     SPELL_MONK_FISTS_OF_FURY                            = 113656,
     SPELL_MONK_FISTS_OF_FURY_DAMAGE                     = 117418,
@@ -101,9 +97,7 @@ enum MonkSpells
     SPELL_MONK_HIT_COMBO_AURA                           = 196741,
     SPELL_MONK_ITEM_PVP_GLOVES_BONUS                    = 124489,
     SPELL_MONK_KEG_SMASH_AURA                           = 121253,
-    SPELL_MONK_KEG_SMASH_ENERGIZE                       = 127796,
     SPELL_MONK_KEG_SMASH_VISUAL                         = 123662,
-    SPELL_MONK_LEGACY_OF_THE_EMPEROR                    = 117667,
     SPELL_MONK_LIFECYCLES_ENVELOPING_MIST               = 197919,
     SPELL_MONK_LIFECYCLES_VIVIFY                        = 197916,
     SPELL_MONK_MASTERY_COMBO_STRIKES                    = 115636,
@@ -124,10 +118,8 @@ enum MonkSpells
     SPELL_MONK_ROLL_FORWARD                             = 107427,
     SPELL_MONK_SONG_OF_CHI_JI_STUN                      = 198909,
     SPELL_MONK_SOOTHING_MIST                            = 115175,
-    SPELL_MONK_SPEAR_HAND_STRIKE_SILENCE                = 116709,
     SPELL_MONK_SPINNING_CRANE_KICK                      = 101546,
     SPELL_MONK_SPINNING_CRANE_KICK_DAMAGE               = 107270,
-    SPELL_MONK_SOOTHING_MIST_ENERGIZE                   = 116335,
     SPELL_MONK_SOOTHING_MIST_VISUAL                     = 125955,
     SPELL_MONK_SPIRIT_OF_THE_CRANE_AURA                 = 210802,
     SPELL_MONK_SPIRIT_OF_THE_CRANE_MANA                 = 210803,
@@ -142,7 +134,6 @@ enum MonkSpells
     SPELL_MONK_TOUCH_OF_DEATH                           = 115080,
     SPELL_MONK_TOUCH_OF_KARMA_REDIRECT_DAMAGE           = 124280,
     SPELL_MONK_VIVIFY                                   = 116670,
-    SPELL_MONK_WEAKENED_BLOWS                           = 115798,
     SPELL_MONK_WHIRLING_DRAGON_PUNCH                    = 152175,
     SPELL_MONK_WHIRLING_DRAGON_PUNCH_DAMAGE             = 158221,
     SPELL_MONK_ZEN_PILGRIMAGE                           = 126892,
@@ -288,7 +279,7 @@ class spell_monk_breath_of_fire : public SpellScript
         if (!caster || !target)
             return;
 
-        if (target->HasAura(SPELL_MONK_DIZZYING_HAZE) || target->HasAura(SPELL_MONK_KEG_SMASH_AURA))
+        if (target->HasAura(SPELL_MONK_KEG_SMASH_AURA))
             caster->CastSpell(target, SPELL_MONK_BREATH_OF_FIRE_DOT, true);
     }
 
@@ -534,9 +525,7 @@ class spell_monk_chi_burst_heal : public SpellScript
     }
 };
 
-// 115008 - Chi Torpedo
-// Roll replacement talent: while rolling forward, damages enemies and heals allies (including
-// the Monk) caught in a 60-degree cone in front of the Monk within 20 yards.
+// 115008 - Chi Torpedo: real data is 6 movement-only effects, no damage/heal component.
 class spell_monk_chi_torpedo : public SpellScript
 {
     void HandleAfterCast()
@@ -544,20 +533,6 @@ class spell_monk_chi_torpedo : public SpellScript
         Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
         if (!caster)
             return;
-
-        std::list<Unit*> targets;
-        Trinity::AnyUnitInObjectRangeCheck check(caster, 20.0f);
-        Trinity::UnitListSearcher<Trinity::AnyUnitInObjectRangeCheck> searcher(caster, targets, check);
-        Cell::VisitAllObjects(caster, searcher, 20.0f);
-
-        for (Unit* target : targets)
-        {
-            if (target->GetGUID() != caster->GetGUID() && !target->isInFront(caster, float(M_PI / 3)))
-                continue;
-
-            uint32 spellId = caster->IsValidAttackTarget(target) ? SPELL_MONK_CHI_TORPEDO_DAMAGE : SPELL_MONK_CHI_TORPEDO_HEAL;
-            caster->CastSpell(target, spellId, true);
-        }
 
         if (caster->HasAura(SPELL_MONK_ITEM_PVP_GLOVES_BONUS))
             caster->RemoveAurasByType(SPELL_AURA_MOD_DECREASE_SPEED);
@@ -865,27 +840,7 @@ class spell_monk_energizing_brew : public SpellScript
     }
 };
 
-// 124682 - Enveloping Mist
-// Casts the actual heal (132120) after the cast completes. Already relied upon by the
-// existing spell_monk_mists_of_life class in this file, which casts 124682 directly and
-// expects it to heal - without this script, that talent's Enveloping Mist half was inert.
-class spell_monk_enveloping_mist : public SpellScript
-{
-    void HandleAfterCast()
-    {
-        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
-        Unit* target = GetExplTargetUnit();
-        if (!caster || !target)
-            return;
-
-        caster->CastSpell(target, SPELL_MONK_ENVELOPING_MIST_HEAL, true);
-    }
-
-    void Register() override
-    {
-        AfterCast += SpellCastFn(spell_monk_enveloping_mist::HandleAfterCast);
-    }
-};
+// 124682 - Enveloping Mist: EFFECT_0 is a native SPELL_AURA_PERIODIC_HEAL, needs no companion script.
 
 // 191840 - Essence Font (heal)
 // Redistributes the heal to whichever nearby ally most needs it: excludes the caster and
@@ -1073,13 +1028,15 @@ class spell_monk_fortifying_brew : public SpellScript
 // 7.3.5. The class's own Validate() already made it permanently inert (silently never loads),
 // so this was already harmless dead code - removed rather than left as unreachable.
 
-// 121253 - Keg Smash
-// Brewmaster's core AoE ability: applies a visual, the Weakened Blows debuff (shared with
-// Warrior's Thunder Clap - same spell id, 115798), energizes 2 Chi, and applies Dizzying Haze
-// (a slow/threat debuff). The 1-second internal cooldown on the energize prevents multi-target
-// cleave hits from granting more than one application of Chi per cast.
+// 121253 - Keg Smash: real data has no Chi/Weakened Blows/Dizzying Haze; movement slow is native.
+// Reduces Ironskin/Purifying Brew's shared charge cooldown by 4 sec instead (ChargeCategory 1562).
 class spell_monk_keg_smash : public SpellScript
 {
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MONK_PURIFYING_BREW });
+    }
+
     void HandleOnHit()
     {
         Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
@@ -1088,10 +1045,9 @@ class spell_monk_keg_smash : public SpellScript
             return;
 
         caster->CastSpell(target, SPELL_MONK_KEG_SMASH_VISUAL, true);
-        caster->CastSpell(target, SPELL_MONK_WEAKENED_BLOWS, true);
-        caster->CastSpell(caster, SPELL_MONK_KEG_SMASH_ENERGIZE, true);
-        caster->GetSpellHistory()->AddCooldown(SPELL_MONK_KEG_SMASH_ENERGIZE, 0, std::chrono::seconds(1));
-        caster->CastSpell(target, SPELL_MONK_DIZZYING_HAZE, true);
+
+        if (SpellInfo const* purifyingBrew = sSpellMgr->GetSpellInfo(SPELL_MONK_PURIFYING_BREW, DIFFICULTY_NONE))
+            caster->GetSpellHistory()->ModifyChargeRecoveryTime(purifyingBrew->ChargeCategoryId, -Seconds(4));
     }
 
     void Register() override
@@ -1100,51 +1056,24 @@ class spell_monk_keg_smash : public SpellScript
     }
 };
 
-// 115921 - Legacy of the Emperor
-// FIXME: SPELL_MONK_LEGACY_OF_THE_EMPEROR (115921, used as both this class's own bound id and
-// the spell it casts on each party member) is confirmed completely absent from this build (no
-// Spell record at all, local dump or live wago.tools query) - the raid stat buff is currently
-// fully non-functional. The only "Legacy of the Emperor" name match in this build's data
-// (125560) has a mismatched effect structure (a single SPELL_EFFECT_CREATE_ITEM effect, not a
-// stat-buff aura) and an empty tooltip, so it isn't a confident replacement - left unresolved
-// rather than guess at a redesign.
-// Applies the raid buff to all party members.
-// NOTE: the reference implementation uses Player::GetPartyMembers(), which doesn't exist in
-// ArgusCore - iterates the caster's Group directly instead (Group::GetMembers(), the standard
-// pattern already used internally by Group::BroadcastWorker in this engine).
-class spell_monk_legacy_of_the_emperor : public SpellScript
-{
-    void HandleDummy(SpellEffIndex /*effIndex*/)
-    {
-        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
-        if (!caster)
-            return;
-
-        Group* group = caster->GetGroup();
-        if (!group)
-            return;
-
-        for (GroupReference const& itr : group->GetMembers())
-            if (Player* member = itr.GetSource())
-                caster->CastSpell(member, SPELL_MONK_LEGACY_OF_THE_EMPEROR, true);
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_monk_legacy_of_the_emperor::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
-    }
-};
+// Removed spell_monk_legacy_of_the_emperor (115921): this ability was removed before Legion, not
+// merely missing from this build's data. Legacy of the Emperor's primary-stat buff was replaced by
+// Legacy of the White Tiger in 6.0.2 (WoD), and both were removed in patch 7.0.3 - confirmed via
+// patch history, not just id absence. 115921/117666/117667 (all candidates checked, including the
+// ones both DestinyCore and AshamaneCore still carry forward under the same premise) are genuinely
+// absent from this build under any id; the reference cores are drifted here, not this build. The
+// only real "Legacy of the Emperor" name match in 7.3.5 data (125560) is an unrelated
+// SPELL_EFFECT_CREATE_ITEM spell, not a stat-buff aura. Monks have no raid stat buff to replace
+// this with in Legion.
 
 // 116849 - Life Cocoon
-// FIXME: real 116849 (confirmed via SpellEffect.db2) has only 2 effects (EFFECT_0/1, both
-// APPLY_AURA), no EFFECT_2 at all - hook moved to EFFECT_0/SPELL_EFFECT_APPLY_AURA to match, and
-// the SPELL_MONK_CALMING_COALESCENCE (388220) bonus branch removed since that spell is confirmed
-// absent from this build (Dragonflight-range id, no "Calming Coalescence" entry in
-// logs/Spell.csv). Note: real EFFECT_0 has a 1.1 BonusCoefficient and EffectBasePoints=1, i.e. it
-// scales off healing power like a normal spell rather than a flat "% of caster max health" value -
-// the CountPctFromMaxHealth() model below may itself be outdated for this build's actual Life
-// Cocoon design; left as-is since rewriting the scaling formula needs real tooltip verification
-// beyond just fixing the hook binding.
+// Real 116849 has only 2 effects (EFFECT_0/1, both APPLY_AURA), no EFFECT_2 - hook moved to
+// EFFECT_0/SPELL_EFFECT_APPLY_AURA to match, and the dead Calming Coalescence (388220,
+// Dragonflight-only) bonus branch removed.
+// FIXME (still open): real EFFECT_0 has a 1.1 BonusCoefficient and EffectBasePoints=1, i.e. it
+// scales off healing power like a normal spell, not the flat "% of caster max health" formula
+// CalculateAbsorb() below still uses - that formula itself may be outdated for this build's real
+// Life Cocoon design; left as-is pending tooltip verification of the correct scaling.
 class spell_monk_life_cocoon : public SpellScript
 {
     void CalculateAbsorb(SpellEffIndex /*effIndex*/)
@@ -1178,7 +1107,7 @@ class spell_monk_lifecycles : public AuraScript
 
         if (procSpell->Id == SPELL_MONK_VIVIFY)
             caster->CastSpell(caster, SPELL_MONK_LIFECYCLES_ENVELOPING_MIST, true);
-        else if (procSpell->Id == SPELL_MONK_ENVELOPING_MIST_HEAL)
+        else if (procSpell->Id == SPELL_MONK_ENVELOPING_MIST)
             caster->CastSpell(caster, SPELL_MONK_LIFECYCLES_VIVIFY, true);
     }
 
@@ -2032,22 +1961,13 @@ class spell_monk_mastery_combo_strikes_periodic_triggers : public SpellScript
 // that requires a creature_template row this repo's SQL has no record of (the same kind of
 // unverified NPC data dependency that blocked Ravager earlier this session). The core
 // player-facing healing channel and Chi generation are unaffected by omitting it.
+// Real Soothing Mist has no chance-based resource generation; vestigial MoP-era logic removed.
 class spell_monk_soothing_mist : public AuraScript
 {
     void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
         if (Unit* target = GetTarget())
             target->CastSpell(target, SPELL_MONK_SOOTHING_MIST_VISUAL, true);
-    }
-
-    void HandlePeriodic(AuraEffect const* /*aurEff*/)
-    {
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
-
-        if (roll_chance_i(25))
-            caster->CastSpell(caster, SPELL_MONK_SOOTHING_MIST_ENERGIZE, true);
     }
 
     void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
@@ -2059,7 +1979,6 @@ class spell_monk_soothing_mist : public AuraScript
     void Register() override
     {
         AfterEffectApply += AuraEffectApplyFn(spell_monk_soothing_mist::OnApply, EFFECT_0, SPELL_AURA_PERIODIC_HEAL, AURA_EFFECT_HANDLE_REAL);
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_monk_soothing_mist::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_HEAL);
         AfterEffectRemove += AuraEffectRemoveFn(spell_monk_soothing_mist::OnRemove, EFFECT_0, SPELL_AURA_PERIODIC_HEAL, AURA_EFFECT_HANDLE_REAL);
     }
 };
@@ -2118,6 +2037,7 @@ class spell_monk_surging_mist : public SpellScript
 // Interrupt/silence: only applies if the target is in front of the caster, and self-applies a
 // hardcoded 15s cooldown matching the outer spell's own id (mirrors the reference's literal
 // value; not independently verified against Legion 7.3.5 tooltip data).
+// Native SPELL_EFFECT_INTERRUPT_CAST already locks the spell school; the manual silence cast was redundant.
 class spell_monk_spear_hand_strike : public SpellScript
 {
     void HandleOnHit()
@@ -2127,7 +2047,6 @@ class spell_monk_spear_hand_strike : public SpellScript
         if (!caster || !target || !target->isInFront(caster))
             return;
 
-        caster->CastSpell(target, SPELL_MONK_SPEAR_HAND_STRIKE_SILENCE, true);
         caster->GetSpellHistory()->AddCooldown(116705, 0, std::chrono::seconds(15));
     }
 
@@ -2712,7 +2631,6 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_crackling_jade_lightning_knockback_proc_aura);
     RegisterSpellScript(spell_monk_dampen_harm);
     RegisterSpellScript(spell_monk_energizing_brew);
-    RegisterSpellScript(spell_monk_enveloping_mist);
     RegisterSpellScript(spell_monk_essence_font_heal);
     RegisterSpellScript(spell_monk_fists_of_fury);
     RegisterSpellScript(spell_monk_fists_of_fury_damage);
@@ -2723,7 +2641,6 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_gift_of_the_ox_aura);
     RegisterSpellScript(spell_monk_healing_elixirs_aura);
     RegisterSpellScript(spell_monk_keg_smash);
-    RegisterSpellScript(spell_monk_legacy_of_the_emperor);
     RegisterSpellScript(spell_monk_life_cocoon);
     RegisterSpellScript(spell_monk_lifecycles);
     RegisterSpellScript(spell_monk_mastery_combo_strikes);

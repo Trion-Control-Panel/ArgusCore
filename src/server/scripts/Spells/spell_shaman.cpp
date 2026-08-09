@@ -91,10 +91,6 @@ enum ShamanSpells
     // damage"), distinct from SPELL_SHAMAN_FLAMETONGUE_WEAPON_ENCHANT (the enchant grant itself)
     SPELL_SHAMAN_FLAMETONGUE_WEAPON_AURA        = 160098,
     SPELL_SHAMAN_FROST_SHOCK                    = 196840,
-    // FIXME: 289439 is confirmed absent from Spell.db2 under any id; no candidate "Frost Shock"
-    // energize spell found nearby. Left as-is - spell_sha_icefury will keep failing Validate()
-    // on this dependency even after its own EFFECT_1->EFFECT_2 hook fix.
-    SPELL_SHAMAN_FROST_SHOCK_ENERGIZE           = 289439,
     SPELL_SHAMAN_FROSTBRAND_WEAPON_ENCHANT      = 196834,
     SPELL_SHAMAN_GATHERING_STORMS               = 198299,
     SPELL_SHAMAN_GATHERING_STORMS_BUFF          = 198300,
@@ -125,9 +121,10 @@ enum ShamanSpells
     // Overload's (EFFECT_1) energize amounts, each effect's EffectTriggerSpell pointing at a
     // "Fulmination"/"Fulmination!" helper matching 190493 Fulmination's own real tooltip
     // ("Damage from your Lightning Bolt and Lava Burst spells generate Maelstrom... Chain
-    // Lightning generates Maelstrom"). Only has 2 effects total, though - Chain Lightning's own
-    // energize/overload use of EFFECT_4/EFFECT_5 on this same id (below) has no corroborating
-    // data and is likely still wrong; left as-is rather than guess a third id.
+    // Lightning generates Maelstrom"). Only has 2 effects total - Chain Lightning/Chain Lightning
+    // Overload do NOT use this spell (their EFFECT_4/EFFECT_5 don't exist here); their own
+    // energize spells (195897/218558) are self-contained instead, see spell_sha_chain_lightning_energize
+    // and spell_sha_chain_lightning_overload below.
     SPELL_SHAMAN_MAELSTROM_CONTROLLER           = 190488,
     SPELL_SHAMAN_MAELSTROM_WEAPON_ENERGIZE      = 187890,
     SPELL_SHAMAN_MASTERY_ELEMENTAL_OVERLOAD     = 168534,
@@ -162,12 +159,14 @@ enum ShamanSpells
     SPELL_SHAMAN_TOTEMIC_POWER_SPELL_POWER      = 28825,
     SPELL_SHAMAN_UNDULATION_PROC                = 216251,
     SPELL_SHAMAN_WINDFURY_ATTACK                = 25504,
-    // FIXME: 319773 is confirmed absent from Spell.db2 under any id for this build. Used both as
-    // this class's own binding target and as WindfuryProcEvent::Execute's self-proc-prevention
-    // guard ("don't let this attack itself proc another Windfury"). Left unresolved rather than
-    // guessed at; spell_sha_windfury_weapon_proc stays unbound until a real id is confirmed.
-    SPELL_SHAMAN_WINDFURY_AURA                  = 319773,
-    SPELL_SHAMAN_WINDFURY_ENCHANTMENT           = 334302,
+    // 33757 - Windfury Weapon: self-referential design, confirmed via build-pinned (7.3.5.26972)
+    // SpellEffect data - the outer cast spell (33757) has a single EFFECT_0, SPELL_EFFECT_APPLY_AURA
+    // with SPELL_AURA_DUMMY, self-target. That's the same id as the resulting buff/proc aura; there
+    // is no separate enchant/buff id (319773, formerly used here, is confirmed absent - it doesn't
+    // exist under any id across three separate 7.3.5 client builds, and neither does 334302, the
+    // "enchant" id spell_sha_windfury_weapon used to cast onto the weapon item - real 33757 isn't a
+    // weapon-item-enchant effect at all, so that whole cast-onto-item premise was wrong).
+    SPELL_SHAMAN_WINDFURY_AURA                  = 33757,
     SPELL_SHAMAN_WIND_RUSH                      = 192082,
     SPELL_SHAMAN_WINDSTRIKE_DAMAGE_MAIN_HAND    = 115357,
     SPELL_SHAMAN_WINDSTRIKE_DAMAGE_OFF_HAND     = 115360,
@@ -524,27 +523,30 @@ class spell_sha_chain_lightning_crash_lightning : public SpellScript
 };
 
 // 188443 - Chain Lightning
+// Same fix as spell_sha_chain_lightning_overload below: real Chain Lightning energize (195897,
+// confirmed via build-pinned 7.3.5.26972 data - "Gaining Maelstrom", a self-contained
+// SPELL_EFFECT_ENERGIZE with its own base points, 6) needs no external MAELSTROM_CONTROLLER
+// (190488) reading - that spell's real EFFECT_4 doesn't exist (only EFFECT_0/EFFECT_1 do, used
+// correctly elsewhere for Lightning Bolt/Lightning Bolt Overload).
 class spell_sha_chain_lightning_energize : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellInfo({ SPELL_SHAMAN_CHAIN_LIGHTNING_ENERGIZE })
-            && ValidateSpellEffect({ { SPELL_SHAMAN_MAELSTROM_CONTROLLER, EFFECT_4 } });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->HasAuraEffect(SPELL_SHAMAN_MAELSTROM_CONTROLLER, EFFECT_4);
+            && ValidateSpellEffect({ { SPELL_SHAMAN_CHAIN_LIGHTNING_ENERGIZE, EFFECT_0 } });
     }
 
     void HandleScript(SpellEffIndex /*effIndex*/) const
     {
-        if (AuraEffect const* energizeAmount = GetCaster()->GetAuraEffect(SPELL_SHAMAN_MAELSTROM_CONTROLLER, EFFECT_4))
-            GetCaster()->CastSpell(GetCaster(), SPELL_SHAMAN_CHAIN_LIGHTNING_ENERGIZE, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringAura = energizeAmount,
-                .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, int32(energizeAmount->GetAmount() * GetUnitTargetCountForEffect(EFFECT_0)) } }
-            });
+        Unit* caster = GetCaster();
+        SpellInfo const* energizeSpell = sSpellMgr->AssertSpellInfo(SPELL_SHAMAN_CHAIN_LIGHTNING_ENERGIZE, GetCastDifficulty());
+        int32 perTarget = energizeSpell->GetEffect(EFFECT_0).CalcValue(caster);
+
+        caster->CastSpell(caster, SPELL_SHAMAN_CHAIN_LIGHTNING_ENERGIZE, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = GetSpell(),
+            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, perTarget * GetUnitTargetCountForEffect(EFFECT_0) } }
+        });
     }
 
     void Register() override
@@ -554,31 +556,33 @@ class spell_sha_chain_lightning_energize : public SpellScript
 };
 
 // 45297 - Chain Lightning Overload
-// FIXME: SPELL_SHAMAN_MAELSTROM_CONTROLLER (190488) only has EFFECT_0/EFFECT_1 in this build's
-// data, not EFFECT_4/EFFECT_5 as this class expects - and those two real effects trigger
-// "Fulmination"/"Fulmination!" (an unrelated Earth Shock mechanic), so 190488 may be the wrong
-// spell entirely for this energize family, not just a wrong effect index. Left unresolved.
+// Real Chain Lightning Overload energize (218558, confirmed via build-pinned 7.3.5.26972 data) is
+// a self-contained SPELL_EFFECT_ENERGIZE spell with its own base points (4 Maelstrom) - it needs
+// no external "controller" aura to read a per-target amount from. SPELL_SHAMAN_MAELSTROM_CONTROLLER
+// (190488) was the wrong spell for this: it only has EFFECT_0/EFFECT_1 in real data (not EFFECT_5
+// as this class used to expect), and those two real effects trigger "Fulmination"/"Fulmination!",
+// an unrelated Earth Shock mechanic. Matches Chain Lightning's own base spell (188443), whose
+// tooltip is "Generates X Maelstrom per target hit" - same per-target-flat-amount design, mirrored
+// here for the Overload copy.
 class spell_sha_chain_lightning_overload : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellInfo({ SPELL_SHAMAN_CHAIN_LIGHTNING_OVERLOAD_ENERGIZE })
-            && ValidateSpellEffect({ { SPELL_SHAMAN_MAELSTROM_CONTROLLER, EFFECT_5 } });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->HasAuraEffect(SPELL_SHAMAN_MAELSTROM_CONTROLLER, EFFECT_5);
+            && ValidateSpellEffect({ { SPELL_SHAMAN_CHAIN_LIGHTNING_OVERLOAD_ENERGIZE, EFFECT_0 } });
     }
 
     void HandleScript(SpellEffIndex /*effIndex*/) const
     {
-        if (AuraEffect const* energizeAmount = GetCaster()->GetAuraEffect(SPELL_SHAMAN_MAELSTROM_CONTROLLER, EFFECT_5))
-            GetCaster()->CastSpell(GetCaster(), SPELL_SHAMAN_CHAIN_LIGHTNING_OVERLOAD_ENERGIZE, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringAura = energizeAmount,
-                .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, int32(energizeAmount->GetAmount() * GetUnitTargetCountForEffect(EFFECT_0)) } }
-            });
+        Unit* caster = GetCaster();
+        SpellInfo const* energizeSpell = sSpellMgr->AssertSpellInfo(SPELL_SHAMAN_CHAIN_LIGHTNING_OVERLOAD_ENERGIZE, GetCastDifficulty());
+        int32 perTarget = energizeSpell->GetEffect(EFFECT_0).CalcValue(caster);
+
+        caster->CastSpell(caster, SPELL_SHAMAN_CHAIN_LIGHTNING_OVERLOAD_ENERGIZE, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = GetSpell(),
+            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, perTarget * GetUnitTargetCountForEffect(EFFECT_0) } }
+        });
     }
 
     void Register() override
@@ -1366,27 +1370,18 @@ class spell_sha_hot_hand : public AuraScript
 };
 
 
-// 210714 - Icefury
-class spell_sha_icefury : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_SHAMAN_FROST_SHOCK_ENERGIZE });
-    }
-
-    void HandleEffectProc(AuraEffect const* /*aurEff*/, ProcEventInfo const& /*eventInfo*/) const
-    {
-        if (Unit* caster = GetCaster())
-            caster->CastSpell(caster, SPELL_SHAMAN_FROST_SHOCK_ENERGIZE, CastSpellExtraArgsInit{ .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS });
-    }
-
-    void Register() override
-    {
-        // real Icefury (210714) has its ADD_PCT_MODIFIER aura at EFFECT_2, not EFFECT_1 (per
-        // wago.tools SpellEffect data: EFFECT_1 is a plain, non-aura ENERGIZE effect)
-        OnEffectProc += AuraEffectProcFn(spell_sha_icefury::HandleEffectProc, EFFECT_2, SPELL_AURA_ADD_PCT_MODIFIER);
-    }
-};
+// 210714 - Icefury: removed spell_sha_icefury entirely. Real 210714 has exactly 3 effects
+// (confirmed via build-pinned 7.3.5.26972 SpellEffect data), not the 4 this class's premise
+// assumed: EFFECT_0 is the direct Frost damage (native SCHOOL_DAMAGE), EFFECT_1 is a plain
+// SPELL_EFFECT_ENERGIZE (Maelstrom, fires natively and immediately on cast - matches the tooltip's
+// own "Generates X Maelstrom" line, no companion spell involved), and EFFECT_2 is a native
+// SPELL_AURA_ADD_PCT_MODIFIER classmask-restricted to Frost Shock (the "next N Frost Shocks deal
+// increased damage" buff, auto-applied/consumed by the engine's generic SpellMod system with no
+// script needed). There is no fourth effect and no separate "energize on next Frost Shock cast"
+// mechanic to reproduce - SPELL_SHAMAN_FROST_SHOCK_ENERGIZE (289439, confirmed absent under any id
+// across three separate 7.3.5 client builds) was chasing a premise the real spell doesn't have.
+// The class's own Validate() already permanently failed on that dependency, so this was already
+// dead code with zero live impact.
 
 // 23551 - Lightning Shield T2 Bonus
 class spell_sha_item_lightning_shield : public AuraScript
@@ -2498,42 +2493,12 @@ class spell_sha_undulation_passive : public AuraScript
     uint8 _castCounter = 1; // first proc happens after two casts, then one every 3 casts
 };
 
-// 33757 - Windfury Weapon
-// FIXME: SPELL_SHAMAN_WINDFURY_ENCHANTMENT (334302) is confirmed absent from Spell.db2 under any
-// id for this build. Left unresolved rather than guessed at.
-class spell_sha_windfury_weapon : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_SHAMAN_WINDFURY_ENCHANTMENT });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->IsPlayer();
-    }
-
-    void HandleEffect(SpellEffIndex effIndex)
-    {
-        PreventHitDefaultEffect(effIndex);
-
-        if (Item* mainHand = GetCaster()->ToPlayer()->GetWeaponForAttack(BASE_ATTACK, false))
-            GetCaster()->CastSpell(mainHand, SPELL_SHAMAN_WINDFURY_ENCHANTMENT, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_FULL_MASK,
-                .TriggeringSpell = GetSpell()
-            });
-    }
-
-    // real Windfury Weapon (33757, confirmed via SpellEffect.db2) EFFECT_0 is
-    // SPELL_EFFECT_APPLY_AURA with AuraName DUMMY - SpellEffectFn/OnEffectHitTarget binds on the
-    // Effect column (APPLY_AURA), not the aura name, so this is a plain type swap (matching the
-    // same idiom already used elsewhere in this session, e.g. Metamorphosis Immunity) rather than
-    // needing an AuraScript restructure.
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_sha_windfury_weapon::HandleEffect, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
-    }
-};
+// 33757 - Windfury Weapon: removed spell_sha_windfury_weapon entirely. Its whole premise - cast
+// onto the weapon item, PreventHitDefaultEffect, substitute a separate "enchantment" spell
+// (334302, confirmed absent) - was wrong. Real 33757's own EFFECT_0 targets self, not the weapon
+// item, and is a plain APPLY_AURA/DUMMY that the engine already applies natively on cast; no
+// script is needed for the cast side at all. See spell_sha_windfury_weapon_proc below for the
+// resulting aura's proc behavior (also bound to 33757, since it's the same self-referential id).
 
 bool WindfuryProcEvent::Execute(uint64 time, uint32 /*diff*/)
 {
@@ -2563,7 +2528,7 @@ void WindfuryProcEvent::Trigger(Unit* shaman, Unit* target)
     shaman->m_Events.AddEventAtOffset(new WindfuryProcEvent(shaman, target, attacks), Sequence.front().Delay);
 }
 
-// 319773 - Windfury Weapon (proc)
+// 33757 - Windfury Weapon (proc, same id as the outer cast - see comment above)
 class spell_sha_windfury_weapon_proc : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -2737,7 +2702,6 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_healing_stream_totem_heal);
     RegisterSpellScript(spell_sha_healing_surge);
     RegisterSpellScript(spell_sha_hot_hand);
-    RegisterSpellScript(spell_sha_icefury);
     RegisterSpellScript(spell_sha_item_lightning_shield);
     RegisterSpellScript(spell_sha_item_lightning_shield_trigger);
     RegisterSpellScript(spell_sha_item_mana_surge);
@@ -2775,7 +2739,6 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_t10_elemental_4p_bonus);
     RegisterSpellScript(spell_sha_t10_restoration_4p_bonus);
     RegisterSpellScript(spell_sha_undulation_passive);
-    RegisterSpellScript(spell_sha_windfury_weapon);
     RegisterSpellScript(spell_sha_windfury_weapon_proc);
     RegisterAreaTriggerAI(areatrigger_sha_wind_rush_totem);
 }

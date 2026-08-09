@@ -53,8 +53,7 @@ enum WarriorSpells
     SPELL_WARRIOR_COLOSSUS_SMASH_AURA               = 208086,
     SPELL_WARRIOR_EXECUTE                           = 163201,
     SPELL_WARRIOR_ENRAGE                            = 184362,
-    SPELL_WARRIOR_FRESH_MEAT_DEBUFF                 = 316044,
-    SPELL_WARRIOR_FRESH_MEAT_TALENT                 = 215568,
+    SPELL_WARRIOR_FRESH_MEAT_TALENT                 = 215568, // real id; Bloodthirst crit-vs-high-health-target bonus not yet implemented, see spell_warr_enrage_proc
     SPELL_WARRIOR_FROTHING_BERSERKER_BUFF           = 215572,
     SPELL_WARRIOR_FURIOUS_SLASH                     = 100130,
     SPELL_WARRIOR_GLYPH_OF_THE_BLAZING_TRAIL        = 123779,
@@ -82,6 +81,7 @@ enum WarriorSpells
     SPELL_WARRIOR_RAVAGER                           = 228920,
     SPELL_WARRIOR_RAVAGER_FURY_PROT                 = 152277,
     SPELL_WARRIOR_RAVAGER_DAMAGE                    = 156287,
+    SPELL_WARRIOR_RAVAGER_PARRY                     = 227744, // real "Ravager" companion spell, native SPELL_AURA_MOD_PARRY_PERCENT (+35%)
     SPELL_WARRIOR_RAVAGER_SUMMON                    = 227876,
     SPELL_WARRIOR_RAVAGER_VISUAL                    = 153709,
     NPC_WARRIOR_RAVAGER                             = 76168,
@@ -546,18 +546,17 @@ class spell_warr_odyns_fury : public AuraScript
 };
 
 // 184361 - Enrage
+// Fresh Meat special-casing removed from CheckProc/HandleProc: real Fresh Meat (215568, confirmed
+// via build-pinned 7.3.5.26972 data) is "Bloodthirst has +60% increased critical strike chance
+// against targets above 80% health" - a plain target-health-conditional crit bonus, with zero
+// mention of guaranteed Enrage procs or per-target tracking. The removed logic (gating Bloodthirst's
+// Enrage proc on a per-target debuff, SPELL_WARRIOR_FRESH_MEAT_DEBUFF/316044, confirmed absent from
+// this build) was modeling a different mechanic entirely - not a missing-id problem, a wrong-
+// mechanic one. Real Fresh Meat's own 2 effects are both SPELL_AURA_DUMMY (base points 60/80,
+// self-target) - it needs its own script (a Bloodthirst crit-chance hook conditional on target
+// health%), completely separate from Enrage's proc logic, not yet implemented.
 class spell_warr_enrage_proc : public AuraScript
 {
-    // FIXME: SPELL_WARRIOR_FRESH_MEAT_DEBUFF (316044) is confirmed absent from this build - real
-    // Fresh Meat (215568, SPELL_WARRIOR_FRESH_MEAT_TALENT) tooltip is a plain conditional crit%
-    // bonus for Bloodthirst, with no mention of a guaranteed-proc-once-per-target debuff mechanic.
-    // The Fresh Meat special casing below may be modeling a mechanic that doesn't match the real
-    // ability - left in place but unresolved rather than guess a replacement debuff id.
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_WARRIOR_FRESH_MEAT_TALENT });
-    }
-
     static bool IsBloodthirst(SpellInfo const* spellInfo)
     {
         // Bloodthirst/Bloodbath
@@ -575,30 +574,7 @@ class spell_warr_enrage_proc : public AuraScript
         if (!spellInfo)
             return false;
 
-        if (IsRampage(spellInfo))
-            return true;
-
-        if (!IsBloodthirst(spellInfo))
-            return false;
-
-        // Fresh Meat talent handling
-        if (Unit const* actor = eventInfo.GetActor())
-        {
-            if (actor->HasAura(SPELL_WARRIOR_FRESH_MEAT_TALENT))
-            {
-                Spell const* procSpell = eventInfo.GetProcSpell();
-                if (!procSpell)
-                    return false;
-
-                Unit const* target = procSpell->m_targets.GetUnitTarget();
-                if (!target)
-                    return false;
-
-                return !target->HasAura(SPELL_WARRIOR_FRESH_MEAT_DEBUFF, actor->GetGUID());
-            }
-        }
-
-        return true;
+        return IsRampage(spellInfo) || IsBloodthirst(spellInfo);
     }
 
     void HandleProc(ProcEventInfo const& eventInfo)
@@ -611,23 +587,6 @@ class spell_warr_enrage_proc : public AuraScript
             .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
             .TriggeringSpell = eventInfo.GetProcSpell()
         });
-
-        // Fresh Meat talent handling
-        if (auraTarget->HasAura(SPELL_WARRIOR_FRESH_MEAT_TALENT))
-        {
-            Spell const* procSpell = eventInfo.GetProcSpell();
-            if (!procSpell)
-                return;
-
-            if (!IsBloodthirst(procSpell->GetSpellInfo()))
-                return;
-
-            if (Unit* bloodthirstTarget = procSpell->m_targets.GetUnitTarget())
-                if (!bloodthirstTarget->HasAura(SPELL_WARRIOR_FRESH_MEAT_DEBUFF, auraTarget->GetGUID()))
-                    auraTarget->CastSpell(bloodthirstTarget, SPELL_WARRIOR_FRESH_MEAT_DEBUFF, CastSpellExtraArgsInit{
-                        .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR
-                    });
-        }
     }
 
     // The bound spell (184361, "Enrage" trigger container) has zero rows in SpellEffect.db2 for
@@ -1151,13 +1110,21 @@ class spell_warr_ravager_fury_prot : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_WARRIOR_RAVAGER_SUMMON });
+        return ValidateSpellInfo({ SPELL_WARRIOR_RAVAGER_SUMMON, SPELL_WARRIOR_RAVAGER_PARRY });
     }
 
     void HandleDummy(SpellEffIndex /*effIndex*/)
     {
+        Unit* caster = GetCaster();
         if (WorldLocation* dest = GetHitDest())
-            GetCaster()->CastSpell(*dest, SPELL_WARRIOR_RAVAGER_SUMMON, true);
+            caster->CastSpell(*dest, SPELL_WARRIOR_RAVAGER_SUMMON, true);
+
+        // real 152277's own tooltip conditionally grants a separate Parry-chance buff (227744, a
+        // native SPELL_AURA_MOD_PARRY_PERCENT) gated on the caster being Protection spec (137048,
+        // "Protection Warrior" marker) - confirmed via build-pinned 7.3.5.26972 SpellEffect data
+        if (Player* player = caster->ToPlayer())
+            if (player->GetPrimarySpecialization() == ChrSpecialization::WarriorProtection)
+                caster->CastSpell(caster, SPELL_WARRIOR_RAVAGER_PARRY, true);
     }
 
     void Register() override
@@ -1171,13 +1138,6 @@ class spell_warr_ravager_fury_prot_aura : public AuraScript
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellInfo({ SPELL_WARRIOR_RAVAGER_DAMAGE });
-    }
-
-    void CalculateParryPct(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/) const
-    {
-        Player* player = Object::ToPlayer(GetCaster());
-        if (!player || player->GetPrimarySpecialization() != ChrSpecialization::WarriorProtection)
-            amount = 0;
     }
 
     void OnTick(AuraEffect const* aurEff) const
@@ -1199,11 +1159,12 @@ class spell_warr_ravager_fury_prot_aura : public AuraScript
         }
     }
 
-    // FIXME: real 152277 EFFECT_0 (confirmed via SpellEffect.db2) is a plain SPELL_AURA_DUMMY, not
-    // SPELL_AURA_MOD_PARRY_PERCENT - the spec-gated parry% bonus this hook implements has no
-    // matching real effect to attach to, so it's left unregistered rather than bound to the wrong
-    // aura type. EFFECT_2/EFFECT_3 (OnTick's PERIODIC_DUMMY and tick-count read) are confirmed
-    // correct as-is.
+    // Parry-chance bonus removed from here entirely: real 152277 EFFECT_0 is a plain SPELL_AURA_DUMMY,
+    // not SPELL_AURA_MOD_PARRY_PERCENT, so there's no real effect on this spell for a CalcAmount
+    // hook to attach to. The actual mechanic is a separate cast (SPELL_WARRIOR_RAVAGER_PARRY/227744,
+    // a native MOD_PARRY_PERCENT aura), now handled in spell_warr_ravager_fury_prot::HandleDummy
+    // above where the whirling-weapon summon is also cast. EFFECT_2/EFFECT_3 (OnTick's
+    // PERIODIC_DUMMY and tick-count read) are confirmed correct as-is.
     void Register() override
     {
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_warr_ravager_fury_prot_aura::OnTick, EFFECT_2, SPELL_AURA_PERIODIC_DUMMY);

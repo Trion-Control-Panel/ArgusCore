@@ -38,8 +38,6 @@
 enum MageSpells
 {
     SPELL_MAGE_ARCANE_BARRAGE                    = 44425,
-    SPELL_MAGE_ARCANE_BARRAGE_ENERGIZE           = 321529,
-    SPELL_MAGE_ARCANE_BARRAGE_R3                 = 321526,
     SPELL_MAGE_ARCANE_BARRAGE_TRIGGERED          = 241241,
     SPELL_MAGE_ENHANCED_PYROTECHNICS_AURA        = 157644,
     SPELL_MAGE_ARCANE_BLAST                      = 30451,
@@ -206,12 +204,12 @@ class spell_mage_arcane_barrier : public AuraScript
 };
 
 // 44425 - Arcane Barrage
+// Rank 3 mana-refund removed: confirmed Shadowlands 9.0.2 content, didn't exist in Legion 7.3.5.
 class spell_mage_arcane_barrage : public SpellScript
 {
     bool Validate(SpellInfo const* spellInfo) override
     {
-        return ValidateSpellInfo({ SPELL_MAGE_ARCANE_BARRAGE_R3, SPELL_MAGE_ARCANE_BARRAGE_ENERGIZE })
-            && ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 } });
+        return ValidateSpellEffect({ { spellInfo->Id, EFFECT_1 } });
     }
 
     void ConsumeArcaneCharges()
@@ -219,9 +217,7 @@ class spell_mage_arcane_barrage : public SpellScript
         Unit* caster = GetCaster();
 
         // Consume all arcane charges
-        if (int32 arcaneCharges = -caster->ModifyPower(POWER_ARCANE_CHARGES, -caster->GetMaxPower(POWER_ARCANE_CHARGES), false))
-            if (AuraEffect const* auraEffect = caster->GetAuraEffect(SPELL_MAGE_ARCANE_BARRAGE_R3, EFFECT_0, caster->GetGUID()))
-                caster->CastSpell(caster, SPELL_MAGE_ARCANE_BARRAGE_ENERGIZE, { SPELLVALUE_BASE_POINT0, arcaneCharges * auraEffect->GetAmount() / 100 });
+        caster->ModifyPower(POWER_ARCANE_CHARGES, -caster->GetMaxPower(POWER_ARCANE_CHARGES), false);
     }
 
     void HandleEffectHitTarget(SpellEffIndex /*effIndex*/)
@@ -967,7 +963,8 @@ class spell_mage_firestarter : public SpellScript
     }
 };
 
-// 321712 - Pyroblast
+// 12654 - Ignite (rebound from a stale/absent "321712 - Pyroblast" reference; Pyroblast has no
+// periodic damage effect, Ignite matches this class's EFFECT_ALL/SPELL_AURA_PERIODIC_DAMAGE hook)
 class spell_mage_firestarter_dots : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override

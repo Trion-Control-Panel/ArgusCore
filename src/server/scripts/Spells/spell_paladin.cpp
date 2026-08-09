@@ -102,8 +102,6 @@ enum PaladinSpells
     SPELL_PALADIN_HOLY_SHOCK_DAMAGE              = 25912,
     SPELL_PALADIN_HOLY_SHOCK_HEALING             = 25914,
     SPELL_PALADIN_HOLY_LIGHT                     = 82326,
-    SPELL_PALADIN_INFUSION_OF_LIGHT_AURA         = 54149,
-    SPELL_PALADIN_INFUSION_OF_LIGHT_ENERGIZE     = 356717,
     SPELL_PALADIN_IMMUNE_SHIELD_MARKER           = 61988, // Serverside
     SPELL_PALADIN_ITEM_HEALING_TRANCE            = 37706,
     SPELL_PALADIN_JUDGMENT                       = 20271,
@@ -1076,50 +1074,23 @@ private:
     }
 };
 
-// 54149 - Infusion of Light
-// FIXME: real 54149 (confirmed via SpellEffect.db2) only has 2 effects, not 3 - EFFECT_0 is
-// ADD_FLAT_MODIFIER with a classmask matching Holy Light (the HolyLightSpellClassMask below),
-// EFFECT_1 is ADD_PCT_MODIFIER with a different classmask - there is no third DUMMY effect at all,
-// so the "proc -> cast SPELL_PALADIN_INFUSION_OF_LIGHT_ENERGIZE" mechanism this class implements
-// has nothing to trigger from (and that energize spell, 356717, is itself confirmed absent from
-// this build). Real Infusion of Light here looks like a plain passive dual stat-modifier buff with
-// no separate energize step, which the two ADD_*_MODIFIER auras may already apply natively via the
-// SpellMod system - needs verification against what those two modifiers actually target
-// (EffectMiscValue) before rewriting, not a hook-index fix. Left unresolved.
-class spell_pal_infusion_of_light : public AuraScript
-{
-    static constexpr flag128 HolyLightSpellClassMask = { 0, 0, 0x400 };
-
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_PALADIN_INFUSION_OF_LIGHT_ENERGIZE });
-    }
-
-    bool CheckFlashOfLightProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
-    {
-        return eventInfo.GetProcSpell() && eventInfo.GetProcSpell()->m_appliedMods.find(GetAura()) != eventInfo.GetProcSpell()->m_appliedMods.end();
-    }
-
-    bool CheckHolyLightProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
-    {
-        return eventInfo.GetSpellInfo() && eventInfo.GetSpellInfo()->IsAffected(SPELLFAMILY_PALADIN, HolyLightSpellClassMask);
-    }
-
-    void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& eventInfo)
-    {
-        eventInfo.GetActor()->CastSpell(eventInfo.GetActor(), SPELL_PALADIN_INFUSION_OF_LIGHT_ENERGIZE,
-            CastSpellExtraArgs(TRIGGERED_FULL_MASK).SetTriggeringSpell(eventInfo.GetProcSpell()));
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_infusion_of_light::CheckFlashOfLightProc, EFFECT_0, SPELL_AURA_ADD_PCT_MODIFIER);
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_infusion_of_light::CheckFlashOfLightProc, EFFECT_2, SPELL_AURA_ADD_FLAT_MODIFIER);
-
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_infusion_of_light::CheckHolyLightProc, EFFECT_1, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_pal_infusion_of_light::HandleProc, EFFECT_1, SPELL_AURA_DUMMY);
-    }
-};
+// 54149 - Infusion of Light: removed spell_pal_infusion_of_light entirely. Re-confirmed via
+// build-pinned (7.3.5.26972) data: real 54149 has exactly 2 effects - EFFECT_0 is
+// ADD_FLAT_MODIFIER (-1.5 sec cast time, classmask Holy Light) and EFFECT_1 is ADD_PCT_MODIFIER
+// (+50% healing, classmask Flash of Light) - matching its own tooltip word for word ("Reduces the
+// cast time of your next Holy Light by 1.5 sec or increases the healing of your next Flash of
+// Light by 50%"). Both are plain classmask-restricted SpellMods, auto-applied and auto-consumed by
+// the engine's generic SpellMod system the moment Holy Light/Flash of Light are next cast - no
+// script needed for that side at all (same idiom as spell_sha_hailstorm elsewhere in this
+// codebase). The class's "proc on Flash of Light/Holy Light cast -> cast an energize spell" premise
+// doesn't match this at all, and its target energize spell (356717) is confirmed post-Legion
+// (added patch 9.1.0, "Give Power: Holy Power" - an unrelated Shadowlands mechanic).
+// FIXME (still open): this only covers the buff's own consumption, which is native. What actually
+// grants 54149 in the first place - a Holy Shock/Holy Radiance critical heal, per Legion's real
+// Infusion of Light design - has no implementation anywhere in this file. Checked Holy Shock
+// Healing's (25914) own SpellEffect/SpellAuraOptions data: a plain single-effect heal, no native
+// crit-trigger link to 54149. Needs its own dedicated investigation (exact grant condition/chance,
+// and whether Holy Radiance is also a trigger) rather than a guessed proc hook.
 
 // 20271/275779/275773 - Judgement (Retribution/Protection/Holy)
 class spell_pal_judgment : public SpellScript
@@ -1905,10 +1876,13 @@ class spell_pal_aura_of_sacrifice : public AuraScript
 
     void Register() override
     {
-        // FIXME: real Aura of Sacrifice (183416) EFFECT_0 is SPELL_AURA_AREA_TRIGGER, not
-        // PERIODIC_DUMMY (5 effects total: AREA_TRIGGER, APPLY_AREA_AURA_PARTY, 2 DUMMYs, and a
-        // SCHOOL_ABSORB at EFFECT_4) - this looks like a modern areatrigger-driven redesign, not
-        // a simple index swap. Left unresolved.
+        // Real Aura of Sacrifice (183416, re-confirmed via build-pinned 7.3.5.26972 data) has 5
+        // effects including a native AREA_TRIGGER, not this class's PERIODIC_DUMMY hook - a
+        // modern areatrigger-driven redesign, not a simple index swap. That mismatch only affects
+        // this class's job (periodically finding which nearby allies currently qualify, standing
+        // in for the missing AreaTrigger); the actual damage transfer is a separate, correctly
+        // event-based hook (spell_pal_aura_of_sacrifice_ally::Absorb, via OnEffectAbsorb below) -
+        // fires per damage event, not per tick, so it isn't affected by this index mismatch.
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_pal_aura_of_sacrifice::HandleEffectPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
@@ -2150,7 +2124,6 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_grand_crusader);
     RegisterSpellScript(spell_pal_hammer_of_the_righteous);
     RegisterSpellScript(spell_pal_hand_of_sacrifice);
-    RegisterSpellScript(spell_pal_infusion_of_light);
     RegisterSpellScript(spell_pal_judgment);
     RegisterSpellScript(spell_pal_judgment_of_light);
     RegisterSpellScript(spell_pal_judgment_of_light_proc);

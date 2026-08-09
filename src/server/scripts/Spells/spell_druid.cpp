@@ -100,7 +100,6 @@ enum DruidSpells
     SPELL_DRUID_INCARNATION_KING_OF_THE_JUNGLE = 102543,
     SPELL_DRUID_INCARNATION_TREE_OF_LIFE       = 33891,
     SPELL_DRUID_INNERVATE                      = 29166,
-    SPELL_DRUID_INNERVATE_RANK_2               = 326228,
     SPELL_DRUID_INFUSION                       = 37238,
     SPELL_DRUID_KILLER_INSTINCT                = 108299,
     SPELL_DRUID_KILLER_INSTINCT_MOD_STAT       = 108300,
@@ -911,22 +910,14 @@ class spell_dru_innervate : public SpellScript
         return SPELL_CAST_OK;
     }
 
-    void HandleRank2()
-    {
-        Unit* caster = GetCaster();
-        if (caster != GetHitUnit())
-            if (AuraEffect const* innervateR2 = caster->GetAuraEffect(SPELL_DRUID_INNERVATE_RANK_2, EFFECT_0))
-                caster->CastSpell(caster, SPELL_DRUID_INNERVATE,
-                    CastSpellExtraArgs(TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_CAST_IN_PROGRESS)
-                    .SetTriggeringSpell(GetSpell())
-                    .AddSpellMod(SPELLVALUE_BASE_POINT0, -innervateR2->GetAmount()));
-
-    }
+    // HandleRank2 removed: gated on SPELL_DRUID_INNERVATE_RANK_2 (326228), confirmed post-Legion
+    // content (real 326228's description - "If you cast Innervate on somebody else, you gain its
+    // effect at X% effectiveness" - is a later-expansion talent, absent from 7.3.5.26972 client
+    // data). Legion Innervate has no self-benefit-on-others-cast mechanic.
 
     void Register() override
     {
         OnCheckCast += SpellCheckCastFn(spell_dru_innervate::CheckCast);
-        OnHit += SpellHitFn(spell_dru_innervate::HandleRank2);
     }
 };
 
@@ -1550,7 +1541,14 @@ class spell_dru_shooting_stars : public AuraScript
             && sSpellMgr->AssertSpellInfo(SPELL_DRUID_SUNFIRE_DAMAGE, DIFFICULTY_NONE)->GetEffect(EFFECT_1).IsAura(SPELL_AURA_PERIODIC_DAMAGE);
     }
 
-    void OnTick(AuraEffect const* aurEff) const
+    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo) const
+    {
+        SpellInfo const* procSpell = eventInfo.GetSpellInfo();
+        return eventInfo.GetDamageInfo() && procSpell &&
+            (procSpell->Id == SPELL_DRUID_MOONFIRE_DAMAGE || procSpell->Id == SPELL_DRUID_SUNFIRE_DAMAGE);
+    }
+
+    void HandleProc(AuraEffect* aurEff, ProcEventInfo& /*eventInfo*/)
     {
         Unit* caster = GetTarget();
         std::vector<Unit*> moonfires;
@@ -1592,11 +1590,16 @@ class spell_dru_shooting_stars : public AuraScript
 
     void Register() override
     {
-        // FIXME: real Shooting Stars (202342) EFFECT_0 is a plain SPELL_AURA_DUMMY (no amplitude
-        // set) - not periodic at all in this build, so OnEffectPeriodic can never fire regardless
-        // of aura-type match. The real trigger (likely proc-based, off Moonfire/Sunfire ticks) is
-        // not confirmed from local data; left unresolved rather than guess the wrong hook type.
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dru_shooting_stars::OnTick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+        // Real Shooting Stars (202342) EFFECT_0 is a plain SPELL_AURA_DUMMY - confirmed via
+        // build-pinned (7.3.5.26972) SpellEffect data: EffectAmplitude/EffectAuraPeriod are both 0,
+        // so it is not periodic at all in this build, and OnEffectPeriodic could never fire
+        // regardless of aura-type match. Its own tooltip ("Moonfire and Sunfire damage over time
+        // has a $s1% chance to call down a falling star...") confirms the real trigger is a proc
+        // off Moonfire/Sunfire's own periodic damage ticks, not an independent timer - rewired to
+        // DoCheckEffectProc/OnEffectProc accordingly, gated on the proc event being a Moonfire or
+        // Sunfire periodic-damage tick.
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dru_shooting_stars::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_dru_shooting_stars::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 

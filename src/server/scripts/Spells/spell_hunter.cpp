@@ -101,7 +101,7 @@ enum HunterSpells
     SPELL_HUNTER_SERPENT_STING                      = 87935,
     SPELL_HUNTER_SERPENT_STING_DAMAGE               = 118253,
     SPELL_HUNTER_STEADY_SHOT                        = 56641,
-    SPELL_HUNTER_STEADY_SHOT_FOCUS                  = 77443,
+    SPELL_HUNTER_STEADY_SHOT_FOCUS                  = 77443, // confirmed absent from Legion 7.3.5, no real id found
     SPELL_HUNTER_STICKY_BOMB_PROC                   = 191244,
     SPELL_HUNTER_T9_4P_GREATNESS                    = 68130,
     SPELL_HUNTER_TAR_TRAP                           = 187699,
@@ -472,15 +472,14 @@ class spell_hun_chimaera_shot : public SpellScript
 // either, so nothing to unbind.
 
 // 5116 - Concussive Shot (attached to 193455 - Cobra Shot and 56641 - Steady Shot)
-// FIXME: SPELL_HUNTER_STEADY_SHOT (56641) is confirmed absent from this build (ValidateSpellEffect
-// reports it doesn't exist at all, not just missing an effect) - checked 8 different "Steady Shot"
-// name candidates in logs/Spell.csv across the WoD/Legion id range, none confirmed as a structural
-// match. Real Cobra Shot (193455, confirmed via SpellEffect.db2) has 2 effects -
-// SPELL_EFFECT_NORMALIZED_WEAPON_DMG (EFFECT_0) and SPELL_EFFECT_WEAPON_PERCENT_DAMAGE (EFFECT_1) -
-// neither is SCHOOL_DAMAGE, so the hook below is retargeted to the real weapon-damage effect type;
-// that half of this shared script is now fixed. The Steady Shot dependency is guarded instead of
-// blocking Validate() entirely, so Cobra Shot's half works even though Steady Shot's remains
-// unresolved.
+// SPELL_HUNTER_STEADY_SHOT (56641) is confirmed absent from Legion 7.3.5 - re-verified across three
+// separate 7.3.5 client builds (26365, 26654, 26972) spanning the whole patch, not just one
+// snapshot; genuinely never existed under this id in Legion. Real Cobra Shot (193455, confirmed via
+// SpellEffect.db2) has 2 effects - SPELL_EFFECT_NORMALIZED_WEAPON_DMG (EFFECT_0) and
+// SPELL_EFFECT_WEAPON_PERCENT_DAMAGE (EFFECT_1) - neither is SCHOOL_DAMAGE, so the hook below is
+// retargeted to the real weapon-damage effect type; that half of this shared script works. The
+// Steady Shot dependency is guarded instead of blocking Validate() entirely, so Cobra Shot's half
+// works even though Steady Shot's has no real id to bind to.
 class spell_hun_concussive_shot : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
