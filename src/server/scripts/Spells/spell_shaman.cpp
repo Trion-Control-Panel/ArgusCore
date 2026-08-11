@@ -542,11 +542,10 @@ class spell_sha_chain_lightning_energize : public SpellScript
         SpellInfo const* energizeSpell = sSpellMgr->AssertSpellInfo(SPELL_SHAMAN_CHAIN_LIGHTNING_ENERGIZE, GetCastDifficulty());
         int32 perTarget = energizeSpell->GetEffect(EFFECT_0).CalcValue(caster);
 
-        caster->CastSpell(caster, SPELL_SHAMAN_CHAIN_LIGHTNING_ENERGIZE, CastSpellExtraArgsInit{
+        caster->CastSpell(caster, SPELL_SHAMAN_CHAIN_LIGHTNING_ENERGIZE, CastSpellExtraArgs(CastSpellExtraArgsInit{
             .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell(),
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, perTarget * GetUnitTargetCountForEffect(EFFECT_0) } }
-        });
+            .TriggeringSpell = GetSpell()
+        }).AddSpellMod(SPELLVALUE_BASE_POINT0, perTarget * GetUnitTargetCountForEffect(EFFECT_0)));
     }
 
     void Register() override
@@ -578,11 +577,10 @@ class spell_sha_chain_lightning_overload : public SpellScript
         SpellInfo const* energizeSpell = sSpellMgr->AssertSpellInfo(SPELL_SHAMAN_CHAIN_LIGHTNING_OVERLOAD_ENERGIZE, GetCastDifficulty());
         int32 perTarget = energizeSpell->GetEffect(EFFECT_0).CalcValue(caster);
 
-        caster->CastSpell(caster, SPELL_SHAMAN_CHAIN_LIGHTNING_OVERLOAD_ENERGIZE, CastSpellExtraArgsInit{
+        caster->CastSpell(caster, SPELL_SHAMAN_CHAIN_LIGHTNING_OVERLOAD_ENERGIZE, CastSpellExtraArgs(CastSpellExtraArgsInit{
             .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell(),
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, perTarget * GetUnitTargetCountForEffect(EFFECT_0) } }
-        });
+            .TriggeringSpell = GetSpell()
+        }).AddSpellMod(SPELLVALUE_BASE_POINT0, perTarget * GetUnitTargetCountForEffect(EFFECT_0)));
     }
 
     void Register() override
