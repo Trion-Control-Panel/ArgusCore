@@ -1130,8 +1130,21 @@ class spell_dh_fel_rush_dash : public SpellScript
 
     void Register() override
     {
+        // EFFECT_6 is SPELL_EFFECT_TRIGGER_SPELL targeting real spell 197707, which is confirmed
+        // absent from this build's client data entirely (zero rows in Spell.db2/SpellEffect.db2 -
+        // cross-checked against two other Legion 7.3.5 spell databases, both independently unable
+        // to resolve it either) - genuinely dangling data in the real client itself, not a local
+        // gap, so there's nothing to restore here; just silencing the resulting "tried to trigger
+        // unknown spell" error.
+        // Spell::EffectTriggerSpell only ever runs during SPELL_EFFECT_HANDLE_LAUNCH or
+        // _LAUNCH_TARGET (Spell::HandleEffects gates on effectHandleMode) - Spell::HandleLaunchPhase
+        // calls both independently (a spell-wide LAUNCH pass over every effect, then a *separate*
+        // per-target LAUNCH_TARGET pass via DoEffectOnLaunchTarget, which still runs for a
+        // self-only spell since the caster is its own sole target). OnEffectHit hooked
+        // SPELL_EFFECT_HANDLE_HIT, a mode EffectTriggerSpell never even checks - dead code, not
+        // actually preventing anything. Need both LAUNCH and LAUNCH_TARGET covered.
         OnEffectLaunch += SpellEffectFn(spell_dh_fel_rush_dash::PreventTrigger, EFFECT_6, SPELL_EFFECT_TRIGGER_SPELL);
-        OnEffectHit += SpellEffectFn(spell_dh_fel_rush_dash::PreventTrigger, EFFECT_6, SPELL_EFFECT_TRIGGER_SPELL);
+        OnEffectLaunchTarget += SpellEffectFn(spell_dh_fel_rush_dash::PreventTrigger, EFFECT_6, SPELL_EFFECT_TRIGGER_SPELL);
     }
 };
 

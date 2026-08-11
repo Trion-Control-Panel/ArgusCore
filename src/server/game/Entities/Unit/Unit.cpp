@@ -8602,6 +8602,17 @@ void Unit::UpdateSpeed(UnitMoveType mtype)
                 // of inventing a second, conflicting formula - still guarantees the forced-movement
                 // minimum burst speed, but no longer clamps out player/other-buff contributions
                 // that would otherwise push speed higher.
+                //
+                // 373 and aura 437 SPELL_AURA_MOD_MINIMUM_SPEED_RATE used to be mutually exclusive
+                // (if/else if) here, inherited from the original speed-lock commit. That's wrong:
+                // real Fel Rush (197923, confirmed via build-pinned SpellEffect.db2) carries BOTH
+                // at once with genuinely different values - 373 = 650 (EFFECT_1) but 437 = 66
+                // (EFFECT_9, an absolute yards/sec value paired with aura 191's matching 66-value
+                // speed cap on EFFECT_4, together pinning speed at a precise ~943%). With 373
+                // present and taking priority, 437's real, larger floor never even ran, silently
+                // capping Fel Rush well below its intended speed. Made both independent floors -
+                // same "apply, take whichever is largest" shape aura 305 already uses below,
+                // unconditionally.
                 if (int32 lockedSpeedMod = GetMaxPositiveAuraModifier(SPELL_AURA_MOD_SPEED_NO_CONTROL))
                 {
                     float minSpeed = lockedSpeedMod / 100.0f;
@@ -8609,7 +8620,7 @@ void Unit::UpdateSpeed(UnitMoveType mtype)
                         speed = minSpeed;
                 }
                 // force minimum speed rate @ aura 437 SPELL_AURA_MOD_MINIMUM_SPEED_RATE
-                else if (int32 minSpeedMod = GetMaxPositiveAuraModifier(SPELL_AURA_MOD_MINIMUM_SPEED_RATE))
+                if (int32 minSpeedMod = GetMaxPositiveAuraModifier(SPELL_AURA_MOD_MINIMUM_SPEED_RATE))
                 {
                     float minSpeed = minSpeedMod / (IsControlledByPlayer() ? playerBaseMoveSpeed[mtype] : baseMoveSpeed[mtype]);
                     if (speed < minSpeed)
