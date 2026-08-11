@@ -1,29 +1,4 @@
--- Correct gameobject_template entry 188187, whose `type` column does not match the genuine
--- Legion 7.3.5 content for that entry (not just a single Data field).
---
--- Worldserver logs "Gameobject (Entry: 188192 GoType: 3) have data7=188187 but GO (Entry 188187)
--- have not GAMEOBJECT_TYPE_TRAP (6) type." GO 188192 ("Ice Chest", type 3/CHEST, Data7=188187) is
--- untouched here - both reference cores (DestinyCore's and AshamaneCore's full 7.3.5
--- build-735.02 world DB dumps) confirm its Data7=188187 is correct AND, critically, that GO
--- 188192 itself is present locally with the exact same type/Data7 the references show (that's
--- what triggered this specific error in the first place - the loader already has a valid,
--- reference-matching 188192 row to check 188187 against). The bug is on 188187's side: both cores
--- show entry 188187 as "Snow Pile", type 6 (TRAP), displayId 5333, size 4, all Data fields 0,
--- VerifiedBuild 15595 - a linked trap for the chest, exactly what CheckGOLinkedTrapId expects.
--- Whatever type 188187 currently has locally, it is not 6, which is what's producing the error;
--- restoring the full corroborated row (guarded so it only fires while the type mismatch is
--- actually present).
---
--- This is why 188187 is restored here while entry 73 and entry 202750 (see the "NOT fixed" note
--- in 2026_08_10_01_world.sql) are not, even though all three show a reference-core `type` that
--- differs from what's loaded locally: 188187/188192 form a cross-referencing PAIR where the
--- still-matching half (188192) confirms the reference data describes the same relationship the
--- local DB is trying to express (a chest with a linked trap) - there's no plausible alternate
--- reading. Entries 73 and 202750 are single, standalone rows with no such second data point tying
--- the reference content to what's locally intended, so a type mismatch there is genuinely
--- ambiguous between "local data corrupted" and "id reused for different content since the
--- reference dump was made" - see 2026_08_10_01_world.sql for the full reasoning on both,
--- including concrete evidence for 202750 that the second reading is what actually happened there.
+-- See ARGUSCORE_FIXES.md > DB Startup Error Log Triage > GameObject/NPCText referential-integrity errors (2026-08-10 startup log batch)
 
 UPDATE `gameobject_template` SET
     `type`=6, `displayId`=5333, `name`='Snow Pile', `IconName`='', `castBarCaption`='', `unk1`='',

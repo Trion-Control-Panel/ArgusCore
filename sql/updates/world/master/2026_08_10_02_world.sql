@@ -1,34 +1,4 @@
--- Correct gameobject_template SpellFocus (type 8/GAMEOBJECT_TYPE_SPELL_FOCUS) references that
--- pointed at SpellFocus ids not present in Legion 7.3.5. `spell_focus_object` is a
--- HotfixDatabase-backed mirror of the client's SpellFocusObject.db2 (see HotfixDatabase.cpp
--- HOTFIX_SEL_SPELL_FOCUS_OBJECT / DB2Stores.cpp sSpellFocusObjectStore), not a world-DB table -
--- so as with the lock fixes in 2026_08_10_01_world.sql, there is no "spell_focus_object" row to
--- restore; the corruption is on the gameobject_template side.
---
--- Checked against wago.tools's SpellFocusObject.db2 export pinned to build 7.3.5.26972: id 2061
--- exists unpinned only as "8.1 SoS Pre Raid - Void Stone Cast - KAP" (BfA 8.1 dev/PTR content)
--- and returns nothing when pinned to this build; id 5708584 likewise returns nothing pinned
--- (the pinned SpellFocusObject.db2 table tops out at id 1930). Neither is genuine Legion 7.3.5
--- data, matching the pattern already established for the Lock ids in the companion migration.
---
--- Group A - entries 126337, 126338, 126339, 126340, 126341, 126342, 126345, 151951, 191300:
---   DestinyCore and AshamaneCore (both full 7.3.5 build-735.02 dumps) carry BYTE-IDENTICAL
---   gameobject_template rows for all 9 entries, type 8 (matches what's locally loaded, so this
---   is confirmed to be the same object, not id-space reuse), with Data0=4 in every single one -
---   never 2061. SpellFocus id 4 is "Cooking Fire" per wago.tools's build-7.3.5.26972-pinned
---   SpellFocusObject.db2 export, genuinely present at this build - a plausible "Fire" spell
---   focus reused across several cooking/totem-carving props (one is literally named
---   "Idol Oven Fire"). Local data0=2061 is corrupted; restoring to the corroborated value 4.
---
--- Group B - entries 210791, 210792, 210793, 210794 ("Doodad_UndeadCampFire29/30/31/32"):
---   DestinyCore and AshamaneCore both show these as type 0 (GAMEOBJECT_TYPE_DOOR), NOT type 8 -
---   plain decorative campfire doodads with Data0=0 and no spell-focus relationship at all. This
---   is a bigger corruption than Group A (the `type` column itself was flipped to 8 locally, not
---   just data0), but it's still 2/2-corroborated byte-identical between both primary references,
---   so it's restored as a full row correction rather than left unresolved. Reference row (both
---   cores, e.g. entry 210791): (210791,0,396,'Doodad_UndeadCampFire29','','','',1.33,0,10,
---   0,0,...,0,'','',17538) - displayId 396, size 1.33, Data0=0, Data1=10, all other Data
---   fields 0, VerifiedBuild 17538.
+-- See ARGUSCORE_FIXES.md > DB Startup Error Log Triage > GameObject/NPCText referential-integrity errors (2026-08-10 startup log batch)
 
 UPDATE `gameobject_template` SET `Data0`=4 WHERE `type`=8 AND `Data0`=2061 AND `entry` IN
     (126337,126338,126339,126340,126341,126342,126345,151951,191300);
