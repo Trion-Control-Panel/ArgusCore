@@ -4216,44 +4216,6 @@ class spell_item_crazy_alchemists_potion : public SpellScript
     }
 };
 
-enum Eggnog
-{
-    SPELL_EGG_NOG_REINDEER    = 21936,
-    SPELL_EGG_NOG_SNOWMAN     = 21980,
-};
-
-// 21149 - Egg Nog
-// FIXME: real 21149 (confirmed via SpellEffect.db2, and cross-checked against its own tooltip
-// text) has only two effects at all: EFFECT_0 = APPLY_AURA/MOD_REGEN (flat health-over-time
-// while eating) and EFFECT_1 = APPLY_AURA/PERIODIC_TRIGGER_SPELL (grants the Well Fed buff,
-// 19705). There is no EFFECT_2 and no SPELL_EFFECT_INEBRIATE at all in this build's data, so
-// this reindeer/snowman transform-on-drink hook can never fire. No reference core under logs/
-// (DestinyCore/AshamaneCore/LegionCore-7.3.5/-V2) implements spell_item_eggnog either, so there's
-// no corroborating precedent to port from. Not removed outright since 21149 isn't later-expansion
-// content (it's real, just apparently redesigned away from the old inebriate mechanic) - left
-// unresolved rather than guess. (Note: an earlier pass mistakenly associated this script with
-// spell id 68614 - that id actually belongs to boss_apothecary_hummel's "Concentrated Irresistible
-// Cologne Spill" (spell_apothecary_cologne_spill), not Egg Nog; likely a Server.log adjacent-line
-// mixup, same pattern documented for spell_gen_battleground_mercenary_shapeshift.)
-class spell_item_eggnog : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_EGG_NOG_REINDEER, SPELL_EGG_NOG_SNOWMAN});
-    }
-
-    void HandleScript(SpellEffIndex /* effIndex */)
-    {
-        if (roll_chance_i(40))
-            GetCaster()->CastSpell(GetHitUnit(), roll_chance_i(50) ? SPELL_EGG_NOG_REINDEER : SPELL_EGG_NOG_SNOWMAN, GetCastItem());
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_item_eggnog::HandleScript, EFFECT_2, SPELL_EFFECT_INEBRIATE);
-    }
-};
-
 enum SephuzsSecret
 {
     SPELL_SEPHUZS_SECRET_COOLDOWN = 226262
@@ -4790,7 +4752,6 @@ void AddSC_item_spell_scripts()
 
     RegisterSpellScript(spell_item_mad_alchemists_potion);
     RegisterSpellScript(spell_item_crazy_alchemists_potion);
-    RegisterSpellScript(spell_item_eggnog);
 
     RegisterSpellScript(spell_item_sephuzs_secret);
     RegisterSpellScript(spell_item_amalgams_seventh_spine);

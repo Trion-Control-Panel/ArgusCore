@@ -1847,43 +1847,37 @@ class spell_pal_shield_of_vengeance : public AuraScript
 };
 
 // 183416 - Aura of Sacrifice
-// Periodically re-applies the ally redirect-absorb buff (210372, below) to nearby raid
-// members instead of using a persistent AreaTrigger object like the reference cores do (their
-// AreaTrigger id is explicitly a made-up "custom" one, not a real Blizzard id) - avoids
-// inventing a new non-Blizzard AreaTrigger id/SQL row for a real spell. Uses the engine's own
-// Trinity::AnyGroupedUnitInObjectRangeCheck raid-range helper, the same shape already used
-// elsewhere in this codebase for similar radius-based grouped-unit scans.
-class spell_pal_aura_of_sacrifice : public AuraScript
+// 6777 - AreaTrigger Create Properties
+// Real 183416 EFFECT_0 (confirmed via build-pinned 7.3.5.26972 SpellEffect.db2) is
+// SPELL_AURA_AREA_TRIGGER with EffectMiscValue_0 = 6777 - a native engine-handled aura type
+// (AuraEffect::HandleCreateAreaTrigger, SpellAuraEffects.cpp) that spawns a personal AreaTrigger
+// bound to the caster with zero AuraScript involvement; no periodic-tick effect exists anywhere
+// on this spell (all 5 real effects have EffectAuraPeriod = 0), so the previous
+// OnEffectPeriodic/PERIODIC_DUMMY-based "scan for nearby allies" approach could never fire
+// regardless of index - it wasn't a simple hook rebind, the whole mechanic needed to move to the
+// AreaTrigger's own OnUnitEnter/OnUnitExit. DestinyCore/AshamaneCore (byte-identical to each
+// other here) independently confirm the same enter/exit + same-raid-check shape, though both use
+// a made-up "custom" AreaTrigger id (100102) rather than this build's real MiscValue (6777).
+// The radius (20yd) has no confirmed real source in any reference or client export - kept as an
+// approximation, carried over unchanged from the previous periodic-scan implementation's own
+// (equally unsourced) 20yd check radius rather than inventing a new number.
+struct areatrigger_pal_aura_of_sacrifice : AreaTriggerAI
 {
-    bool Validate(SpellInfo const* /*spellInfo*/) override
+    areatrigger_pal_aura_of_sacrifice(AreaTrigger* areatrigger) : AreaTriggerAI(areatrigger) { }
+
+    void OnUnitEnter(Unit* unit) override
     {
-        return ValidateSpellInfo({ SPELL_PALADIN_AURA_OF_SACRIFICE_ALLY });
+        Unit* caster = at->GetCaster();
+        if (!caster || caster == unit || !caster->IsPlayer() || !unit->IsPlayer())
+            return;
+
+        if (caster->ToPlayer()->IsInSameRaidWith(unit->ToPlayer()))
+            caster->CastSpell(unit, SPELL_PALADIN_AURA_OF_SACRIFICE_ALLY, true);
     }
 
-    void HandleEffectPeriodic(AuraEffect const* /*aurEff*/)
+    void OnUnitExit(Unit* unit) override
     {
-        Unit* caster = GetTarget();
-
-        std::list<Unit*> targets;
-        Trinity::AnyGroupedUnitInObjectRangeCheck check(caster, caster, 20.0f, true);
-        Trinity::UnitListSearcher<Trinity::AnyGroupedUnitInObjectRangeCheck> searcher(caster, targets, check);
-        Cell::VisitAllObjects(caster, searcher, 20.0f);
-
-        for (Unit* target : targets)
-            if (target != caster)
-                caster->CastSpell(target, SPELL_PALADIN_AURA_OF_SACRIFICE_ALLY, true);
-    }
-
-    void Register() override
-    {
-        // Real Aura of Sacrifice (183416, re-confirmed via build-pinned 7.3.5.26972 data) has 5
-        // effects including a native AREA_TRIGGER, not this class's PERIODIC_DUMMY hook - a
-        // modern areatrigger-driven redesign, not a simple index swap. That mismatch only affects
-        // this class's job (periodically finding which nearby allies currently qualify, standing
-        // in for the missing AreaTrigger); the actual damage transfer is a separate, correctly
-        // event-based hook (spell_pal_aura_of_sacrifice_ally::Absorb, via OnEffectAbsorb below) -
-        // fires per damage event, not per tick, so it isn't affected by this index mismatch.
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_pal_aura_of_sacrifice::HandleEffectPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+        unit->RemoveAurasDueToSpell(SPELL_PALADIN_AURA_OF_SACRIFICE_ALLY, at->GetCasterGuid());
     }
 };
 
@@ -2151,7 +2145,7 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_selfless_healer);
     RegisterSpellScript(spell_pal_shield_of_the_righteous);
     RegisterSpellScript(spell_pal_shield_of_vengeance);
-    RegisterSpellScript(spell_pal_aura_of_sacrifice);
+    RegisterAreaTriggerAI(areatrigger_pal_aura_of_sacrifice);
     RegisterSpellScript(spell_pal_aura_of_sacrifice_ally);
     RegisterSpellScript(spell_pal_templar_s_verdict);
     RegisterSpellScript(spell_pal_word_of_glory);

@@ -16,6 +16,8 @@
  */
 
 #include "ScriptMgr.h"
+#include "AreaTrigger.h"
+#include "AreaTriggerAI.h"
 #include "Containers.h"
 #include "GridNotifiersImpl.h"
 #include "Group.h"
@@ -446,43 +448,47 @@ class spell_apothecary_throw_perfume : public SpellScript
 };
 
 // 68798 - Concentrated Alluring Perfume Spill
-// FIXME: real 68798 (confirmed via SpellEffect.db2) is EFFECT_0 = SPELL_EFFECT_CREATE_AREATRIGGER
-// (MiscValue 8753) + EFFECT_1 = APPLY_AURA/SPELL_AURA_DUMMY with EffectAuraPeriod = 0 (not
-// periodic at all) - there is no SPELL_AURA_PERIODIC_DUMMY effect on this spell in this build, so
-// OnEffectPeriodic can never fire. The real damage mechanic looks like it's delivered by the
-// created AreaTrigger's own AI now (a ground-effect zone), not by a periodic tick on a caster
-// aura - that needs a proper AreaTriggerAI, which is a bigger rewrite than a hook fix and out of
-// scope here. logs/AshamaneCore's spell_apothecary_perfume_spill uses the same
-// EFFECT_0/PERIODIC_DUMMY shape as this file, so it's assuming an older/differently-shaped
-// version of this spell's data and can't be trusted as confirmation for this build - left
-// unresolved rather than guess at a new AreaTriggerAI without DB template data to back it.
-class spell_apothecary_perfume_spill : public AuraScript
+// 8753 - AreaTrigger Create Properties
+// Real 68798 is EFFECT_0 = SPELL_EFFECT_CREATE_AREATRIGGER (MiscValue 8753) + EFFECT_1 =
+// APPLY_AURA/SPELL_AURA_DUMMY (non-periodic) - the ground zone itself, via its AreaTriggerAI,
+// applies the periodic-damage debuff (68927, already a real SPELL_AURA_PERIODIC_DAMAGE aura) on
+// entry and clears it on exit; the 1.5s tick cadence comes from that aura's own EffectAuraPeriod,
+// not from anything driven here. The trigger's own hit-radius (areatrigger_create_properties,
+// Shape/ShapeData) has no confirmed source in any reference core or client export - approximated
+// at 8yd (matching Consecration's real, confirmed radius for a similarly-scoped ground hazard) in
+// the accompanying SQL migration.
+struct areatrigger_apothecary_perfume_spill : AreaTriggerAI
 {
-    void OnPeriodic(AuraEffect const* /*aurEff*/)
+    areatrigger_apothecary_perfume_spill(AreaTrigger* areatrigger) : AreaTriggerAI(areatrigger) { }
+
+    void OnUnitEnter(Unit* unit) override
     {
-        GetTarget()->CastSpell(GetTarget(), SPELL_PERFUME_SPILL_DAMAGE, true);
+        if (unit->IsPlayer())
+            unit->CastSpell(unit, SPELL_PERFUME_SPILL_DAMAGE, true);
     }
 
-    void Register() override
+    void OnUnitExit(Unit* unit) override
     {
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_apothecary_perfume_spill::OnPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+        unit->RemoveAurasDueToSpell(SPELL_PERFUME_SPILL_DAMAGE);
     }
 };
 
 // 68614 - Concentrated Irresistible Cologne Spill
-// FIXME: same structural mismatch as spell_apothecary_perfume_spill above - real 68614 is
-// EFFECT_0 = SPELL_EFFECT_CREATE_AREATRIGGER (MiscValue 8752) + EFFECT_1 = APPLY_AURA/
-// SPELL_AURA_DUMMY (non-periodic), not a SPELL_AURA_PERIODIC_DUMMY. See that entry for details.
-class spell_apothecary_cologne_spill : public AuraScript
+// 8752 - AreaTrigger Create Properties
+// Same structural shape as areatrigger_apothecary_perfume_spill above - see that entry for details.
+struct areatrigger_apothecary_cologne_spill : AreaTriggerAI
 {
-    void OnPeriodic(AuraEffect const* /*aurEff*/)
+    areatrigger_apothecary_cologne_spill(AreaTrigger* areatrigger) : AreaTriggerAI(areatrigger) { }
+
+    void OnUnitEnter(Unit* unit) override
     {
-        GetTarget()->CastSpell(GetTarget(), SPELL_COLOGNE_SPILL_DAMAGE, true);
+        if (unit->IsPlayer())
+            unit->CastSpell(unit, SPELL_COLOGNE_SPILL_DAMAGE, true);
     }
 
-    void Register() override
+    void OnUnitExit(Unit* unit) override
     {
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_apothecary_cologne_spill::OnPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+        unit->RemoveAurasDueToSpell(SPELL_COLOGNE_SPILL_DAMAGE);
     }
 };
 
@@ -495,6 +501,6 @@ void AddSC_boss_apothecary_hummel()
     RegisterSpellScript(spell_apothecary_validate_area);
     RegisterSpellScript(spell_apothecary_throw_cologne);
     RegisterSpellScript(spell_apothecary_throw_perfume);
-    RegisterSpellScript(spell_apothecary_perfume_spill);
-    RegisterSpellScript(spell_apothecary_cologne_spill);
+    RegisterAreaTriggerAI(areatrigger_apothecary_perfume_spill);
+    RegisterAreaTriggerAI(areatrigger_apothecary_cologne_spill);
 }

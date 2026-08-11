@@ -483,26 +483,6 @@ class spell_gen_battleground_mercenary_shapeshift : public AuraScript
 
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        for (auto const& [race, otherRaces] : RaceInfo)
-        {
-            if (!sChrRacesStore.LookupEntry(race))
-                return false;
-
-            for (Races otherRace : otherRaces)
-                if (!sChrRacesStore.LookupEntry(otherRace))
-                    return false;
-        }
-
-        for (auto const& [race, displayIds] : RaceDisplayIds)
-        {
-            if (!sChrRacesStore.LookupEntry(race))
-                return false;
-
-            for (uint32 displayId : displayIds)
-                if (!sCreatureDisplayInfoStore.LookupEntry(displayId))
-                    return false;
-        }
-
         RacialSkills.clear();
         for (SkillLineEntry const* skillLine : sSkillLineStore)
             if (skillLine->GetFlags().HasFlag(SkillLineFlags::RacialForThePurposeOfTemporaryRaceChange))
@@ -5214,29 +5194,6 @@ class spell_gen_major_healing_cooldown_modifier : public SpellScript
     }
 };
 
-// 157982 - Tranquility (Heal)
-class spell_gen_major_healing_cooldown_modifier_aura : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellEffect
-        ({
-            { SPELL_DRUID_TRANQUILITY, EFFECT_2 }
-        });
-    }
-
-    void CalculateHealingBonus(AuraEffect const* /*aurEff*/, Unit* /*victim*/, int32& /*damageOrHealing*/, int32& /*flatMod*/, float& pctMod) const
-    {
-        if (Unit const* caster = GetCaster())
-            AddPct(pctMod, MajorPlayerHealingCooldownHelpers::GetBonusMultiplier(caster, GetSpellInfo()->Id));
-    }
-
-    void Register() override
-    {
-        DoEffectCalcDamageAndHealing += AuraEffectCalcHealingFn(spell_gen_major_healing_cooldown_modifier_aura::CalculateHealingBonus, EFFECT_ALL, SPELL_AURA_ANY);
-    }
-};
-
 // 50230 - Random Aggro (Taunt)
 class spell_gen_random_aggro_taunt : public SpellScript
 {
@@ -5659,7 +5616,6 @@ void AddSC_generic_spell_scripts()
     RegisterSpellScript(spell_gen_spirit_heal_channel);
     RegisterSpellScript(spell_gen_waiting_to_resurrect);
     RegisterSpellScript(spell_gen_major_healing_cooldown_modifier);
-    RegisterSpellScript(spell_gen_major_healing_cooldown_modifier_aura);
     RegisterSpellScript(spell_gen_random_aggro_taunt);
     RegisterSpellScriptWithArgs(spell_gen_set_health, "spell_gen_set_health_1", 1);
     RegisterSpellScriptWithArgs(spell_gen_set_health, "spell_gen_set_health_100", 100);
