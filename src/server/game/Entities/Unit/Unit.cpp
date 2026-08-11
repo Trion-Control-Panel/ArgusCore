@@ -8587,21 +8587,27 @@ void Unit::UpdateSpeed(UnitMoveType mtype)
 
             if (mtype == MOVE_RUN)
             {
-                // aura 373 SPELL_AURA_MOD_SPEED_NO_CONTROL: forced movement (charge/dash-style
-                // effects) meant to override player-directed speed entirely, not just floor it.
-                // Unlike aura 437 (SPELL_AURA_MOD_MINIMUM_SPEED_RATE), whose amount is an absolute
-                // yards/sec value (confirmed by the existing, already-working formula below), this
-                // aura's amount is a percentage - same idiom as SPELL_AURA_MOD_INCREASE_SPEED's
-                // AddPct usage a few lines up. Confirmed by sanity-checking real values against a
-                // known ability: Monk's Roll (107427/109131) carries 175/275 here across its two
-                // ranks - read as an absolute yards/sec value (÷ playerBaseMoveSpeed ≈ 7.0) that's
-                // a ~25-39x speed multiplier, absurd for a short dash; read as a percentage
-                // (1 + amount/100) it's a sane ~2.75-3.75x burst, consistent with how Roll actually
-                // plays. Checked first and, when present, skips the floor-only MOD_MINIMUM_SPEED_RATE
-                // logic below - without an override, player-driven acceleration stacking on top of a
-                // speed floor during effects like Fel Rush's airborne dash had nothing capping it.
+                // aura 373 SPELL_AURA_MOD_SPEED_NO_CONTROL: previously implemented as a hard
+                // override (speed = 1.0f + amount/100.0f), which turned out wrong on two counts.
+                // First, it ignored player-directed speed entirely - real charge/dash abilities
+                // like Fel Rush let the player gain extra distance by holding the movement key
+                // during the dash, which a hard override can never allow (it clamps speed to a
+                // fixed value regardless of input). Second, the same real spells that carry this
+                // aura also carry aura 305 SPELL_AURA_MOD_MINIMUM_SPEED with a *different* amount
+                // on the same effect list (e.g. Monk Roll rank 1, 107427: aura 373 = 175, aura 305
+                // = 275) - not a matched/redundant pair, and 305's own handling (see
+                // SPELL_AURA_MOD_MINIMUM_SPEED below, in CalculatePct(baseMinSpeed, minSpeedMod)
+                // form) is already a floor, not an override. Reworked 373 to use that same
+                // floor idiom (amount read directly as a percentage, no "+1.0" baseline) instead
+                // of inventing a second, conflicting formula - still guarantees the forced-movement
+                // minimum burst speed, but no longer clamps out player/other-buff contributions
+                // that would otherwise push speed higher.
                 if (int32 lockedSpeedMod = GetMaxPositiveAuraModifier(SPELL_AURA_MOD_SPEED_NO_CONTROL))
-                    speed = 1.0f + lockedSpeedMod / 100.0f;
+                {
+                    float minSpeed = lockedSpeedMod / 100.0f;
+                    if (speed < minSpeed)
+                        speed = minSpeed;
+                }
                 // force minimum speed rate @ aura 437 SPELL_AURA_MOD_MINIMUM_SPEED_RATE
                 else if (int32 minSpeedMod = GetMaxPositiveAuraModifier(SPELL_AURA_MOD_MINIMUM_SPEED_RATE))
                 {

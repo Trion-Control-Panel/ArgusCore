@@ -1460,11 +1460,6 @@ class spell_monk_roll : public SpellScript
 // 109131 - Roll (backward)
 class spell_monk_roll_aura : public AuraScript
 {
-    void CalcMovementAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
-    {
-        amount += 100;
-    }
-
     void ChangeRunBackSpeed(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
         GetTarget()->SetSpeed(MOVE_RUN_BACK, GetTarget()->GetSpeed(MOVE_RUN));
@@ -1477,9 +1472,16 @@ class spell_monk_roll_aura : public AuraScript
 
     void Register() override
     {
-        // Values need manual correction
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_monk_roll_aura::CalcMovementAmount, EFFECT_0, SPELL_AURA_MOD_SPEED_NO_CONTROL);
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_monk_roll_aura::CalcMovementAmount, EFFECT_2, SPELL_AURA_MOD_MINIMUM_SPEED);
+        // Previously added a flat +100 to both EFFECT_0 (SPELL_AURA_MOD_SPEED_NO_CONTROL) and
+        // EFFECT_2 (SPELL_AURA_MOD_MINIMUM_SPEED)'s real DB2 amounts (175/275 on both 107427 and
+        // 109131, confirmed via build-pinned 7.3.5.26972 SpellEffect.db2) - unexplained, inherited
+        // from this repo's very first commit, predating any of this project's own DB2
+        // verification. Same shape as Fel Rush's now-removed hardcoded 1400 override: needed only
+        // because SPELL_AURA_MOD_SPEED_NO_CONTROL was unimplemented at the engine level (see
+        // Unit::UpdateSpeed), so someone empirically inflated the numbers to compensate. Now that
+        // both auras are read correctly and natively by the engine (a floor each, real amount
+        // used directly, no "+1.0"/percentage-baseline math), no script-side correction is needed
+        // here either - removed, matching the Fel Rush precedent exactly.
 
         // This is a special aura that sets backward run speed equal to forward speed
         AfterEffectApply += AuraEffectApplyFn(spell_monk_roll_aura::ChangeRunBackSpeed, EFFECT_4, SPELL_AURA_USE_NORMAL_MOVEMENT_SPEED, AURA_EFFECT_HANDLE_REAL);

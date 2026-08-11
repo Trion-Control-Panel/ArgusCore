@@ -1090,15 +1090,23 @@ class spell_dh_fel_rush_charge : public SpellScript
         // (a line from caster to the stored destination) - it needs an actual destination to search
         // along, or its own implicit-target resolution finds zero enemies and nobody ever takes
         // damage. 197922/197923 were themselves cast at an explicit Position (see
-        // spell_dh_fel_rush::HandleDash), so that same destination is still available here.
-        WorldLocation const* dest = GetExplTargetDest();
-        if (!dest)
-            return;
-
-        GetCaster()->CastSpell(*dest, SPELL_DH_FEL_RUSH_DMG, CastSpellExtraArgsInit{
+        // spell_dh_fel_rush::HandleDash), so that same destination is normally still available
+        // here. Falls back to a self-cast at the caster's own (post-charge) position - the
+        // pre-existing behavior before this line-based targeting was added - if the explicit dest
+        // isn't available for some reason (e.g. SPELL_EFFECT_CHARGE_DEST's underlying
+        // PathGenerator/MoveCharge not resolving cleanly for an airborne destination with no
+        // ground path); a degenerate self-cast still lands correct damage on whatever's at the
+        // caster's landing spot, rather than silently applying none.
+        Unit* caster = GetCaster();
+        CastSpellExtraArgsInit args{
             .TriggerFlags = TRIGGERED_FULL_MASK,
             .TriggeringSpell = GetSpell()
-        });
+        };
+
+        if (WorldLocation const* dest = GetExplTargetDest())
+            caster->CastSpell(*dest, SPELL_DH_FEL_RUSH_DMG, std::move(args));
+        else
+            caster->CastSpell(caster, SPELL_DH_FEL_RUSH_DMG, std::move(args));
     }
 
     void Register() override
