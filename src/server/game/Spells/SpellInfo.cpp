@@ -619,9 +619,15 @@ int32 SpellEffectInfo::CalcBaseValue(WorldObject const* caster, Unit const* targ
             else if (caster && caster->IsUnit())
                 level = caster->ToUnit()->GetLevel();
 
+            // SpellLevel is 0 for most modern (talent/level-unlocked, not level-gated) spells,
+            // and row 0 of this GameTable has Scaler=0.0 - dividing by it produced +-inf, which
+            // then propagated through the whole damage pipeline as garbage (confirmed via Eye
+            // Beam: cast at level 98 with SpellLevel=0 dealt tens of millions of damage per tick
+            // instead of the correct ~10-20k). Guard the division; a zero reference scaler means
+            // there's no valid spell-level to normalize against, so skip the adjustment entirely.
             GtNpcManaCostScalerEntry const* spellScaler = sNpcManaCostScalerGameTable.GetRow(_spellInfo->SpellLevel);
             GtNpcManaCostScalerEntry const* casterScaler = sNpcManaCostScalerGameTable.GetRow(level);
-            if (spellScaler && casterScaler)
+            if (spellScaler && casterScaler && spellScaler->Scaler != 0.0f)
                 value *= casterScaler->Scaler / spellScaler->Scaler;
         }
 

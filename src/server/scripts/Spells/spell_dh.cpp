@@ -663,6 +663,12 @@ class spell_dh_vengeful_retreat_trigger : public SpellScript
 // is redundant with what the base engine already does for this aura type.
 
 // 198013 - Eye Beam
+// Real data: all 4 of 198013's own effects are aura-applications (periodic trigger, snare,
+// dummy, power regen) - it never deals direct damage itself, so there's no "double hit" from
+// 198030 to guard against. (A spell_dh_eye_beam_trigger class previously existed here to prevent
+// exactly that non-existent double hit - it was bound via spell_script_names to 198030 itself,
+// not 198013, so it was silencing 198030's own SPELL_EFFECT_SCHOOL_DAMAGE on every cast,
+// including every periodic tick - the actual cause of Eye Beam dealing zero damage. Removed.)
 class spell_dh_eye_beam : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -680,27 +686,6 @@ class spell_dh_eye_beam : public AuraScript
     void Register() override
     {
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_dh_eye_beam::HandleEffectPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
-    }
-};
-
-// 198013 - Eye Beam (initial cast, EFFECT_0 damage guard)
-// The cast's own initial hit shouldn't deal damage directly - the periodic tick above
-// (spell_dh_eye_beam) is what actually deals damage. Prevents a potential double-hit.
-class spell_dh_eye_beam_trigger : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DH_EYE_BEAM, SPELL_DH_EYE_BEAM_DAMAGE });
-    }
-
-    void PreventHit(SpellEffIndex /*effIndex*/)
-    {
-        PreventHitDamage();
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_dh_eye_beam_trigger::PreventHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
     }
 };
 
@@ -2947,7 +2932,6 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_nether_bond);
     RegisterSpellScript(spell_dh_nether_bond_periodic);
     RegisterSpellScript(spell_dh_eye_beam);
-    RegisterSpellScript(spell_dh_eye_beam_trigger);
     RegisterSpellScript(spell_dh_feast_of_souls);
     RegisterSpellScript(spell_dh_fel_devastation);
     RegisterSpellScript(spell_dh_fel_devastation_damage);
