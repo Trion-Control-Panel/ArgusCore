@@ -64,10 +64,17 @@ class TC_GAME_API AreaTrigger final : public WorldObject, public GridObject<Area
 
         AreaTriggerAI* AI() { return _ai.get(); }
 
-        bool IsCustom() const { return _areaTriggerTemplate->Id.IsCustom; }
-        bool IsServerSide() const { return _areaTriggerTemplate->Flags.HasFlag(AreaTriggerFlag::IsServerSide); }
+        // _areaTriggerTemplate is legitimately null whenever this AreaTrigger's create-properties
+        // row has AreaTriggerId 0 (no linked template) - the loader (AreaTriggerDataStore::
+        // LoadAreaTriggerTemplates) explicitly treats that as valid (only errors when
+        // AreaTriggerId is nonzero and unresolvable), so a create-properties row with no template
+        // is a supported, real configuration, not a data error. These three accessors used to
+        // dereference _areaTriggerTemplate unconditionally, crashing (access violation) the first
+        // time such an AreaTrigger was actually created at runtime.
+        bool IsCustom() const { return _areaTriggerTemplate ? _areaTriggerTemplate->Id.IsCustom : _areaTriggerCreateProperties->Id.IsCustom; }
+        bool IsServerSide() const { return _areaTriggerTemplate && _areaTriggerTemplate->Flags.HasFlag(AreaTriggerFlag::IsServerSide); }
         bool IsStaticSpawn() const { return _spawnId != 0; }
-        bool HasActionSetFlag(AreaTriggerActionSetFlag flag) const { return _areaTriggerTemplate->ActionSetFlags.HasFlag(flag); }
+        bool HasActionSetFlag(AreaTriggerActionSetFlag flag) const { return _areaTriggerTemplate && _areaTriggerTemplate->ActionSetFlags.HasFlag(flag); }
 
         bool IsNeverVisibleFor(WorldObject const* seer, bool allowServersideObjects = false) const override;
 

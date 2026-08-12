@@ -108,21 +108,30 @@ function(copy_runtime_dependencies target)
     if(ARG_NEEDS_LEGACY_PROVIDER)
         set(_legacy_found FALSE)
         foreach(_dir IN LISTS _ssl_dirs)
-            set(_legacy_path "${_dir}/ossl-modules/legacy.dll")
-            if(EXISTS "${_legacy_path}")
-                add_custom_command(TARGET ${target} POST_BUILD
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        "${_legacy_path}"
-                        "$<TARGET_FILE_DIR:${target}>/legacy.dll"
-                    COMMENT "Copying legacy.dll (OpenSSL legacy provider for RC4)"
-                    VERBATIM)
-                set(_legacy_found TRUE)
+            # Official OpenSSL installers nest provider modules under ossl-modules/, but at least
+            # one common Windows distribution (OpenSSL-Win64, e.g. libssl-4-x64.dll/legacy.dll
+            # etc. all directly under bin/) ships legacy.dll flat alongside libssl/libcrypto
+            # instead - check both layouts rather than assuming the nested one.
+            foreach(_legacy_path "${_dir}/ossl-modules/legacy.dll" "${_dir}/legacy.dll")
+                if(EXISTS "${_legacy_path}")
+                    add_custom_command(TARGET ${target} POST_BUILD
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            "${_legacy_path}"
+                            "$<TARGET_FILE_DIR:${target}>/legacy.dll"
+                        COMMENT "Copying legacy.dll (OpenSSL legacy provider for RC4)"
+                        VERBATIM)
+                    set(_legacy_found TRUE)
+                    break()
+                endif()
+            endforeach()
+            if(_legacy_found)
                 break()
             endif()
         endforeach()
         if(NOT _legacy_found)
             message(WARNING
-                "copy_runtime_dependencies: cannot find ossl-modules/legacy.dll for target '${target}'. "
+                "copy_runtime_dependencies: cannot find legacy.dll (checked both ossl-modules/legacy.dll "
+                "and a flat bin/legacy.dll layout) for target '${target}'. "
                 "ARC4 packet encryption will crash at runtime. "
                 "Ensure the OpenSSL legacy provider is installed alongside your OpenSSL distribution.")
         endif()

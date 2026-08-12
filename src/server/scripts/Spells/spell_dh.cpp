@@ -228,6 +228,16 @@ enum DemonHunterSpells
     SPELL_DH_SHATTER_SOUL_AT_VENGEANCE_DEMON    = 226264,
     SPELL_DH_SHATTER_SOUL_HAVOC_NORMAL_CAST     = 209651,
     SPELL_DH_METAMORPHOSIS_IMPACT_PLAYER        = 247121,
+    // Ground soul-fragment pickup spells - each of the 5 SPELL_DH_SHATTER_SOUL_AT_*/
+    // SPELL_DH_SHATTERED_SOUL missiles above (SPELL_EFFECT_TRIGGER_MISSILE) triggers exactly one
+    // of these (confirmed via build-pinned 7.3.5.26972 SpellEffect.db2); each is EFFECT_0 =
+    // SPELL_EFFECT_CREATE_AREATRIGGER, spawning the walkable pickup zone.
+    SPELL_DH_SOUL_FRAGMENT_HAVOC_NORMAL         = 209788,
+    SPELL_DH_SOUL_FRAGMENT_HAVOC_DEMON          = 204256,
+    SPELL_DH_SOUL_FRAGMENT_HAVOC_LESSER         = 228537,
+    SPELL_DH_SOUL_FRAGMENT_VENGEANCE_NORMAL     = 203795,
+    SPELL_DH_SOUL_FRAGMENT_VENGEANCE_DEMON      = 204062,
+    SPELL_DH_SOUL_FRAGMENT_VENGEANCE_LESSER     = 204255,
 };
 
 enum DemonHunterSpellCategories
@@ -356,6 +366,12 @@ class spell_dh_blade_turning : public AuraScript
 };
 
 // 213010 - Charred Warblades
+// Real 213010 (confirmed via build-pinned 7.3.5.26972 SpellEffect.db2) is a single, plain
+// SPELL_AURA_DUMMY on EFFECT_0 - no EffectAmplitude/period set, so it's not the PERIODIC_DUMMY
+// this class previously hooked (which could never fire). Its own tooltip ("You heal for $s1% of
+// all Fire damage you deal") also describes an immediate per-hit heal, not an accumulate-then-
+// release-on-a-timer mechanic - simplified to a direct proc heal, no separate tick/accumulator
+// needed at all.
 class spell_dh_charred_warblades : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -368,36 +384,21 @@ class spell_dh_charred_warblades : public AuraScript
         return eventInfo.GetDamageInfo() && eventInfo.GetDamageInfo()->GetSchoolMask() & SPELL_SCHOOL_MASK_FIRE;
     }
 
-    void HandleAfterProc(ProcEventInfo& eventInfo)
+    void HandleProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
     {
-        _healAmount += CalculatePct(eventInfo.GetDamageInfo()->GetDamage(), GetEffect(EFFECT_0)->GetAmount());
-    }
-
-    void HandleDummyTick(AuraEffect const* aurEff)
-    {
-        if (_healAmount == 0)
-            return;
+        uint32 healAmount = CalculatePct(eventInfo.GetDamageInfo()->GetDamage(), aurEff->GetAmount());
 
         GetTarget()->CastSpell(GetTarget(), SPELL_DH_CHARRED_WARBLADES_HEAL,
             CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR)
             .SetTriggeringAura(aurEff)
-            .AddSpellBP0(_healAmount));
-
-        _healAmount = 0;
+            .AddSpellBP0(healAmount));
     }
 
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_dh_charred_warblades::CheckProc);
-        AfterProc += AuraProcFn(spell_dh_charred_warblades::HandleAfterProc);
-        // FIXME: real Charred Warblades (213010) EFFECT_0 is a plain (non-periodic - no
-        // amplitude set) SPELL_AURA_DUMMY, not PERIODIC_DUMMY - this build's version doesn't
-        // accumulate-then-release on a timer; left unresolved rather than guess the real trigger.
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_dh_charred_warblades::HandleDummyTick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_dh_charred_warblades::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
-
-private:
-    uint32 _healAmount = 0;
 };
 
 // 209426 - Darkness
@@ -1032,8 +1033,19 @@ class spell_dh_fel_eruption : public SpellScript
 };
 
 // 195072 - Fel Rush
-// The Momentum talent reads "Vengeful Retreat or Fel Rush increase movement speed" - this half
-// of that grant lives here; the Vengeful Retreat half is in spell_dh_vengeful_retreat below.
+// Real data shows two always-firing self-target DUMMY effects (EFFECT_0 ground, EFFECT_1 air),
+// which reference cores dispatch via OnEffectHitTarget. That didn't reliably fire in this build
+// (0 damage and no air-branch behavior at all), so dispatch runs off AfterCast instead - proven
+// reliable in this exact engine across this whole investigation - while keeping the same
+// underlying logic and, critically, the same timing: neither 197922 nor 197923 (the actual dash
+// spells) carries any charge/leap movement effect in real data - the dash is pure movement-speed
+// auras that the player's own held input carries them through, applied instantly but not yet
+// having moved the caster by the time this handler returns. The damage (192611) is cast
+// immediately, self-targeted, right here - relying entirely on its own native TARGET_DEST_DEST +
+// TARGET_UNIT_LINE_CASTER_TO_DEST_ENEMY targeting, which - cast before any actual movement has
+// happened - degenerates to a sweep along the caster's current (not-yet-moved) facing, i.e. the
+// direction about to be dashed (confirmed real reach: 23yd range x 10yd width, via SpellRadius id
+// 63 and SpellTargetRestrictions - matches both DestinyCore and AshamaneCore exactly).
 class spell_dh_fel_rush : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -1044,26 +1056,30 @@ class spell_dh_fel_rush : public SpellScript
     void HandleDash()
     {
         Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        // Damage must be cast BEFORE the dash spell: 197922/197923 EFFECT_2 carries
+        // SPELL_AURA_DISABLE_CASTING_EXCEPT_ABILITIES with an all-zero EffectSpellClassMask (real
+        // data, no family-flag whitelist at all) - once that aura is applied, Spell::CheckCast
+        // rejects any further self-cast with SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW unless the spell
+        // carries SPELL_ATTR12_IGNORE_CASTING_DISABLED. Casting damage first sidesteps this
+        // entirely and is if anything more correct for the line-target facing anyway (caster
+        // hasn't even gained the speed boost yet, let alone moved).
+        if (!caster->IsFalling() || caster->IsInWater())
+        {
+            caster->CastSpell(caster, SPELL_DH_FEL_RUSH_DMG, true);
+            caster->CastSpell(caster, SPELL_DH_FEL_RUSH_GROUND, true);
+        }
+        else if (caster->IsFalling())
+        {
+            caster->CastSpell(caster, SPELL_DH_FEL_RUSH_DMG, true);
+            caster->SetDisableGravity(true);
+            caster->CastSpell(caster, SPELL_DH_FEL_RUSH_WATER_AIR, true);
+        }
 
         if (caster->HasAura(SPELL_DH_MOMENTUM_TALENT))
             caster->CastSpell(caster, SPELL_DH_MOMENTUM, true);
-
-        // Cancel any active walking/running movement so W-key momentum doesn't add to the
-        // charge velocity (most visible in the air where there's no ground collision).
-        caster->StopMoving();
-
-        // 197922/197923 both use SPELL_EFFECT_CHARGE_DEST which requires an explicit destination;
-        // without one the effect returns early and no movement happens.
-        uint32 spellId = (caster->IsInWater() || caster->IsFlying() || caster->IsFalling())
-            ? SPELL_DH_FEL_RUSH_WATER_AIR
-            : SPELL_DH_FEL_RUSH_GROUND;
-
-        Position dest = caster->GetFirstCollisionPosition(15.0f, 0.0f);
-
-        caster->CastSpell(dest, spellId, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
     }
 
     void Register() override
@@ -1074,53 +1090,9 @@ class spell_dh_fel_rush : public SpellScript
 
 // 197922 - Fel Rush (ground variant)
 // 197923 - Fel Rush (air/water variant)
-// Both carry SPELL_EFFECT_CHARGE_DEST. EffectChargeDest delays its HIT phase until the
-// charge movement finishes (UpdateDelayMomentForDst), so OnEffectHit here fires only
-// after the player has landed — giving correct damage timing.
-class spell_dh_fel_rush_charge : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DH_FEL_RUSH_DMG });
-    }
-
-    void HandleDamage(SpellEffIndex /*effIndex*/) const
-    {
-        // real Fel Rush Damage (192611) targets TARGET_DEST_DEST + TARGET_UNIT_LINE_CASTER_TO_DEST_ENEMY
-        // (a line from caster to the stored destination) - it needs an actual destination to search
-        // along, or its own implicit-target resolution finds zero enemies and nobody ever takes
-        // damage. 197922/197923 were themselves cast at an explicit Position (see
-        // spell_dh_fel_rush::HandleDash), so that same destination is normally still available
-        // here. Falls back to a self-cast at the caster's own (post-charge) position - the
-        // pre-existing behavior before this line-based targeting was added - if the explicit dest
-        // isn't available for some reason (e.g. SPELL_EFFECT_CHARGE_DEST's underlying
-        // PathGenerator/MoveCharge not resolving cleanly for an airborne destination with no
-        // ground path); a degenerate self-cast still lands correct damage on whatever's at the
-        // caster's landing spot, rather than silently applying none.
-        Unit* caster = GetCaster();
-        CastSpellExtraArgsInit args{
-            .TriggerFlags = TRIGGERED_FULL_MASK,
-            .TriggeringSpell = GetSpell()
-        };
-
-        if (WorldLocation const* dest = GetExplTargetDest())
-            caster->CastSpell(*dest, SPELL_DH_FEL_RUSH_DMG, std::move(args));
-        else
-            caster->CastSpell(caster, SPELL_DH_FEL_RUSH_DMG, std::move(args));
-    }
-
-    void Register() override
-    {
-        // correction: real Fel Rush (197922/197923) EFFECT_0 is plain SPELL_EFFECT_DUMMY - unlike
-        // Infernal Strike, it has no JUMP_CHARGE effect at all (7 effects total, mostly speed/
-        // movement auras matching the same "Roll"-style dash shape used elsewhere in this file)
-        OnEffectHit += SpellEffectFn(spell_dh_fel_rush_charge::HandleDamage, EFFECT_0, SPELL_EFFECT_DUMMY);
-    }
-};
-
-// 197923 - Fel Rush (air/water dash)
-// Governs using Fel Rush while airborne/underwater: a fixed dash speed while active, and
-// restoring normal gravity/fall/hover state once the dash ends.
+// Governs using Fel Rush: a fixed dash speed while active, and restoring normal gravity/fall/hover
+// state once the dash ends. No movement generator involved (see spell_dh_fel_rush above) - the
+// dash distance comes entirely from these speed auras plus the player's own held input.
 class spell_dh_fel_rush_dash : public SpellScript
 {
     void PreventTrigger(SpellEffIndex effIndex)
@@ -1130,17 +1102,16 @@ class spell_dh_fel_rush_dash : public SpellScript
 
     void Register() override
     {
-        // EFFECT_6 is SPELL_EFFECT_TRIGGER_SPELL targeting real spell 197707, which is confirmed
-        // absent from this build's client data entirely (zero rows in Spell.db2/SpellEffect.db2 -
-        // cross-checked against two other Legion 7.3.5 spell databases, both independently unable
-        // to resolve it either) - genuinely dangling data in the real client itself, not a local
-        // gap, so there's nothing to restore here; just silencing the resulting "tried to trigger
-        // unknown spell" error.
+        // EFFECT_6 (197923 only) is SPELL_EFFECT_TRIGGER_SPELL targeting real spell 197707, which
+        // is confirmed absent from this build's client data entirely (zero rows in Spell.db2/
+        // SpellEffect.db2) - genuinely dangling data in the real client itself, not a local gap, so
+        // there's nothing to restore here; just silencing the resulting "tried to trigger unknown
+        // spell" error.
         // Spell::EffectTriggerSpell only ever runs during SPELL_EFFECT_HANDLE_LAUNCH or
         // _LAUNCH_TARGET (Spell::HandleEffects gates on effectHandleMode) - Spell::HandleLaunchPhase
         // calls both independently (a spell-wide LAUNCH pass over every effect, then a *separate*
         // per-target LAUNCH_TARGET pass via DoEffectOnLaunchTarget, which still runs for a
-        // self-only spell since the caster is its own sole target). OnEffectHit hooked
+        // self-only spell since the caster is its own sole target). OnEffectHit hooks
         // SPELL_EFFECT_HANDLE_HIT, a mode EffectTriggerSpell never even checks - dead code, not
         // actually preventing anything. Need both LAUNCH and LAUNCH_TARGET covered.
         OnEffectLaunch += SpellEffectFn(spell_dh_fel_rush_dash::PreventTrigger, EFFECT_6, SPELL_EFFECT_TRIGGER_SPELL);
@@ -1150,29 +1121,34 @@ class spell_dh_fel_rush_dash : public SpellScript
 
 class spell_dh_fel_rush_dash_AuraScript : public AuraScript
 {
-    void AfterRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    // Real 197922/197923 EFFECT_3 (SPELL_AURA_MOD_MINIMUM_SPEED) base points read 650 from local
+    // client data, but DestinyCore and AshamaneCore both independently override this to 1400 -
+    // matching corroboration between the two primary reference cores, kept as-is rather than
+    // trusting the raw DB2 field over two agreeing real implementations.
+    void CalcSpeed(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
     {
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
-
-        caster->SetDisableGravity(false);
-        caster->SetFall(true);
-        caster->SetPlayHoverAnim(false);
+        amount = 1400;
     }
 
-    // Previously overrode EFFECT_3 (SPELL_AURA_MOD_MINIMUM_SPEED) to a hardcoded 1400 - real
-    // 197923 already carries 650 natively on both EFFECT_1 (SPELL_AURA_MOD_SPEED_NO_CONTROL) and
-    // EFFECT_3 (SPELL_AURA_MOD_MINIMUM_SPEED), a matched pair (same shape Monk's Roll uses in
-    // spell_monk.cpp, just without needing Roll's own "Values need manual correction" fixup - this
-    // spell's real data needed no correction at all). The 1400 override was simply wrong, not a
-    // needed fix, and combined with MOD_SPEED_NO_CONTROL previously being unimplemented at the
-    // engine level (see AuraEffect::HandleAuraModSpeedNoControl / Unit::UpdateSpeed), nothing ever
-    // capped the resulting speed - player-driven input kept compounding on top while airborne.
-    // No script-side amount override needed now that both are read correctly by the engine.
+    void AfterRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (Unit* caster = GetCaster())
+        {
+            caster->SetDisableGravity(false);
+            caster->SetFall(true);
+            caster->SetPlayHoverAnim(false);
+
+            // Force-resets client velocity to normal speed, forward, to kill residual Fel Rush momentum.
+            float normalSpeed = caster->GetSpeed(MOVE_RUN);
+            caster->KnockbackFrom(*caster, -normalSpeed, 0.0f);
+        }
+    }
 
     void Register() override
     {
+        // EFFECT_9 (SPELL_AURA_MOD_MINIMUM_SPEED_RATE) only exists on 197923 (air/water) - this
+        // never fires for 197922 (ground), which never disabled gravity in the first place.
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dh_fel_rush_dash_AuraScript::CalcSpeed, EFFECT_3, SPELL_AURA_MOD_MINIMUM_SPEED);
         AfterEffectRemove += AuraEffectRemoveFn(spell_dh_fel_rush_dash_AuraScript::AfterRemove, EFFECT_9, SPELL_AURA_MOD_MINIMUM_SPEED_RATE, AURA_EFFECT_HANDLE_SEND_FOR_CLIENT_MASK);
     }
 };
@@ -1237,8 +1213,9 @@ class spell_dh_infernal_strike : public SpellScript
 };
 
 // 189111 - Infernal Strike (jump)
-// Mirrors spell_dh_fel_rush_charge below: SPELL_EFFECT_CHARGE_DEST delays the HIT phase until
-// the leap's movement finishes, so the impact damage only lands once the caster touches down.
+// Unlike Fel Rush (see spell_dh_fel_rush above), this one genuinely does use engine movement:
+// real EFFECT_0 is SPELL_EFFECT_JUMP_CHARGE, which delays the HIT phase until the leap's movement
+// finishes, so the impact damage only lands once the caster touches down.
 class spell_dh_infernal_strike_jump : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -2427,6 +2404,42 @@ class spell_dh_shatter_soul : public SpellScript
     }
 };
 
+// Soul Fragment pickup zones - the AreaTriggerAI for the 6 ground-fragment spells above
+// (SPELL_DH_SOUL_FRAGMENT_*). The spec/fragment-type distinction is already fully resolved by
+// the time any of these six casts, upstream in spell_dh_shattered_souls (on-kill proc, spec
+// picked via GetId()), spell_dh_demonic_appetite (Havoc lesser), and spell_dh_shatter_soul's own
+// switch (each of the 6 originating "Shatter Soul" casts maps 1:1 to exactly one of these) - so
+// unlike the reference cores' simpler 3-id scheme (which re-checks GetSpecializationId() here
+// because their fragments aren't spec-split), at->GetSpellId() alone already tells us exactly
+// which Consume Soul spell to cast, no re-check needed.
+struct areatrigger_dh_shattered_souls : AreaTriggerAI
+{
+    using AreaTriggerAI::AreaTriggerAI;
+
+    void OnUnitEnter(Unit* unit) override
+    {
+        Unit* caster = at->GetCaster();
+        if (!caster || caster != unit)
+            return;
+
+        uint32 consumeSpellId = 0;
+        switch (at->GetSpellId())
+        {
+            case SPELL_DH_SOUL_FRAGMENT_HAVOC_NORMAL:     consumeSpellId = SPELL_DH_CONSUME_SOUL_HAVOC;           break;
+            case SPELL_DH_SOUL_FRAGMENT_HAVOC_DEMON:      consumeSpellId = SPELL_DH_CONSUME_SOUL_HAVOC_DEMON;     break;
+            case SPELL_DH_SOUL_FRAGMENT_HAVOC_LESSER:     consumeSpellId = SPELL_DH_CONSUME_SOUL_HAVOC_SHATTERED; break;
+            case SPELL_DH_SOUL_FRAGMENT_VENGEANCE_NORMAL: consumeSpellId = SPELL_DH_CONSUME_SOUL_VENGEANCE;       break;
+            case SPELL_DH_SOUL_FRAGMENT_VENGEANCE_DEMON:  consumeSpellId = SPELL_DH_CONSUME_SOUL_VENGEANCE_DEMON; break;
+            case SPELL_DH_SOUL_FRAGMENT_VENGEANCE_LESSER: consumeSpellId = SPELL_DH_CONSUME_SOUL_HEAL;            break;
+            default:
+                return;
+        }
+
+        caster->CastSpell(caster, consumeSpellId, true);
+        at->SetDuration(0);
+    }
+};
+
 // 247454 - Spirit Bomb (Vengeance AOE Soul Fragment consumer): consumes all nearby Soul
 // Fragment AreaTriggers within range, dealing AOE damage scaled by the count consumed and
 // applying Frailty (below) to everything hit. Confirmed via two independent reference sources
@@ -2945,7 +2958,6 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_illidans_grasp);
     RegisterSpellScript(spell_dh_fel_mastery);
     RegisterSpellScript(spell_dh_fel_rush);
-    RegisterSpellScript(spell_dh_fel_rush_charge);
     RegisterSpellScript(spell_dh_felblade);
     RegisterSpellScript(spell_dh_felblade_charge);
     RegisterSpellScript(spell_dh_felblade_cooldown_reset_proc);
@@ -3002,6 +3014,7 @@ void AddSC_demon_hunter_spell_scripts()
     RegisterSpellScript(spell_dh_mana_rift);
     RegisterSpellScript(spell_dh_shattered_souls);
     RegisterSpellScript(spell_dh_shatter_soul);
+    RegisterAreaTriggerAI(areatrigger_dh_shattered_souls);
     RegisterSpellScript(spell_dh_shear);
     RegisterSpellScript(spell_dh_fracture);
     RegisterSpellScript(spell_dh_spirit_bomb);
