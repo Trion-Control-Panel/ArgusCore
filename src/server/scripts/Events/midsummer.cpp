@@ -165,20 +165,21 @@ class spell_midsummer_test_ribbon_pole_channel : public AuraScript
 // 45406 - Holiday - Midsummer, Ribbon Pole Periodic Visual
 class spell_midsummer_ribbon_pole_periodic_visual : public AuraScript
 {
+    // SPELL_TEST_RIBBON_POLE_1 (29705) and _3 (29727) don't exist in this build's Spell.db2 - only
+    // _2 (29726, "Test Ribbon Pole Channel") survived into Legion; the other two were pruned by
+    // Blizzard at some point pre-Legion, not a local data gap.
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellInfo(
         {
-            SPELL_TEST_RIBBON_POLE_1,
-            SPELL_TEST_RIBBON_POLE_2,
-            SPELL_TEST_RIBBON_POLE_3
+            SPELL_TEST_RIBBON_POLE_2
         });
     }
 
     void PeriodicTick(AuraEffect const* /*aurEff*/)
     {
         Unit* target = GetTarget();
-        if (!target->HasAura(SPELL_TEST_RIBBON_POLE_1) && !target->HasAura(SPELL_TEST_RIBBON_POLE_2) && !target->HasAura(SPELL_TEST_RIBBON_POLE_3))
+        if (!target->HasAura(SPELL_TEST_RIBBON_POLE_2))
             Remove();
     }
 

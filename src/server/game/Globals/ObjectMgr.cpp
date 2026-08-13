@@ -6376,8 +6376,26 @@ void ObjectMgr::LoadNPCText()
         float probabilitySum = std::accumulate(std::begin(npcText.Data), std::end(npcText.Data), 0.0f, [](float sum, NpcTextData const& data) { return sum + data.Probability; });
         if (probabilitySum <= 0.0f)
         {
-            TC_LOG_ERROR("sql.sql", "NPCText (ID: {}) has a probability sum 0, no text can be selected from it, skipped.", textID);
-            continue;
+            // Real client data has npc_text rows with every Probability slot at 0 but real
+            // BroadcastTextID content attached (confirmed against 2 reference cores: 260/11299
+            // rows share this shape, 226 of those carry actual dialogue) - discarding the whole
+            // row silently drops working text. Fall back to equal weighting across whichever
+            // slots actually have a BroadcastTextID; only skip if there's truly nothing to show.
+            bool hasAnyText = false;
+            for (uint8 i = 0; i < MAX_NPC_TEXT_OPTIONS; i++)
+            {
+                if (npcText.Data[i].BroadcastTextID)
+                {
+                    npcText.Data[i].Probability = 1.0f;
+                    hasAnyText = true;
+                }
+            }
+
+            if (!hasAnyText)
+            {
+                TC_LOG_ERROR("sql.sql", "NPCText (ID: {}) has a probability sum 0, no text can be selected from it, skipped.", textID);
+                continue;
+            }
         }
 
         _npcTextStore[textID] = npcText;
