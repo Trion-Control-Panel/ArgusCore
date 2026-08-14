@@ -40,6 +40,9 @@ void WorldSession::SendAuthResponse(uint32 code, bool queued, uint32 queuePos)
         response.SuccessInfo->ActiveExpansionLevel = GetExpansion();
         response.SuccessInfo->AccountExpansionLevel = GetAccountExpansion();
         response.SuccessInfo->Time = int32(GameTime::GetGameTime());
+        // Shop UI currency-symbol lookup key - see the matching CurrencyID assignment in
+        // BattlePayMgr::SendProductList. See ARGUSCORE_FIXES.md.
+        response.SuccessInfo->CurrencyID = sWorld->getIntConfig(CONFIG_BATTLEPAY_CURRENCY);
 
         // Send current home realm. Also there is no need to send it later in realm queries.
         if (std::shared_ptr<Realm const> currentRealm = sRealmList->GetCurrentRealm())
@@ -101,7 +104,7 @@ void WorldSession::SendSetTimeZoneInformation()
 void WorldSession::SendFeatureSystemStatusGlueScreen()
 {
     WorldPackets::System::FeatureSystemStatusGlueScreen features;
-    features.BpayStoreAvailable = false;
+    features.BpayStoreAvailable = sWorld->getBoolConfig(CONFIG_FEATURE_SYSTEM_BPAY_STORE_ENABLED);
     features.BpayStoreDisabledByParentalControls = false;
     features.CharUndeleteEnabled = sWorld->getBoolConfig(CONFIG_FEATURE_SYSTEM_CHARACTER_UNDELETE_ENABLED);
     features.BpayStoreEnabled = sWorld->getBoolConfig(CONFIG_FEATURE_SYSTEM_BPAY_STORE_ENABLED);

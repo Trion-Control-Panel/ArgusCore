@@ -188,6 +188,20 @@ void LoginDatabaseConnection::DoPrepareStatements()
     PrepareStatement(LOGIN_SEL_BNET_ITEM_FAVORITE_APPEARANCES, "SELECT itemModifiedAppearanceId FROM battlenet_item_favorite_appearances WHERE battlenetAccountId = ?", CONNECTION_ASYNC);
     PrepareStatement(LOGIN_INS_BNET_ITEM_FAVORITE_APPEARANCE, "INSERT INTO battlenet_item_favorite_appearances (battlenetAccountId, itemModifiedAppearanceId) VALUES (?, ?)", CONNECTION_ASYNC);
     PrepareStatement(LOGIN_DEL_BNET_ITEM_FAVORITE_APPEARANCE, "DELETE FROM battlenet_item_favorite_appearances WHERE battlenetAccountId = ? AND itemModifiedAppearanceId = ?", CONNECTION_ASYNC);
+
+    // BattlePay Shop Points - see ARGUSCORE_FIXES.md
+    PrepareStatement(LOGIN_SEL_BATTLEPAY_BALANCE, "SELECT Balance FROM battlepay_account_balance WHERE BattlenetAccountId = ?", CONNECTION_ASYNC);
+    // No "AND Balance >= ?" guard needed - Balance is BIGINT UNSIGNED and the server runs with
+    // sql_mode=STRICT_TRANS_TABLES, so an UPDATE that would underflow it errors out (caught via the
+    // standard AsyncCommitTransaction().AfterComplete(bool success) pattern) rather than wrapping or
+    // going negative.
+    PrepareStatement(LOGIN_UPD_BATTLEPAY_BALANCE_DEDUCT, "UPDATE battlepay_account_balance SET Balance = Balance - ? WHERE BattlenetAccountId = ?", CONNECTION_ASYNC);
+    // Also the exact statement an external site's own code can mirror to credit a balance directly
+    // (INSERT ... ON DUPLICATE KEY UPDATE Balance = Balance + ? - safe to call repeatedly, no
+    // separate "does a row exist yet" check needed).
+    PrepareStatement(LOGIN_INS_BATTLEPAY_BALANCE_CREDIT, "INSERT INTO battlepay_account_balance (BattlenetAccountId, Balance) VALUES (?, ?) "
+        "ON DUPLICATE KEY UPDATE Balance = Balance + VALUES(Balance)", CONNECTION_BOTH);
+    PrepareStatement(LOGIN_SEL_BATTLENET_ACCOUNT_BY_ACCOUNT_ID, "SELECT battlenet_account FROM account WHERE id = ?", CONNECTION_SYNCH);
 }
 
 LoginDatabaseConnection::LoginDatabaseConnection(MySQLConnectionInfo& connInfo, ConnectionFlags connectionFlags) : MySQLConnection(connInfo, connectionFlags)

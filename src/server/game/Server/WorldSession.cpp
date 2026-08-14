@@ -1242,6 +1242,7 @@ void WorldSession::InitializeSessionCallback(LoginDatabaseQueryHolder const& hol
 
     SendSetTimeZoneInformation();
     SendFeatureSystemStatusGlueScreen();
+    SendDisplayPromo();
     SendClientCacheVersion(sWorld->getIntConfig(CONFIG_CLIENTCACHE_VERSION));
     SendAvailableHotfixes(int32(sWorld->getIntConfig(CONFIG_HOTFIX_CACHE_VERSION)));
     SendAccountDataTimes(ObjectGuid::Empty, GLOBAL_CACHE_MASK);

@@ -1369,11 +1369,27 @@ BirthdayTime = 1222964635
 
 #
 #   FeatureSystem.BpayStore.Enabled
-#        Description: Not yet implemented
+#        Description: Enables the in-game Shop (BattlePay).
 #        Default:     0 - (Disabled)
 #                     1 - (Enabled)
 
 FeatureSystem.BpayStore.Enabled = 0
+
+#
+#   BattlePay.Enabled
+#        Description: Enables the BattlePay product catalog/manager. Both this and
+#                      FeatureSystem.BpayStore.Enabled above must be on for the Shop to work.
+#        Default:     1 - (Enabled)
+
+BattlePay.Enabled = 1
+
+#
+#   BattlePay.Currency
+#        Description: Currency ID the client uses to display shop prices. 1 = USD, matches the
+#                      default Blizzard client data - only change this if you know what you're doing.
+#        Default:     1
+
+BattlePay.Currency = 1
 
 #
 #   FeatureSystem.CharacterUndelete.Enabled

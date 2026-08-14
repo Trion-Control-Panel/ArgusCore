@@ -31,6 +31,7 @@
 #include "BattlefieldMgr.h"
 #include "BattlegroundMgr.h"
 #include "BattlenetRpcErrorCodes.h"
+#include "BattlePayMgr.h"
 #include "BlackMarketMgr.h"
 #include "CalendarMgr.h"
 #include "ChannelMgr.h"
@@ -697,6 +698,7 @@ void World::LoadConfigSettings(bool reload)
         { .Name = "AllowLoggingIPAddressesInDatabase"sv, .DefaultValue = true, .Index = CONFIG_ALLOW_LOGGING_IP_ADDRESSES_IN_DATABASE },
         { .Name = "Loot.EnableAELoot"sv, .DefaultValue = true, .Index = CONFIG_ENABLE_AE_LOOT },
         { .Name = "Load.Locales"sv, .DefaultValue = true, .Index = CONFIG_LOAD_LOCALES },
+        { .Name = "BattlePay.Enabled"sv, .DefaultValue = true, .Index = CONFIG_BATTLEPAY_ENABLED },
     } };
 
     static constexpr ConfigOptionLoadDefinitionArray<uint32, INT_CONFIG_VALUE_COUNT> ints =
@@ -907,6 +909,10 @@ void World::LoadConfigSettings(bool reload)
         { .Name = "Layer.MinPlayersPerLayer"sv, .DefaultValue = DEFAULT_LAYER_MIN_PLAYERS, .Index = CONFIG_LAYER_MIN_PLAYERS, .Min = 0 },
         { .Name = "Layer.ChangeCooldownSecs"sv, .DefaultValue = DEFAULT_LAYER_CHANGE_CD_SECS, .Index = CONFIG_LAYER_CHANGE_COOLDOWN_SECS, .Min = 0 },
         { .Name = "Layer.MergeIntervalSecs"sv, .DefaultValue = DEFAULT_LAYER_MERGE_INTERVAL_SECS, .Index = CONFIG_LAYER_MERGE_INTERVAL_SECS, .Min = 1 },
+        // BattlePay.Currency: client-side currency-symbol lookup key for the Shop UI (CurrencyTypes.db2
+        // ID, e.g. 1 = USD) - not a real-money billing concept, purely required for the client to
+        // resolve a display symbol. See ARGUSCORE_FIXES.md.
+        { .Name = "BattlePay.Currency"sv, .DefaultValue = 1, .Index = CONFIG_BATTLEPAY_CURRENCY },
     } };
 
     static constexpr ConfigOptionLoadDefinitionArray<uint64, INT64_CONFIG_VALUE_COUNT> int64s =
@@ -1788,6 +1794,12 @@ bool World::SetInitialWorldSettings()
         sBlackMarketMgr->LoadAuctions();
     }
 
+    if (m_bool_configs[CONFIG_BATTLEPAY_ENABLED])
+    {
+        TC_LOG_INFO("server.loading", "Loading BattlePay product catalog...");
+        sBattlePayMgr->LoadProductCatalog();
+    }
+
     TC_LOG_INFO("server.loading", "Loading Guild rewards...");
     sGuildMgr->LoadGuildRewards();
 
@@ -2354,6 +2366,12 @@ void World::Update(uint32 diff)
     {
         TC_METRIC_TIMER("world_update_time", TC_METRIC_TAG("type", "Update LFG List"));
         sLFGListMgr->Update(diff);
+    }
+
+    if (m_bool_configs[CONFIG_BATTLEPAY_ENABLED])
+    {
+        TC_METRIC_TIMER("world_update_time", TC_METRIC_TAG("type", "Update BattlePay"));
+        sBattlePayMgr->Update(diff);
     }
 
     {

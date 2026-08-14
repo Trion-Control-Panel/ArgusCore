@@ -723,6 +723,10 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_UPD_CHARACTER_INSTANCE_LOCK_FORCE_EXPIRE, "UPDATE character_instance_lock SET expiryTime = ?, extended = 0 WHERE guid = ? AND mapId = ? AND lockId = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_INSTANCE, "DELETE FROM instance WHERE instanceId = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_INS_INSTANCE, "INSERT INTO instance (instanceId, data, completedEncountersMask, entranceWorldSafeLocId) VALUES (?, ?, ?, ?)", CONNECTION_ASYNC);
+
+    // BattlePay Shop Points - see ARGUSCORE_FIXES.md
+    PrepareStatement(CHAR_INS_BATTLEPAY_PURCHASE_LOG, "INSERT INTO battlepay_purchase_log (BattlenetAccountId, AccountId, CharacterGuid, ProductID, PurchaseID, PricePaid, DeliveryState) VALUES (?, ?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_BATTLEPAY_PURCHASE_LOG_STATE, "UPDATE battlepay_purchase_log SET DeliveryState = ? WHERE PurchaseID = ?", CONNECTION_ASYNC);
 }
 
 CharacterDatabaseConnection::CharacterDatabaseConnection(MySQLConnectionInfo& connInfo, ConnectionFlags connectionFlags) : MySQLConnection(connInfo, connectionFlags)

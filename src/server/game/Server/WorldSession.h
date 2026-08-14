@@ -477,6 +477,16 @@ namespace WorldPackets
         class RequestLfgListBlacklist;
     }
 
+    namespace BattlePay
+    {
+        class GetProductList;
+        class GetPurchaseListQuery;
+        class UpdateVasPurchaseStates;
+        class StartPurchase;
+        class PurchaseProduct;
+        class ConfirmPurchaseResponse;
+    }
+
     namespace Loot
     {
         class LootUnit;
@@ -1045,6 +1055,9 @@ class TC_GAME_API WorldSession
         void SendSetTimeZoneInformation();
         void SendFeatureSystemStatus();
         void SendFeatureSystemStatusGlueScreen();
+        // Required at login so the Shop UI's distribution-list wait condition is satisfied even
+        // before the player ever opens the Shop. See ARGUSCORE_FIXES.md.
+        void SendDisplayPromo(int32 promotionID = 0);
 
         void SendNameQueryOpcode(ObjectGuid guid);
 
@@ -1663,6 +1676,14 @@ class TC_GAME_API WorldSession
         void HandleLfgListSearch(WorldPackets::GroupFinder::LfgListSearch& lfgListSearch);
         void HandleLfgListUpdateRequest(WorldPackets::GroupFinder::LfgListUpdateRequest& lfgListUpdateRequest);
         void HandleRequestLfgListBlacklist(WorldPackets::GroupFinder::RequestLfgListBlacklist& requestLfgListBlacklist);
+
+        // BattlePay (in-game Shop) - Phase 1: product list display only. See ARGUSCORE_FIXES.md.
+        void HandleBattlePayGetProductList(WorldPackets::BattlePay::GetProductList& getProductList);
+        void HandleBattlePayGetPurchaseList(WorldPackets::BattlePay::GetPurchaseListQuery& getPurchaseList);
+        void HandleUpdateVasPurchaseStates(WorldPackets::BattlePay::UpdateVasPurchaseStates& updateVasPurchaseStates);
+        void HandleBattlePayStartPurchase(WorldPackets::BattlePay::StartPurchase& startPurchase);
+        void HandleBattlePayPurchaseProduct(WorldPackets::BattlePay::PurchaseProduct& purchaseProduct);
+        void HandleBattlePayConfirmPurchase(WorldPackets::BattlePay::ConfirmPurchaseResponse& confirmPurchase);
 
         void HandleSelfResOpcode(WorldPackets::Spells::SelfRes& selfRes);
         void HandleRequestPetInfo(WorldPackets::Pet::RequestPetInfo& requestPetInfo);
