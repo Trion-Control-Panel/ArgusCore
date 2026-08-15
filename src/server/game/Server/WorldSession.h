@@ -679,7 +679,6 @@ namespace WorldPackets
         class PushQuestToParty;
         class RequestWorldQuestUpdate;
         class ChoiceResponse;
-        class SpawnTrackingUpdate;
     }
 
     namespace RaF
@@ -1138,8 +1137,7 @@ class TC_GAME_API WorldSession
         bool SendLearnNewTaxiNode(Creature* unit);
         void SendDiscoverNewTaxiNode(uint32 nodeid);
 
-        // Guild/Arena Team
-        void SendNotInArenaTeamPacket(uint8 type);
+        // Guild
         void SendPetitionShowList(ObjectGuid guid);
 
         void DoLootRelease(Loot* loot);
@@ -1552,7 +1550,6 @@ class TC_GAME_API WorldSession
         void HandleQuestPushResult(WorldPackets::Quest::QuestPushResult& packet);
         void HandleRequestWorldQuestUpdate(WorldPackets::Quest::RequestWorldQuestUpdate& packet);
         void HandlePlayerChoiceResponse(WorldPackets::Quest::ChoiceResponse const& choiceResponse);
-        void HandleSpawnTrackingUpdate(WorldPackets::Quest::SpawnTrackingUpdate& spawnTrackingUpdate);
 
         void HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage& chatMessage);
         void HandleChatMessageWhisperOpcode(WorldPackets::Chat::ChatMessageWhisper& chatMessageWhisper);

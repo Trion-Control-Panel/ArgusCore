@@ -730,19 +730,10 @@ MinPetName = 2
 
 #
 #    Guild.CharterCost
-#    ArenaTeam.CharterCost.2v2
-#    ArenaTeam.CharterCost.3v3
-#    ArenaTeam.CharterCost.5v5
-#        Description: Amount of money (in Copper) the petitions costs.
+#        Description: Amount of money (in Copper) the guild charter petition costs.
 #        Default:     1000 - (10 Silver)
-#                     800000 - (80 Gold)
-#                     1200000 - (120 Gold)
-#                     2000000 - (200 Gold)
 
 Guild.CharterCost = 1000
-ArenaTeam.CharterCost.2v2 = 800000
-ArenaTeam.CharterCost.3v3 = 1200000
-ArenaTeam.CharterCost.5v5 = 2000000
 
 #
 #    MaxWhoListReturns
@@ -1392,6 +1383,70 @@ BattlePay.Enabled = 1
 BattlePay.Currency = 1
 
 #
+#   Movement.AntiCheat.Enable
+#        Description: Detects implausible player movement (position changes faster than the unit's
+#                      real max speed allows for the elapsed time) - a speed-hack check. Ships enabled
+#                      by default with Movement.AntiCheat.Action = 0 (Log only), so enabling this alone
+#                      has zero effect on gameplay - it only starts logging violations for visibility.
+#        Default:     1 - (Enabled)
+
+Movement.AntiCheat.Enable = 1
+
+#
+#   Movement.AntiCheat.Action
+#        Description: What to do once a player's violations within the decay window reach
+#                      Movement.AntiCheat.ViolationThreshold. A single violation never triggers this,
+#                      only sustained/repeated ones.
+#        Default:     0 - (Log only, no gameplay effect)
+#                     1 - (Correct: snap the player back to their last valid position)
+#                     2 - (Kick)
+
+Movement.AntiCheat.Action = 0
+
+#
+#   Movement.AntiCheat.ToleranceMultiplier
+#        Description: Multiplier applied to a unit's max speed before a movement is flagged as a
+#                      violation - absorbs normal latency/lag jitter. Must be >= 1.0.
+#        Default:     1.3
+
+Movement.AntiCheat.ToleranceMultiplier = 1.3
+
+#
+#   Movement.AntiCheat.ViolationThreshold
+#        Description: Number of violations within the decay window required before
+#                      Movement.AntiCheat.Action (if not Log) actually fires.
+#        Default:     5
+
+Movement.AntiCheat.ViolationThreshold = 5
+
+#
+#   Movement.AntiCheat.KickBanThreshold
+#        Description: Number of anti-cheat-triggered kicks (only fires when Movement.AntiCheat.Action
+#                      = 2 - Kick; has no effect while Action stays at its default of 0 - Log) within
+#                      Movement.AntiCheat.KickBanWindowMinutes before the account is auto-banned for
+#                      Movement.AntiCheat.KickBanDuration. Covers a player who disconnects and
+#                      immediately reconnects to keep cheating after each kick.
+#        Default:     5
+#                     0 - (Disabled: kicks still happen per Action, never escalate to a ban)
+
+Movement.AntiCheat.KickBanThreshold = 5
+
+#
+#   Movement.AntiCheat.KickBanWindowMinutes
+#        Description: Rolling window the kicks above are counted within.
+#        Default:     10
+
+Movement.AntiCheat.KickBanWindowMinutes = 10
+
+#
+#   Movement.AntiCheat.KickBanDuration
+#        Description: Ban duration in seconds once Movement.AntiCheat.KickBanThreshold is reached.
+#        Default:     86400 (1 day)
+#                     0 - (Permanent)
+
+Movement.AntiCheat.KickBanDuration = 86400
+
+#
 #   FeatureSystem.CharacterUndelete.Enabled
 #        Description: Controls Feature in CharacterList to restore delete Characters.
 #        Default:     0 - (Disabled)
@@ -1580,7 +1635,13 @@ HotSwap.ReCompilerBuildType = ""
 # WARDEN SETTINGS
 #
 #    Warden.Enabled
-#        Description: Enable Warden anti-cheat system.
+#        Description: Enable Warden anti-cheat system. Leave this off - the embedded client module
+#                      and check data shipped in this build are the stock WotLK 3.3.5a payload, which
+#                      does not match the Legion 7.3.5.26972 client on any platform (Windows or Mac,
+#                      32-bit or 64-bit); genuine 7.3.5 module/offset data isn't available (see
+#                      ARGUSCORE_FIXES.md), so enabling this provides no real detection, only protocol
+#                      overhead and log noise. Real movement-based anti-cheat coverage lives entirely
+#                      under Movement.AntiCheat.* instead, and does not depend on this setting.
 #        Default:     0 - (Disabled)
 #                     1 - (Enabled)
 

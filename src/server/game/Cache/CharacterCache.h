@@ -34,7 +34,6 @@ struct CharacterCacheEntry
     uint8 Sex;
     uint8 Level;
     ObjectGuid::LowType GuildId;
-    uint32 ArenaTeamId[3];
     bool IsDeleted;
 };
 
@@ -57,7 +56,6 @@ class TC_GAME_API CharacterCache
         void UpdateCharacterLevel(ObjectGuid const& guid, uint8 level);
         void UpdateCharacterAccountId(ObjectGuid const& guid, uint32 accountId);
         void UpdateCharacterGuildId(ObjectGuid const& guid, ObjectGuid::LowType guildId);
-        void UpdateCharacterArenaTeamId(ObjectGuid const& guid, uint8 slot, uint32 arenaTeamId);
         void UpdateCharacterInfoDeleted(ObjectGuid const& guid, bool deleted, std::string const& name);
 
         bool HasCharacterCacheEntry(ObjectGuid const& guid) const;
@@ -71,7 +69,6 @@ class TC_GAME_API CharacterCache
         uint32 GetCharacterAccountIdByName(std::string const& name) const;
         uint8 GetCharacterLevelByGuid(ObjectGuid guid) const;
         ObjectGuid::LowType GetCharacterGuildIdByGuid(ObjectGuid guid) const;
-        uint32 GetCharacterArenaTeamIdByGuid(ObjectGuid guid, uint8 type) const;
         bool GetCharacterNameAndClassByGUID(ObjectGuid guid, std::string& name, uint8& _class) const;
 };
 

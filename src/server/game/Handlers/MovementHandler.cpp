@@ -38,6 +38,7 @@
 #include "SpellMgr.h"
 #include "Transport.h"
 #include "Vehicle.h"
+#include "World.h"
 #include <boost/accumulators/framework/accumulator_set.hpp>
 #include <boost/accumulators/framework/features.hpp>
 #include <boost/accumulators/statistics/mean.hpp>
@@ -104,6 +105,11 @@ void WorldSession::HandleMoveWorldportAck()
     float z = loc.Location.GetPositionZ() + player->GetHoverOffset();
     player->Relocate(loc.Location.GetPositionX(), loc.Location.GetPositionY(), z, loc.Location.GetOrientation());
     player->SetFallInformation(0, player->GetPositionZ());
+
+    // Movement anti-cheat: re-establish the baseline at the teleport destination, or the very next
+    // regular movement packet would be compared against the stale pre-teleport position and
+    // false-positive as a huge, instantaneous jump. See ARGUSCORE_FIXES.md.
+    player->ResetMovementAntiCheatBaseline(player->GetPosition(), GameTime::GetGameTimeMS());
 
     player->ResetMap();
     player->SetMap(newMap);
@@ -308,6 +314,10 @@ void WorldSession::HandleMoveTeleportAck(WorldPackets::Movement::MoveTeleportAck
     plMover->UpdatePosition(dest.Location, true);
     plMover->SetFallInformation(0, GetPlayer()->GetPositionZ());
 
+    // Movement anti-cheat: re-establish the baseline at the teleport destination - see the identical
+    // comment in HandleMoveWorldportAck. ARGUSCORE_FIXES.md.
+    plMover->ResetMovementAntiCheatBaseline(plMover->GetPosition(), GameTime::GetGameTimeMS());
+
     uint32 newzone, newarea;
     plMover->GetZoneAndAreaId(newzone, newarea);
     plMover->UpdateZone(newzone, newarea);
@@ -451,6 +461,45 @@ void WorldSession::HandleMovementOpcode(OpcodeClient opcode, MovementInfo& movem
             }
         }
         return;
+    }
+
+    // Movement anti-cheat (Movement.AntiCheat.*) - see Player::ValidateMovementSpeed,
+    // Player::ValidateGroundPlausibility, Player::ValidateMovementPath (speed-hack, fly-hack, and
+    // noclip/wall-hack checks respectively), and ARGUSCORE_FIXES.md. Scoped to plrMover (an actual
+    // player, not e.g. a mind-controlled creature or vehicle) - a deliberate first-pass limitation, not
+    // an oversight; controlled-unit movement trust is a separate, smaller follow-up. Log-only by
+    // default (Movement.AntiCheat.Action = 0): no gameplay effect even when a violation is flagged,
+    // purely visibility, until an operator opts in. All three checks are evaluated (not
+    // short-circuited) so one flag isn't silently skipped just because another check already passed
+    // for this packet. All three must run before UpdatePosition below - ValidateMovementPath in
+    // particular relies on this Player's position still being the pre-packet one.
+    bool movementPlausible = !plrMover || plrMover->ValidateMovementSpeed(movementInfo, movementInfo.time);
+    bool groundPlausible = !plrMover || plrMover->ValidateGroundPlausibility(movementInfo);
+    bool pathPlausible = !plrMover || plrMover->ValidateMovementPath(movementInfo);
+    if (plrMover && (!movementPlausible || !groundPlausible || !pathPlausible))
+    {
+        uint32 action = sWorld->getIntConfig(CONFIG_MOVEMENT_ANTICHEAT_ACTION);
+        uint32 threshold = sWorld->getIntConfig(CONFIG_MOVEMENT_ANTICHEAT_VIOLATION_THRESHOLD);
+        if (action != 0 && plrMover->GetMovementAntiCheatViolationCount() >= threshold)
+        {
+            if (action == 2) // Kick
+            {
+                // Recorded before the kick, not after - GetAccountId() is still safe to read here
+                // (the session isn't destroyed synchronously by KickPlayer, only marked for cleanup),
+                // and RecordAntiCheatKick may escalate this to an account ban on repeat offenders. See
+                // World::RecordAntiCheatKick and ARGUSCORE_FIXES.md.
+                sWorld->RecordAntiCheatKick(GetAccountId());
+                KickPlayer("Movement anti-cheat: repeated implausible movement");
+                return;
+            }
+
+            // Correct: reject the reported position, snap back to the player's last server-applied
+            // (not-yet-overwritten - UpdatePosition below hasn't run for this packet) position. Reuses
+            // Player::TeleportTo rather than a hand-built resync packet - already-proven, and its
+            // completion path already resets the anti-cheat baseline (see HandleMoveTeleportAck).
+            plrMover->TeleportTo(plrMover->GetMapId(), plrMover->GetPositionX(), plrMover->GetPositionY(), plrMover->GetPositionZ(), plrMover->GetOrientation());
+            return;
+        }
     }
 
     mover->UpdatePosition(movementInfo.pos);
@@ -605,6 +654,11 @@ void WorldSession::HandleMoveKnockBackAck(WorldPackets::Movement::MoveKnockBackA
 
     movementAck.Ack.Status.time = AdjustClientMovementTime(movementAck.Ack.Status.time);
     _player->m_movementInfo = movementAck.Ack.Status;
+
+    // Movement anti-cheat: knockbacks are a legitimate large, fast displacement - re-establish the
+    // baseline here rather than let the next regular movement packet false-positive against the
+    // pre-knockback position. ARGUSCORE_FIXES.md.
+    _player->ResetMovementAntiCheatBaseline(movementAck.Ack.Status.pos, movementAck.Ack.Status.time);
 
     WorldPackets::Movement::MoveUpdateKnockBack updateKnockBack;
     updateKnockBack.Status = &_player->m_movementInfo;
@@ -763,6 +817,12 @@ void WorldSession::HandleMoveSplineDoneOpcode(WorldPackets::Movement::MoveSpline
 
     GetPlayer()->CleanupAfterTaxiFlight();
     GetPlayer()->SetFallInformation(0, GetPlayer()->GetPositionZ());
+
+    // Movement anti-cheat: flight-path movement is server-driven spline movement (already exempted
+    // from the speed check itself while GetCurrentMovementGeneratorType() == FLIGHT_MOTION_TYPE) - re-
+    // establish the baseline now that normal client-driven movement resumes. ARGUSCORE_FIXES.md.
+    GetPlayer()->ResetMovementAntiCheatBaseline(GetPlayer()->GetPosition(), GameTime::GetGameTimeMS());
+
     if (GetPlayer()->pvpInfo.IsHostile)
         GetPlayer()->CastSpell(GetPlayer(), 2479, true);
 }

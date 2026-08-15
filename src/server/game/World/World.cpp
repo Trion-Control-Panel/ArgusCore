@@ -23,7 +23,6 @@
 #include "AccountMgr.h"
 #include "AchievementMgr.h"
 #include "AreaTriggerDataStore.h"
-#include "ArenaTeamMgr.h"
 #include "AuctionHouseBot.h"
 #include "AuctionHouseMgr.h"
 #include "AuthenticationPackets.h"
@@ -699,6 +698,10 @@ void World::LoadConfigSettings(bool reload)
         { .Name = "Loot.EnableAELoot"sv, .DefaultValue = true, .Index = CONFIG_ENABLE_AE_LOOT },
         { .Name = "Load.Locales"sv, .DefaultValue = true, .Index = CONFIG_LOAD_LOCALES },
         { .Name = "BattlePay.Enabled"sv, .DefaultValue = true, .Index = CONFIG_BATTLEPAY_ENABLED },
+        // Detection-only by default (Movement.AntiCheat.Action = 0 = Log) - ships active for
+        // visibility into real violations without ever touching gameplay unless an operator
+        // deliberately opts into Correct/Kick. See ARGUSCORE_FIXES.md.
+        { .Name = "Movement.AntiCheat.Enable"sv, .DefaultValue = true, .Index = CONFIG_MOVEMENT_ANTICHEAT_ENABLE },
     } };
 
     static constexpr ConfigOptionLoadDefinitionArray<uint32, INT_CONFIG_VALUE_COUNT> ints =
@@ -742,9 +745,6 @@ void World::LoadConfigSettings(bool reload)
         { .Name = "MinCharterName"sv, .DefaultValue = 2, .Index = CONFIG_MIN_CHARTER_NAME, .Min = 1, .Max = MAX_CHARTER_NAME },
         { .Name = "MinPetName"sv, .DefaultValue = 2, .Index = CONFIG_MIN_PET_NAME, .Min = 1, .Max = MAX_PET_NAME },
         { .Name = "Guild.CharterCost"sv, .DefaultValue = 1000, .Index = CONFIG_CHARTER_COST_GUILD },
-        { .Name = "ArenaTeam.CharterCost.2v2"sv, .DefaultValue = 800000, .Index = CONFIG_CHARTER_COST_ARENA_2v2 },
-        { .Name = "ArenaTeam.CharterCost.3v3"sv, .DefaultValue = 1200000, .Index = CONFIG_CHARTER_COST_ARENA_3v3 },
-        { .Name = "ArenaTeam.CharterCost.5v5"sv, .DefaultValue = 2000000, .Index = CONFIG_CHARTER_COST_ARENA_5v5 },
         { .Name = "CharacterCreating.Disabled"sv, .DefaultValue = 0, .Index = CONFIG_CHARACTER_CREATING_DISABLED },
         { .Name = "CharacterCreating.Disabled.ClassMask"sv, .DefaultValue = 0, .Index = CONFIG_CHARACTER_CREATING_DISABLED_CLASSMASK },
         { .Name = "CharactersPerRealm"sv, .DefaultValue = MAX_CHARACTERS_PER_REALM, .Index = CONFIG_CHARACTERS_PER_REALM, .Min = 1, .Max = MAX_CHARACTERS_PER_REALM },
@@ -913,6 +913,22 @@ void World::LoadConfigSettings(bool reload)
         // ID, e.g. 1 = USD) - not a real-money billing concept, purely required for the client to
         // resolve a display symbol. See ARGUSCORE_FIXES.md.
         { .Name = "BattlePay.Currency"sv, .DefaultValue = 1, .Index = CONFIG_BATTLEPAY_CURRENCY },
+        // 0 = Log (default, no gameplay effect), 1 = Correct (snap back to last valid position),
+        // 2 = Kick. See ARGUSCORE_FIXES.md.
+        { .Name = "Movement.AntiCheat.Action"sv, .DefaultValue = 0, .Index = CONFIG_MOVEMENT_ANTICHEAT_ACTION, .Min = 0, .Max = 2 },
+        // Number of violations within the decay window before Correct/Kick fires - a single
+        // violation never triggers enforcement even when enabled, only sustained/repeated ones.
+        { .Name = "Movement.AntiCheat.ViolationThreshold"sv, .DefaultValue = 5, .Index = CONFIG_MOVEMENT_ANTICHEAT_VIOLATION_THRESHOLD, .Min = 1 },
+        // Number of anti-cheat-triggered kicks (Movement.AntiCheat.Action = 2) within
+        // Movement.AntiCheat.KickBanWindowMinutes before the account is auto-banned. Independent of
+        // Movement.AntiCheat.Action/ViolationThreshold - this only fires from actual kicks, so it has
+        // no effect at all while Action stays at its default (0 = Log). 0 disables this specifically
+        // (kicks still happen per Action, they just never escalate to a ban). See ARGUSCORE_FIXES.md.
+        { .Name = "Movement.AntiCheat.KickBanThreshold"sv, .DefaultValue = 5, .Index = CONFIG_MOVEMENT_ANTICHEAT_KICK_BAN_THRESHOLD, .Min = 0 },
+        // Rolling window the kicks above are counted within.
+        { .Name = "Movement.AntiCheat.KickBanWindowMinutes"sv, .DefaultValue = 10, .Index = CONFIG_MOVEMENT_ANTICHEAT_KICK_BAN_WINDOW_MINUTES, .Min = 1 },
+        // Ban duration in seconds once KickBanThreshold is reached. 0 = permanent.
+        { .Name = "Movement.AntiCheat.KickBanDuration"sv, .DefaultValue = 86400, .Index = CONFIG_MOVEMENT_ANTICHEAT_KICK_BAN_DURATION },
     } };
 
     static constexpr ConfigOptionLoadDefinitionArray<uint64, INT64_CONFIG_VALUE_COUNT> int64s =
@@ -946,6 +962,9 @@ void World::LoadConfigSettings(bool reload)
         { .Name = "Stats.Limits.Parry"sv, .DefaultValue = 95.0f, .Index = CONFIG_STATS_LIMITS_PARRY },
         { .Name = "Stats.Limits.Block"sv, .DefaultValue = 95.0f, .Index = CONFIG_STATS_LIMITS_BLOCK },
         { .Name = "Stats.Limits.Crit"sv, .DefaultValue = 95.0f, .Index = CONFIG_STATS_LIMITS_CRIT },
+        // Multiplier applied to a unit's max speed before flagging a movement violation - absorbs
+        // latency/lag jitter. See ARGUSCORE_FIXES.md.
+        { .Name = "Movement.AntiCheat.ToleranceMultiplier"sv, .DefaultValue = 1.3f, .Index = CONFIG_MOVEMENT_ANTICHEAT_TOLERANCE, .Min = 1.0f },
     } };
 
     static constexpr ConfigOptionLoadDefinitionArray<float, MAX_RATES> rates =
@@ -1808,8 +1827,8 @@ bool World::SetInitialWorldSettings()
 
     sGuildFinderMgr->LoadFromDB();
 
-    TC_LOG_INFO("server.loading", "Loading ArenaTeams...");
-    sArenaTeamMgr->LoadArenaTeams();
+    // No persistent Arena Team load step - Legion replaced it with personal rating, loaded per-player
+    // via Player::_LoadArenaData at login instead. See ARGUSCORE_FIXES.md.
 
     TC_LOG_INFO("server.loading", "Loading Groups...");
     sGroupMgr->LoadGroups();
@@ -2849,6 +2868,41 @@ bool World::RemoveBanCharacter(std::string const& name)
     stmt->setUInt64(0, guid.GetCounter());
     CharacterDatabase.Execute(stmt);
     return true;
+}
+
+// See declaration in World.h for why this is tracked here (survives kick+reconnect) rather than on
+// Player/WorldSession (destroyed by the kick this is reacting to). Mirrors the existing DisconnectMap
+// pattern just above (per-account timestamp bookkeeping, lazily pruned by a configurable window) rather
+// than inventing a new idiom.
+void World::RecordAntiCheatKick(uint32 accountId)
+{
+    uint32 threshold = getIntConfig(CONFIG_MOVEMENT_ANTICHEAT_KICK_BAN_THRESHOLD);
+    if (threshold == 0) // 0 = feature disabled, independent of Movement.AntiCheat.Enable
+        return;
+
+    uint32 windowSecs = getIntConfig(CONFIG_MOVEMENT_ANTICHEAT_KICK_BAN_WINDOW_MINUTES) * MINUTE;
+    time_t now = GameTime::GetGameTime();
+
+    std::vector<time_t>& kicks = m_antiCheatKicks[accountId];
+    std::erase_if(kicks, [&](time_t t) { return difftime(now, t) > windowSecs; });
+    kicks.push_back(now);
+
+    if (kicks.size() < threshold)
+        return;
+
+    std::string accountName;
+    AccountMgr::GetName(accountId, accountName);
+
+    std::string banReason = Trinity::StringFormat("Movement anti-cheat: {} kicks within {} minutes",
+        kicks.size(), getIntConfig(CONFIG_MOVEMENT_ANTICHEAT_KICK_BAN_WINDOW_MINUTES));
+
+    BanAccount(BAN_ACCOUNT, accountName, getIntConfig(CONFIG_MOVEMENT_ANTICHEAT_KICK_BAN_DURATION), banReason, "Server");
+
+    TC_LOG_WARN("movement.anticheat", "Account {} ({}) banned - {}.", accountId, accountName, banReason);
+
+    // Reset so a freshly-unbanned (or manually pardoned) account doesn't instantly re-trigger on its
+    // very next kick, which would otherwise still be sitting at exactly `threshold` in this map.
+    m_antiCheatKicks.erase(accountId);
 }
 
 /// Update the game time

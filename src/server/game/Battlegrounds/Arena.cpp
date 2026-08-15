@@ -16,7 +16,7 @@
  */
 
 #include "Arena.h"
-#include "ArenaTeamMgr.h"
+#include "ArenaHelper.h"
 #include "BattlegroundPackets.h"
 #include "BattlegroundScore.h"
 #include "GuildMgr.h"
@@ -106,17 +106,6 @@ void Arena::BuildPvPLogDataPacket(WorldPackets::Battleground::PVPMatchStatistics
     }
 }
 
-ArenaTeam* Arena::GetArenaTeamForTeam(Team team) const
-{
-    uint8 slot = ArenaTeam::GetSlotByType(GetArenaType());
-    for (BattlegroundPlayerMap::const_iterator itr = GetPlayers().begin(); itr != GetPlayers().end(); ++itr)
-        if (Player* player = _GetPlayerForTeam(team, itr, "Arena::GetArenaTeamForTeam"))
-            if (uint32 arenaTeamId = player->GetArenaTeamId(slot))
-                return sArenaTeamMgr->GetArenaTeamById(arenaTeamId);
-
-    return nullptr;
-}
-
 void Arena::RemovePlayerAtLeave(ObjectGuid guid, bool transport, bool sendPacket)
 {
     if (isRated() && GetStatus() == STATUS_IN_PROGRESS)
@@ -127,16 +116,18 @@ void Arena::RemovePlayerAtLeave(ObjectGuid guid, bool transport, bool sendPacket
             // if the player was a match participant, calculate rating
             Team team = itr->second.Team;
 
-            ArenaTeam* winnerArenaTeam = GetArenaTeamForTeam(GetOtherTeam(team));
-            ArenaTeam* loserArenaTeam = GetArenaTeamForTeam(team);
+            // Personal rating (Legion) rather than a persistent Arena Team - see ARGUSCORE_FIXES.md.
+            // The Group that queued for each side is the same one Battleground::GetBgRaid tracks.
+            Group* winnerGroup = GetBgRaid(GetOtherTeam(team));
+            Group* loserGroup = GetBgRaid(team);
 
             // left a rated match while the encounter was in progress, consider as loser
-            if (winnerArenaTeam && loserArenaTeam && winnerArenaTeam != loserArenaTeam)
+            if (winnerGroup && loserGroup && winnerGroup != loserGroup)
             {
                 if (Player* player = _GetPlayer(itr->first, itr->second.OfflineRemoveTime != 0, "Arena::RemovePlayerAtLeave"))
-                    loserArenaTeam->MemberLost(player, GetArenaMatchmakerRating(GetOtherTeam(team)));
+                    loserGroup->MemberLost(player, GetArenaMatchmakerRating(GetOtherTeam(team)), GetArenaSlot());
                 else
-                    loserArenaTeam->OfflineMemberLost(guid, GetArenaMatchmakerRating(GetOtherTeam(team)));
+                    loserGroup->OfflineMemberLost(guid, GetArenaMatchmakerRating(GetOtherTeam(team)), GetArenaSlot());
             }
         }
     }
@@ -168,24 +159,31 @@ void Arena::EndBattleground(Team winner)
         int32  winnerMatchmakerChange = 0;
         bool   guildAwarded           = false;
 
-        // In case of arena draw, follow this logic:
-        // winnerArenaTeam => ALLIANCE, loserArenaTeam => HORDE
-        ArenaTeam* winnerArenaTeam = GetArenaTeamForTeam(winner == TEAM_OTHER ? ALLIANCE : winner);
-        ArenaTeam* loserArenaTeam = GetArenaTeamForTeam(winner == TEAM_OTHER ? HORDE : GetOtherTeam(winner));
+        // Personal rating (Legion) rather than a persistent Arena Team - see ARGUSCORE_FIXES.md.
+        // In case of arena draw, follow this logic: winnerGroup => ALLIANCE, loserGroup => HORDE
+        Group* winnerGroup = GetBgRaid(winner == TEAM_OTHER ? ALLIANCE : winner);
+        Group* loserGroup = GetBgRaid(winner == TEAM_OTHER ? HORDE : GetOtherTeam(winner));
 
-        if (winnerArenaTeam && loserArenaTeam && winnerArenaTeam != loserArenaTeam)
+        if (winnerGroup && loserGroup && winnerGroup != loserGroup)
         {
             // In case of arena draw, follow this logic:
             // winnerMatchmakerRating => ALLIANCE, loserMatchmakerRating => HORDE
-            loserTeamRating = loserArenaTeam->GetRating();
+            loserTeamRating = loserGroup->GetRating(GetArenaSlot());
             loserMatchmakerRating = GetArenaMatchmakerRating(winner == TEAM_OTHER ? HORDE : GetOtherTeam(winner));
-            winnerTeamRating = winnerArenaTeam->GetRating();
+            winnerTeamRating = winnerGroup->GetRating(GetArenaSlot());
             winnerMatchmakerRating = GetArenaMatchmakerRating(winner == TEAM_OTHER ? ALLIANCE : winner);
 
             if (winner != 0)
             {
-                winnerMatchmakerChange = winnerArenaTeam->WonAgainst(winnerMatchmakerRating, loserMatchmakerRating, winnerChange);
-                loserMatchmakerChange = loserArenaTeam->LostAgainst(loserMatchmakerRating, winnerMatchmakerRating, loserChange);
+                // Matchmaker mod computed independently here too (same pure formula Group::WonAgainst/
+                // LostAgainst apply internally per-member) - Group's methods don't return it, since
+                // each member's own personal-rating change is individualized (the point of Legion's
+                // personal-rating system), unlike the old team-level single value.
+                winnerMatchmakerChange = ArenaHelper::GetMatchmakerRatingMod(winnerMatchmakerRating, loserMatchmakerRating, true);
+                loserMatchmakerChange = ArenaHelper::GetMatchmakerRatingMod(loserMatchmakerRating, winnerMatchmakerRating, false);
+
+                winnerGroup->WonAgainst(winnerMatchmakerRating, loserMatchmakerRating, winnerChange, GetArenaSlot());
+                loserGroup->LostAgainst(loserMatchmakerRating, winnerMatchmakerRating, loserChange, GetArenaSlot());
 
                 TC_LOG_DEBUG("bg.arena", "match Type: {} --- Winner: old rating: {}, rating gain: {}, old MMR: {}, MMR gain: {} --- Loser: old rating: {}, rating loss: {}, old MMR: {}, MMR loss: {} ---",
                     GetArenaType(), winnerTeamRating, winnerChange, winnerMatchmakerRating, winnerMatchmakerChange,
@@ -202,15 +200,14 @@ void Arena::EndBattleground(Team winner)
                 _arenaTeamScores[winnerTeam].Assign(winnerTeamRating, winnerTeamRating + winnerChange, winnerMatchmakerRating, GetArenaMatchmakerRating(winner));
                 _arenaTeamScores[loserTeam].Assign(loserTeamRating, loserTeamRating + loserChange, loserMatchmakerRating, GetArenaMatchmakerRating(GetOtherTeam(winner)));
 
-                TC_LOG_DEBUG("bg.arena", "Arena match Type: {} ended. WinnerTeamId: {}. Winner rating: +{}, Loser rating: {}",
-                    GetArenaType(), winnerArenaTeam->GetId(), winnerChange, loserChange);
+                TC_LOG_DEBUG("bg.arena", "Arena match Type: {} ended. Winner rating: +{}, Loser rating: {}", GetArenaType(), winnerChange, loserChange);
 
                 if (sWorld->getBoolConfig(CONFIG_ARENA_LOG_EXTENDED_INFO))
                     for (auto const& score : PlayerScores)
                         if (Player* player = ObjectAccessor::FindConnectedPlayer(score.first))
                         {
-                            TC_LOG_DEBUG("bg.arena", "Statistics match Type: {} for {} ({}, Team: {}, IP: {}): {}",
-                                GetArenaType(), player->GetName(), score.first.ToString(), player->GetArenaTeamId(GetArenaType() == 5 ? 2 : GetArenaType() == 3),
+                            TC_LOG_DEBUG("bg.arena", "Statistics match Type: {} for {} ({}, IP: {}): {}",
+                                GetArenaType(), player->GetName(), score.first.ToString(),
                                 player->GetSession()->GetRemoteAddress(), score.second->ToString());
                         }
             }
@@ -220,8 +217,8 @@ void Arena::EndBattleground(Team winner)
                 _arenaTeamScores[PVP_TEAM_ALLIANCE].Assign(winnerTeamRating, winnerTeamRating + ARENA_TIMELIMIT_POINTS_LOSS, winnerMatchmakerRating, GetArenaMatchmakerRating(ALLIANCE));
                 _arenaTeamScores[PVP_TEAM_HORDE].Assign(loserTeamRating, loserTeamRating + ARENA_TIMELIMIT_POINTS_LOSS, loserMatchmakerRating, GetArenaMatchmakerRating(HORDE));
 
-                winnerArenaTeam->FinishGame(ARENA_TIMELIMIT_POINTS_LOSS);
-                loserArenaTeam->FinishGame(ARENA_TIMELIMIT_POINTS_LOSS);
+                winnerGroup->FinishGame(ARENA_TIMELIMIT_POINTS_LOSS, GetArenaSlot());
+                loserGroup->FinishGame(ARENA_TIMELIMIT_POINTS_LOSS, GetArenaSlot());
             }
 
             uint8 aliveWinners = GetAlivePlayersCountByTeam(winner);
@@ -234,13 +231,13 @@ void Arena::EndBattleground(Team winner)
                 {
                     // if rated arena match - make member lost!
                     if (team == winner)
-                        winnerArenaTeam->OfflineMemberLost(i.first, loserMatchmakerRating, winnerMatchmakerChange);
+                        winnerGroup->OfflineMemberLost(i.first, loserMatchmakerRating, GetArenaSlot(), winnerMatchmakerChange);
                     else
                     {
                         if (winner == 0)
-                            winnerArenaTeam->OfflineMemberLost(i.first, loserMatchmakerRating, winnerMatchmakerChange);
+                            winnerGroup->OfflineMemberLost(i.first, loserMatchmakerRating, GetArenaSlot(), winnerMatchmakerChange);
 
-                        loserArenaTeam->OfflineMemberLost(i.first, winnerMatchmakerRating, loserMatchmakerChange);
+                        loserGroup->OfflineMemberLost(i.first, winnerMatchmakerRating, GetArenaSlot(), loserMatchmakerChange);
                     }
                     continue;
                 }
@@ -255,7 +252,7 @@ void Arena::EndBattleground(Team winner)
                 if (team == winner)
                 {
                     // update achievement BEFORE personal rating update
-                    uint32 rating = player->GetArenaPersonalRating(winnerArenaTeam->GetSlot());
+                    uint32 rating = player->GetArenaPersonalRating(GetArenaSlot());
                     player->StartCriteria(CriteriaStartEvent::WinRankedArenaMatchWithTeamSize, 0);
                     player->UpdateCriteria(CriteriaType::WinAnyRankedArena, rating ? rating : 1);
                     player->UpdateCriteria(CriteriaType::WinArena, GetMapId());
@@ -269,30 +266,29 @@ void Arena::EndBattleground(Team winner)
                         guildAwarded = true;
                         if (ObjectGuid::LowType guildId = GetBgMap()->GetOwnerGuildId(player->GetBGTeam()))
                             if (Guild* guild = sGuildMgr->GetGuildById(guildId))
-                                guild->UpdateCriteria(CriteriaType::WinAnyRankedArena, std::max<uint32>(winnerArenaTeam->GetRating(), 1), 0, 0, nullptr, player);
+                                guild->UpdateCriteria(CriteriaType::WinAnyRankedArena, std::max<uint32>(rating, 1), 0, 0, nullptr, player);
                     }
 
-                    winnerArenaTeam->MemberWon(player, loserMatchmakerRating, winnerMatchmakerChange);
+                    // winning online members were already updated in bulk by winnerGroup->WonAgainst()
+                    // above - there is no per-player "MemberWon" in the Group-based API (each member's
+                    // own personal rating already applied there, individually).
                 }
                 else
                 {
                     if (winner == 0)
-                        winnerArenaTeam->MemberLost(player, loserMatchmakerRating, winnerMatchmakerChange);
+                        winnerGroup->MemberLost(player, loserMatchmakerRating, GetArenaSlot(), winnerMatchmakerChange);
 
-                    loserArenaTeam->MemberLost(player, winnerMatchmakerRating, loserMatchmakerChange);
+                    loserGroup->MemberLost(player, winnerMatchmakerRating, GetArenaSlot(), loserMatchmakerChange);
 
                     // Arena lost => reset the win_rated_arena having the "no_lose" condition
                     player->FailCriteria(CriteriaFailEvent::LoseRankedArenaMatchWithTeamSize, 0);
                 }
             }
 
-            // save the stat changes
-            winnerArenaTeam->SaveToDB();
-            loserArenaTeam->SaveToDB();
-            // send updated arena team stats to players
-            // this way all arena team members will get notified, not only the ones who participated in this match
-            winnerArenaTeam->NotifyStatsChanged();
-            loserArenaTeam->NotifyStatsChanged();
+            // NOTE: no winnerGroup->SaveToDB()/NotifyStatsChanged() equivalent here - personal ratings
+            // persist through the normal Player save cycle (Player::_SaveArenaData), and the old
+            // "notify all team members of stat change" broadcast is intentionally not ported
+            // (SMSG_ARENA_TEAM_STATS doesn't exist in 7.3.5 - see ARGUSCORE_FIXES.md).
         }
     }
 

@@ -20,6 +20,7 @@
 
 #include "GridObject.h"
 #include "Unit.h"
+#include "ArenaHelper.h"
 #include "CUFProfile.h"
 #include "DatabaseEnvFwd.h"
 #include "DBCEnums.h"
@@ -830,19 +831,6 @@ enum InstanceResetWarningType
     RAID_INSTANCE_EXPIRED           = 5
 };
 
-// PLAYER_FIELD_ARENA_TEAM_INFO_1_1 offsets
-enum ArenaTeamInfoType
-{
-    ARENA_TEAM_ID                = 0,
-    ARENA_TEAM_TYPE              = 1,                       // new in 3.2 - team type?
-    ARENA_TEAM_MEMBER            = 2,                       // 0 - captain, 1 - member
-    ARENA_TEAM_GAMES_WEEK        = 3,
-    ARENA_TEAM_GAMES_SEASON      = 4,
-    ARENA_TEAM_WINS_SEASON       = 5,
-    ARENA_TEAM_PERSONAL_RATING   = 6,
-    ARENA_TEAM_END               = 7
-};
-
 enum TeleportToOptions
 {
     TELE_TO_NONE                = 0x00,
@@ -908,7 +896,7 @@ enum PlayerLoginQueryIndex
     PLAYER_LOGIN_QUERY_LOAD_SPELL_CHARGES,
     PLAYER_LOGIN_QUERY_LOAD_DECLINED_NAMES,
     PLAYER_LOGIN_QUERY_LOAD_GUILD,
-    PLAYER_LOGIN_QUERY_LOAD_ARENA_INFO,
+    PLAYER_LOGIN_QUERY_LOAD_ARENA_DATA,
     PLAYER_LOGIN_QUERY_LOAD_ACHIEVEMENTS,
     PLAYER_LOGIN_QUERY_LOAD_CRITERIA_PROGRESS,
     PLAYER_LOGIN_QUERY_LOAD_EQUIPMENT_SETS,
@@ -1766,8 +1754,6 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
 
         bool HasPvPForcingQuest() const;
 
-        void SendForceSpawnTrackingUpdate(uint32 questId) const;
-        QuestObjective const* GetActiveQuestObjectiveForSpawnTracking(uint32 spawnTrackingId) const;
         SpawnTrackingState GetSpawnTrackingStateByObjectives(uint32 spawnTrackingId, std::vector<uint32> const& questObjectives) const;
         SpawnTrackingState GetSpawnTrackingStateByObjective(uint32 spawnTrackingId, uint32 questObjectiveId) const;
 
@@ -2057,15 +2043,28 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         ObjectGuid::LowType GetGuildIdInvited() const { return m_GuildIdInvited; }
         static void RemovePetitionsAndSigns(ObjectGuid guid);
 
-        // Arena Team
-        void SetInArenaTeam(uint32 ArenaTeamId, uint8 slot, uint8 type);
-        void SetArenaTeamInfoField(uint8 slot, ArenaTeamInfoType type, uint32 value);
-        static void LeaveAllArenaTeams(ObjectGuid guid);
-        uint32 GetArenaTeamId(uint8 slot) const { return GetUInt32Value(PLAYER_FIELD_ARENA_TEAM_INFO_1_1 + (slot * ARENA_TEAM_END) + ARENA_TEAM_ID); }
-        uint32 GetArenaPersonalRating(uint8 slot) const { return GetUInt32Value(PLAYER_FIELD_ARENA_TEAM_INFO_1_1 + (slot * ARENA_TEAM_END) + ARENA_TEAM_PERSONAL_RATING); }
-        void SetArenaTeamIdInvited(uint32 ArenaTeamId) { m_ArenaTeamIdInvited = ArenaTeamId; }
-        uint32 GetArenaTeamIdInvited() const { return m_ArenaTeamIdInvited; }
-        uint32 GetRBGPersonalRating() const { return 0; }
+        // Arena - personal rating (Legion replaced persistent Arena Teams with this; see
+        // ARGUSCORE_FIXES.md). Bounds-check-and-return-0 style, matching this class's existing
+        // defensive convention - these slots are reachable from packet-derived indices.
+        std::array<ArenaHelper::RatedInfo, MAX_PVP_SLOT> const& GetRatedInfos() const { return m_ratedInfos; }
+        uint32 GetArenaPersonalRating(uint8 slot) const { return slot < MAX_PVP_SLOT ? m_ratedInfos[slot].ArenaPersonalRating : 0; }
+        uint32 GetArenaMatchMakerRating(uint8 slot) const { return slot < MAX_PVP_SLOT ? m_ratedInfos[slot].ArenaMatchMakerRating : 0; }
+        uint32 GetBestRatingOfWeek(uint8 slot) const { return slot < MAX_PVP_SLOT ? m_ratedInfos[slot].BestRatingOfWeek : 0; }
+        uint32 GetBestRatingOfSeason(uint8 slot) const { return slot < MAX_PVP_SLOT ? m_ratedInfos[slot].BestRatingOfSeason : 0; }
+        uint32 GetWeekGames(uint8 slot) const { return slot < MAX_PVP_SLOT ? m_ratedInfos[slot].WeekGames : 0; }
+        uint32 GetWeekWins(uint8 slot) const { return slot < MAX_PVP_SLOT ? m_ratedInfos[slot].WeekWins : 0; }
+        uint32 GetPrevWeekGames(uint8 slot) const { return slot < MAX_PVP_SLOT ? m_ratedInfos[slot].PrevWeekGames : 0; }
+        uint32 GetPrevWeekWins(uint8 slot) const { return slot < MAX_PVP_SLOT ? m_ratedInfos[slot].PrevWeekWins : 0; }
+        uint32 GetSeasonGames(uint8 slot) const { return slot < MAX_PVP_SLOT ? m_ratedInfos[slot].SeasonGames : 0; }
+        uint32 GetSeasonWins(uint8 slot) const { return slot < MAX_PVP_SLOT ? m_ratedInfos[slot].SeasonWins : 0; }
+        void SetArenaPersonalRating(uint8 slot, uint32 value);
+        void SetArenaMatchMakerRating(uint8 slot, uint32 value);
+        void IncrementWeekGames(uint8 slot);
+        void IncrementWeekWins(uint8 slot);
+        void IncrementSeasonGames(uint8 slot);
+        void IncrementSeasonWins(uint8 slot);
+        void FinishWeek();
+        uint32 GetRBGPersonalRating() const { return GetArenaPersonalRating(SLOT_RBG_5V5); } // was a hardcoded 0 stub
 
         Difficulty GetDifficultyID(MapEntry const* mapEntry) const;
         Difficulty GetDungeonDifficultyID() const { return m_dungeonDifficulty; }
@@ -2507,6 +2506,45 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void SetFallInformation(uint32 time, float z);
         void HandleFall(MovementInfo const& movementInfo);
 
+        // Movement anti-cheat (Movement.AntiCheat.*) - see ARGUSCORE_FIXES.md. Compares reported
+        // position/elapsed-time against this player's real max speed (Unit::GetSpeed); returns false
+        // when the movement is implausible - the caller (MovementHandler.cpp) decides what to do
+        // (log/correct/kick per config). adjustedTime is the already-server-clock-corrected timestamp
+        // (WorldSession::AdjustClientMovementTime), not the raw client value.
+        bool ValidateMovementSpeed(MovementInfo const& movementInfo, uint32 adjustedTime);
+
+        // Fly-hack / ground-plausibility check (Movement.AntiCheat.*) - see ARGUSCORE_FIXES.md.
+        // Independent of ValidateMovementSpeed above (no baseline/elapsed-time needed - a pure
+        // instantaneous position check), compares the reported position against the real ground/water
+        // surface via WorldObject::UpdateAllowedPositionZ. Returns false when the player is implausibly
+        // airborne with no legitimate reason (not flying/swimming/falling/on a taxi/transport).
+        bool ValidateGroundPlausibility(MovementInfo const& movementInfo);
+
+        // Noclip / wall-hack check (Movement.AntiCheat.*) - see ARGUSCORE_FIXES.md. Independent of the
+        // two checks above (neither looks at what's between the last known position and the new one).
+        // Uses WorldObject::IsWithinLOS, which rays from this Player's own currently-stored (i.e. not
+        // yet overwritten by this packet) position, so like ValidateGroundPlausibility it needs no
+        // separate baseline. Returns false when solid geometry blocks the straight line between them.
+        bool ValidateMovementPath(MovementInfo const& movementInfo);
+
+        // Re-establishes the anti-cheat baseline at the given position/time - call after any
+        // legitimate discontinuity (teleport, knockback, flight path) so the next regular movement
+        // packet isn't compared against a stale pre-discontinuity position.
+        void ResetMovementAntiCheatBaseline(Position const& pos, uint32 adjustedTime);
+
+        uint32 GetMovementAntiCheatViolationCount() const { return m_anticheatViolationCount; }
+
+        // Shared counter/decay-window bump used by all three movement anti-cheat checks above
+        // (ValidateMovementSpeed/ValidateGroundPlausibility/ValidateMovementPath), so a mix of
+        // independently-below-threshold signals from different checks still escalates together.
+        // Deliberately NOT bridged to Warden (was, briefly - see ARGUSCORE_FIXES.md for why that was
+        // reverted: Warden has no real signal-producing capability against any real 7.3.5 client,
+        // x64/Mac included, so unifying with it added complexity without real benefit). Only
+        // increments/logs - the actual Correct/Kick decision stays solely in MovementHandler.cpp
+        // (reads GetMovementAntiCheatViolationCount() against Movement.AntiCheat.*), not duplicated
+        // here.
+        void ReportAntiCheatViolation(char const* subsystem, std::string const& reason);
+
         void SetClientControl(Unit* target, bool allowMove);
 
         void SetSeer(WorldObject* target) { m_seer = target; }
@@ -2936,7 +2974,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void _LoadStoredAuraTeleportLocations(PreparedQueryResult result);
         bool _LoadHomeBind(PreparedQueryResult result);
         void _LoadDeclinedNames(PreparedQueryResult result);
-        void _LoadArenaTeamInfo(PreparedQueryResult result);
+        void _LoadArenaData(PreparedQueryResult result);
         void _LoadEquipmentSets(PreparedQueryResult result);
         void _LoadTransmogOutfits(PreparedQueryResult result);
         void _LoadBGData(PreparedQueryResult result);
@@ -2967,6 +3005,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void _SaveStoredAuraTeleportLocations(CharacterDatabaseTransaction trans);
         void _SaveEquipmentSets(CharacterDatabaseTransaction trans);
         void _SaveBGData(CharacterDatabaseTransaction trans);
+        void _SaveArenaData(CharacterDatabaseTransaction trans);
         void _SaveGlyphs(CharacterDatabaseTransaction trans) const;
         void _SaveTalents(CharacterDatabaseTransaction trans);
         void _SaveStats(CharacterDatabaseTransaction trans) const;
@@ -3021,7 +3060,8 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         SkillStatusMap mSkillStatus;
 
         ObjectGuid::LowType m_GuildIdInvited;
-        uint32 m_ArenaTeamIdInvited;
+
+        std::array<ArenaHelper::RatedInfo, MAX_PVP_SLOT> m_ratedInfos;
 
         PlayerMails m_mail;
         PlayerSpellMap m_spells;
@@ -3150,6 +3190,16 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
 
         uint32 m_lastFallTime;
         float  m_lastFallZ;
+
+        // Movement anti-cheat baseline - deliberately separate state from Unit::m_movementInfo (a
+        // general-purpose struct touched by other movement code for other reasons), updated only at
+        // points known to be safe to compare against. See ValidateMovementSpeed/
+        // ResetMovementAntiCheatBaseline above and ARGUSCORE_FIXES.md.
+        bool m_anticheatBaselineValid = false;
+        Position m_anticheatLastPosition;
+        uint32 m_anticheatLastTime = 0;
+        uint32 m_anticheatViolationCount = 0;
+        uint32 m_anticheatLastViolationTime = 0;
 
         std::array<int32, MAX_TIMERS> m_MirrorTimer;
         uint8 m_MirrorTimerFlags;

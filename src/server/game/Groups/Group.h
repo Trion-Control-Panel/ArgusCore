@@ -18,6 +18,7 @@
 #ifndef TRINITYCORE_GROUP_H
 #define TRINITYCORE_GROUP_H
 
+#include "ArenaHelper.h"
 #include "DBCEnums.h"
 #include "DatabaseEnvFwd.h"
 #include "GroupInstanceRefManager.h"
@@ -320,6 +321,19 @@ class TC_GAME_API Group
         void SetBattlegroundGroup(Battleground* bg);
         void SetBattlefieldGroup(Battlefield* bf);
         GroupJoinBattlegroundResult CanJoinBattlegroundQueue(BattlegroundTemplate const* bgOrTemplate, BattlegroundQueueTypeId bgQueueTypeId, uint32 MinPlayerCount, uint32 MaxPlayerCount, bool isRated, uint32 arenaSlot, ObjectGuid& errorGuid) const;
+
+        /*********************************************************/
+        /***                  ARENA SYSTEM                     ***/
+        /*********************************************************/
+        // Rating math applied directly to the live queued Group's own members - personal rating,
+        // no persistent team object. See ARGUSCORE_FIXES.md.
+        void OfflineMemberLost(ObjectGuid guid, uint32 againstMatchmakerRating, uint8 slot, int32 MatchmakerRatingChange = -12);
+        void MemberLost(Player* player, uint32 againstMatchmakerRating, uint8 slot, int32 MatchmakerRatingChange = -12);
+        uint32 GetRating(uint8 slot);
+        uint32 GetAverageMMR(uint8 slot);
+        void WonAgainst(uint32 Own_MMRating, uint32 Opponent_MMRating, int32& rating_change, uint8 slot);
+        void LostAgainst(uint32 Own_MMRating, uint32 Opponent_MMRating, int32& rating_change, uint8 slot);
+        void FinishGame(int32 rating_change, uint8 slot);
 
         void ChangeMembersGroup(ObjectGuid guid, uint8 group);
         void SwapMembersGroups(ObjectGuid firstGuid, ObjectGuid secondGuid);

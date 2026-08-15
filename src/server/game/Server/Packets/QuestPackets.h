@@ -723,23 +723,6 @@ namespace WorldPackets
             int32 ResponseID = 0;
         };
 
-        struct SpawnTrackingRequestInfo
-        {
-            int32 ObjectTypeMask = 0;
-            int32 ObjectID = 0;
-            uint32 SpawnTrackingID = 0;
-        };
-
-        class SpawnTrackingUpdate final : public ClientPacket
-        {
-        public:
-            explicit SpawnTrackingUpdate(WorldPacket&& packet) : ClientPacket(CMSG_SPAWN_TRACKING_UPDATE, std::move(packet)) { }
-
-            void Read() override;
-
-            std::vector<SpawnTrackingRequestInfo> SpawnTrackingRequests;
-        };
-
         struct SpawnTrackingResponseInfo
         {
             uint32 SpawnTrackingID = 0;
@@ -750,24 +733,17 @@ namespace WorldPackets
             bool Visible = true;
         };
 
-        class QuestPOIUpdateResponse final : public ServerPacket
+        // Named to match its real opcode (SMSG_QUEST_SPAWN_TRACKING_UPDATE) - was previously
+        // "QuestPOIUpdateResponse", constructed with a duplicate, wrongly-valued opcode entry of the
+        // same name. See ARGUSCORE_FIXES.md.
+        class QuestSpawnTrackingUpdate final : public ServerPacket
         {
         public:
-            explicit QuestPOIUpdateResponse() : ServerPacket(SMSG_QUEST_POI_UPDATE_RESPONSE, 21) { }
+            explicit QuestSpawnTrackingUpdate() : ServerPacket(SMSG_QUEST_SPAWN_TRACKING_UPDATE, 21) { }
 
             WorldPacket const* Write() override;
 
             std::vector<SpawnTrackingResponseInfo> SpawnTrackingResponses;
-        };
-
-        class ForceSpawnTrackingUpdate final : public ServerPacket
-        {
-        public:
-            explicit ForceSpawnTrackingUpdate() : ServerPacket(SMSG_FORCE_SPAWN_TRACKING_UPDATE, 4) { }
-
-            WorldPacket const* Write() override;
-
-            int32 QuestID = 0;
         };
     }
 }

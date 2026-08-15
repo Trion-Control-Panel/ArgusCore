@@ -16,8 +16,7 @@
  */
 
 #include "WorldSession.h"
-#include "ArenaTeam.h"
-#include "ArenaTeamMgr.h"
+#include "ArenaHelper.h"
 #include "Battlefield.h"
 #include "BattlefieldMgr.h"
 #include "Battleground.h"
@@ -102,7 +101,7 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPackets::Battleground::Batt
 
     GroupJoinBattlegroundResult err = ERR_BATTLEGROUND_NONE;
 
-    Group const* grp = _player->GetGroup();
+    Group* grp = _player->GetGroup();
 
     auto getQueueTeam = [&]() -> Team
     {
@@ -407,17 +406,10 @@ void WorldSession::HandleBattleFieldPortOpcode(WorldPackets::Battleground::Battl
     }
     else // leave queue
     {
-        // if player leaves rated arena match before match start, it is counted as he played but he lost
-        if (bgQueue.GetQueueId().Rated && ginfo.IsInvitedToBGInstanceGUID)
-        {
-            ArenaTeam* at = sArenaTeamMgr->GetArenaTeamById(ginfo.Team);
-            if (at)
-            {
-                TC_LOG_DEBUG("bg.battleground", "UPDATING memberLost's personal arena rating for {} by opponents rating: {}, because he has left queue!", _player->GetGUID().ToString(), ginfo.OpponentsTeamRating);
-                at->MemberLost(_player, ginfo.OpponentsMatchmakerRating);
-                at->SaveToDB();
-            }
-        }
+        // Leave-rated-queue-while-invited penalty now applied inside BattlegroundQueue::RemovePlayer
+        // (Group-based, personal rating - see ARGUSCORE_FIXES.md), called just below via
+        // bgQueue.RemovePlayer(...). This block used to look up a team by the faction enum
+        // (ginfo.Team is ALLIANCE/HORDE, not a team id) and was already dead.
 
         WorldPackets::Battleground::BattlefieldStatusNone battlefieldStatus;
         battlefieldStatus.Ticket = battlefieldPort.Ticket;
@@ -512,7 +504,7 @@ void WorldSession::HandleBattlemasterJoinArena(WorldPackets::Battleground::Battl
     if (_player->InBattleground())
         return;
 
-    uint8 arenatype = ArenaTeam::GetTypeBySlot(packet.TeamSizeIndex);
+    uint8 arenatype = ArenaHelper::GetTypeBySlot(packet.TeamSizeIndex);
 
     //check existence
     BattlegroundTemplate const* bgTemplate = sBattlegroundMgr->GetBattlegroundTemplateByTypeId(BATTLEGROUND_AA);
@@ -541,10 +533,10 @@ void WorldSession::HandleBattlemasterJoinArena(WorldPackets::Battleground::Battl
     if (grp->GetLeaderGUID() != _player->GetGUID())
         return;
 
-    // get the team rating for queuing
-    ArenaTeam* at = sArenaTeamMgr->GetArenaTeamById(_player->GetArenaTeamId(packet.TeamSizeIndex));
-    uint32 arenaRating = at ? at->GetRating() : 1;
-    uint32 matchmakerRating = at ? at->GetAverageMMR(grp) : 1;
+    // Personal rating, averaged live across the queuing group's own members - no persistent team
+    // lookup. See ARGUSCORE_FIXES.md.
+    uint32 arenaRating = grp->GetRating(packet.TeamSizeIndex);
+    uint32 matchmakerRating = grp->GetAverageMMR(packet.TeamSizeIndex);
 
     if (arenaRating <= 0)
         arenaRating = 1;
@@ -558,7 +550,7 @@ void WorldSession::HandleBattlemasterJoinArena(WorldPackets::Battleground::Battl
     GroupJoinBattlegroundResult err = grp->CanJoinBattlegroundQueue(bgTemplate, bgQueueTypeId, arenatype, arenatype, true, packet.TeamSizeIndex, errorGuid);
     if (!err)
     {
-        TC_LOG_DEBUG("bg.battleground", "Battleground: arena team id {}, leader {} queued with matchmaker rating {} for type {}", _player->GetArenaTeamId(packet.TeamSizeIndex), _player->GetName(), matchmakerRating, arenatype);
+        TC_LOG_DEBUG("bg.battleground", "Battleground: leader {} queued with matchmaker rating {} for type {}", _player->GetName(), matchmakerRating, arenatype);
 
         ginfo = bgQueue.AddGroup(_player, grp, Team(_player->GetTeam()), bracketEntry, false, arenaRating, matchmakerRating);
         avgTime = bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->GetBracketId());
@@ -614,7 +606,27 @@ void WorldSession::HandleReportPvPAFK(WorldPackets::Battleground::ReportPvPPlaye
 
 void WorldSession::HandleRequestRatedPvpInfo(WorldPackets::Battleground::RequestRatedPvpInfo& /*packet*/)
 {
+    // Wired to real per-player data (was an always-zero stub) - see ARGUSCORE_FIXES.md. No reference-
+    // core equivalent exists for this specific opcode (neither DestinyCore nor AshamaneCore has it),
+    // so this is new code, not a port - purely additive/read-only.
     WorldPackets::Battleground::RatedPvpInfo ratedPvpInfo;
+
+    for (uint8 slot = 0; slot < MAX_PVP_SLOT; ++slot)
+    {
+        WorldPackets::Battleground::RatedPvpInfo::BracketInfo& bracket = ratedPvpInfo.Bracket[slot];
+        bracket.PersonalRating   = int32(_player->GetArenaPersonalRating(slot));
+        bracket.SeasonPlayed     = int32(_player->GetSeasonGames(slot));
+        bracket.SeasonWon        = int32(_player->GetSeasonWins(slot));
+        bracket.WeeklyPlayed     = int32(_player->GetWeekGames(slot));
+        bracket.WeeklyWon        = int32(_player->GetWeekWins(slot));
+        bracket.BestWeeklyRating = int32(_player->GetBestRatingOfWeek(slot));
+        bracket.BestSeasonRating = int32(_player->GetBestRatingOfSeason(slot));
+        // Ranking / SeasonFactionPlayed / SeasonFactionWon / PvpTierID / SeasonPvpTier / Disqualified /
+        // LastWeeksBestRating stay at their zero/false defaults - no ladder-ranking system exists, and
+        // Player::FinishWeek() resets BestRatingOfWeek to 0 without ever rolling it into a "previous
+        // week's best" field (confirmed neither reference core tracks that either).
+    }
+
     SendPacket(ratedPvpInfo.Write());
 }
 

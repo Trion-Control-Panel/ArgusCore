@@ -15,7 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "ArenaTeamMgr.h"
+#include "ArenaHelper.h"
 #include "BattlePetMgr.h"
 #include "BattlefieldMgr.h"
 #include "Battleground.h"
@@ -762,22 +762,11 @@ void CriteriaHandler::UpdateCriteria(Criteria const* criteria, uint64 miscValue1
             }
             else // login case
             {
+                // Personal rating (Legion) rather than a persistent Arena Team - see
+                // ARGUSCORE_FIXES.md. No team/type lookup needed - read the player's own rating
+                // directly for each arena slot. MAX_ARENA_SLOT = 3 here (2v2/3v3/5v5).
                 for (uint8 arena_slot = 0; arena_slot < MAX_ARENA_SLOT; ++arena_slot)
-                {
-                    uint32 teamId = referencePlayer->GetArenaTeamId(arena_slot);
-                    if (!teamId)
-                        continue;
-
-                    ArenaTeam* team = sArenaTeamMgr->GetArenaTeamById(teamId);
-                    if (!team || team->GetType() != reqTeamType)
-                        continue;
-
-                    if (ArenaTeamMember const* member = team->GetMember(referencePlayer->GetGUID()))
-                    {
-                        SetCriteriaProgress(criteria, member->PersonalRating, referencePlayer, PROGRESS_HIGHEST);
-                        break;
-                    }
-                }
+                    SetCriteriaProgress(criteria, referencePlayer->GetArenaPersonalRating(arena_slot), referencePlayer, PROGRESS_HIGHEST);
             }
             break;
         }

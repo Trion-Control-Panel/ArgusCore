@@ -28,6 +28,7 @@ using BGFreeSlotQueueContainer = std::list<Battleground*>;
 
 inline constexpr uint32 COUNT_OF_PLAYERS_TO_AVERAGE_WAIT_TIME = 10;
 
+class Group;
 struct GroupQueueInfo;                                      // type predefinition
 struct PlayerQueueInfo                                      // stores information for players in queue
 {
@@ -46,6 +47,11 @@ struct GroupQueueInfo                                       // stores informatio
     uint32  ArenaMatchmakerRating;                          // if rated match, inited to the rating of the team
     uint32  OpponentsTeamRating;                            // for rated arena matches
     uint32  OpponentsMatchmakerRating;                      // for rated arena matches
+
+    // Set from AddGroup's group param. Used to apply the personal-rating penalty (Group::MemberLost/
+    // OfflineMemberLost) if a player leaves a rated queue after being invited but before the match
+    // starts - see ARGUSCORE_FIXES.md. No persistent Arena Team involved.
+    Group* m_Group = nullptr;
 };
 
 enum BattlegroundQueueGroupTypes
@@ -78,7 +84,7 @@ class TC_GAME_API BattlegroundQueue
         bool CheckPremadeMatch(BattlegroundBracketId bracket_id, uint32 MinPlayersPerTeam, uint32 MaxPlayersPerTeam);
         bool CheckNormalMatch(BattlegroundBracketId bracket_id, uint32 minPlayers, uint32 maxPlayers);
         bool CheckSkirmishForSameFaction(BattlegroundBracketId bracket_id, uint32 minPlayersPerTeam);
-        GroupQueueInfo* AddGroup(Player const* leader, Group const* group, Team team, PVPDifficultyEntry const*  bracketEntry, bool isPremade, uint32 ArenaRating, uint32 MatchmakerRating);
+        GroupQueueInfo* AddGroup(Player const* leader, Group* group, Team team, PVPDifficultyEntry const*  bracketEntry, bool isPremade, uint32 ArenaRating, uint32 MatchmakerRating);
         void RemovePlayer(ObjectGuid guid, bool decreaseInvitedCount);
         bool IsPlayerInvited(ObjectGuid pl_guid, const uint32 bgInstanceGuid, const uint32 removeTime);
         bool GetPlayerGroupInfoData(ObjectGuid guid, GroupQueueInfo* ginfo);

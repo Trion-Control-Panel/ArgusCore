@@ -693,26 +693,6 @@ void ChoiceResponse::Read()
     _worldPacket >> ResponseID;
 }
 
-ByteBuffer& operator>>(ByteBuffer& data, SpawnTrackingRequestInfo& spawnTrackingRequestInfo)
-{
-    data >> spawnTrackingRequestInfo.ObjectTypeMask;
-    data >> spawnTrackingRequestInfo.ObjectID;
-    data >> spawnTrackingRequestInfo.SpawnTrackingID;
-
-    return data;
-}
-
-void SpawnTrackingUpdate::Read()
-{
-    uint32 requests = _worldPacket.read<uint32>();
-    if (requests > 10000)
-        OnInvalidArraySize(requests, 10000);
-
-    SpawnTrackingRequests.resize(requests);
-    for (SpawnTrackingRequestInfo& spawnTrackingRequestInfo : SpawnTrackingRequests)
-        _worldPacket >> spawnTrackingRequestInfo;
-}
-
 ByteBuffer& operator<<(ByteBuffer& data, SpawnTrackingResponseInfo const& spawnTrackingResponseInfo)
 {
     data << uint32(spawnTrackingResponseInfo.SpawnTrackingID);
@@ -727,19 +707,12 @@ ByteBuffer& operator<<(ByteBuffer& data, SpawnTrackingResponseInfo const& spawnT
     return data;
 }
 
-WorldPacket const* QuestPOIUpdateResponse::Write()
+WorldPacket const* QuestSpawnTrackingUpdate::Write()
 {
     _worldPacket << Size<uint32>(SpawnTrackingResponses);
 
     for (SpawnTrackingResponseInfo const& spawnTrackingResponseInfo : SpawnTrackingResponses)
         _worldPacket << spawnTrackingResponseInfo;
-
-    return &_worldPacket;
-}
-
-WorldPacket const* ForceSpawnTrackingUpdate::Write()
-{
-    _worldPacket << int32(QuestID);
 
     return &_worldPacket;
 }

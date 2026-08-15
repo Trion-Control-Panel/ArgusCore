@@ -16,7 +16,6 @@
  */
 
 #include "CharacterCache.h"
-#include "ArenaTeam.h"
 #include "DatabaseEnv.h"
 #include "Log.h"
 #include "MiscPackets.h"
@@ -102,8 +101,6 @@ void CharacterCache::AddCharacterCacheEntry(ObjectGuid const& guid, uint32 accou
     data.Class = playerClass;
     data.Level = level;
     data.GuildId = 0;                           // Will be set in guild loading or guild setting
-    for (uint8 i = 0; i < MAX_ARENA_SLOT; ++i)
-        data.ArenaTeamId[i] = 0;                // Will be set in arena teams loading
     data.IsDeleted = isDeleted;
 
     // Fill Name to Guid Store
@@ -166,16 +163,6 @@ void CharacterCache::UpdateCharacterGuildId(ObjectGuid const& guid, ObjectGuid::
         return;
 
     itr->second.GuildId = guildId;
-}
-
-void CharacterCache::UpdateCharacterArenaTeamId(ObjectGuid const& guid, uint8 slot, uint32 arenaTeamId)
-{
-    auto itr = _characterCacheStore.find(guid);
-    if (itr == _characterCacheStore.end())
-        return;
-
-    ASSERT(slot < 3);
-    itr->second.ArenaTeamId[slot] = arenaTeamId;
 }
 
 void CharacterCache::UpdateCharacterInfoDeleted(ObjectGuid const& guid, bool deleted, std::string const& name /*=nullptr*/)
@@ -281,17 +268,6 @@ ObjectGuid::LowType CharacterCache::GetCharacterGuildIdByGuid(ObjectGuid guid) c
         return 0;
 
     return itr->second.GuildId;
-}
-
-uint32 CharacterCache::GetCharacterArenaTeamIdByGuid(ObjectGuid guid, uint8 type) const
-{
-    auto itr = _characterCacheStore.find(guid);
-    if (itr == _characterCacheStore.end())
-        return 0;
-
-    uint8 slot = ArenaTeam::GetSlotByType(type);
-    ASSERT(slot < 3);
-    return itr->second.ArenaTeamId[slot];
 }
 
 bool CharacterCache::GetCharacterNameAndClassByGUID(ObjectGuid guid, std::string& name, uint8& _class) const

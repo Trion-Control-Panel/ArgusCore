@@ -16,8 +16,7 @@
  */
 
 #include "BattlegroundQueue.h"
-#include "ArenaTeam.h"
-#include "ArenaTeamMgr.h"
+#include "ArenaHelper.h"
 #include "BattlegroundMgr.h"
 #include "BattlegroundPackets.h"
 #include "Chat.h"
@@ -130,7 +129,7 @@ bool BattlegroundQueue::SelectionPool::AddGroup(GroupQueueInfo* ginfo, uint32 de
 /*********************************************************/
 
 // add group or player (grp == nullptr) to bg queue with the given leader and bg specifications
-GroupQueueInfo* BattlegroundQueue::AddGroup(Player const* leader, Group const* group, Team team, PVPDifficultyEntry const* bracketEntry, bool isPremade, uint32 ArenaRating, uint32 MatchmakerRating)
+GroupQueueInfo* BattlegroundQueue::AddGroup(Player const* leader, Group* group, Team team, PVPDifficultyEntry const* bracketEntry, bool isPremade, uint32 ArenaRating, uint32 MatchmakerRating)
 {
     BattlegroundBracketId bracketId = bracketEntry->GetBracketId();
 
@@ -144,6 +143,7 @@ GroupQueueInfo* BattlegroundQueue::AddGroup(Player const* leader, Group const* g
     ginfo->ArenaMatchmakerRating     = MatchmakerRating;
     ginfo->OpponentsTeamRating       = 0;
     ginfo->OpponentsMatchmakerRating = 0;
+    ginfo->m_Group                   = group;
 
     ginfo->Players.clear();
 
@@ -156,14 +156,6 @@ GroupQueueInfo* BattlegroundQueue::AddGroup(Player const* leader, Group const* g
     TC_LOG_DEBUG("bg.battleground", "Adding Group to BattlegroundQueue bgTypeId : {}, bracket_id : {}, index : {}", m_queueId.BattlemasterListId, bracketId, index);
 
     uint32 lastOnlineTime = GameTime::GetGameTimeMS();
-
-    //announce world (this don't need mutex)
-    if (m_queueId.Rated && sWorld->getBoolConfig(CONFIG_ARENA_QUEUE_ANNOUNCER_ENABLE))
-    {
-        ArenaTeam* team = sArenaTeamMgr->GetArenaTeamById(0);
-        if (team)
-            sWorld->SendWorldText(LANG_ARENA_QUEUE_ANNOUNCE_WORLD_JOIN, team->GetName().c_str(), m_queueId.TeamSize, m_queueId.TeamSize, ginfo->ArenaTeamRating);
-    }
 
     //add players from group to ginfo
     if (group)
@@ -349,22 +341,20 @@ void BattlegroundQueue::RemovePlayer(ObjectGuid guid, bool decreaseInvitedCount)
     // remove player queue info
     m_QueuedPlayers.erase(itr);
 
-    // announce to world if arena team left queue for rated match, show only once
-    if (m_queueId.TeamSize && m_queueId.Rated && group->Players.empty() && sWorld->getBoolConfig(CONFIG_ARENA_QUEUE_ANNOUNCER_ENABLE))
-        if (ArenaTeam* team = sArenaTeamMgr->GetArenaTeamById(0))
-            sWorld->SendWorldText(LANG_ARENA_QUEUE_ANNOUNCE_WORLD_EXIT, team->GetName().c_str(), m_queueId.TeamSize, m_queueId.TeamSize, group->ArenaTeamRating);
-
-    // if player leaves queue and he is invited to rated arena match, then he have to lose
+    // Personal rating penalty (Legion) rather than a persistent Arena Team - see ARGUSCORE_FIXES.md.
+    // No world-announce equivalent: a queued group has no "team name" concept to announce anymore,
+    // and neither reference core adds one back - just the rating penalty itself, applied to the
+    // Group that queued (group->m_Group, set in AddGroup).
     if (group->IsInvitedToBGInstanceGUID && m_queueId.Rated && decreaseInvitedCount)
     {
-        if (ArenaTeam* at = sArenaTeamMgr->GetArenaTeamById(0))
+        if (group->m_Group)
         {
+            uint8 slot = ArenaHelper::GetSlotByType(m_queueId.TeamSize);
             TC_LOG_DEBUG("bg.battleground", "UPDATING memberLost's personal arena rating for {} by opponents rating: {}", guid.ToString(), group->OpponentsTeamRating);
             if (Player* player = ObjectAccessor::FindConnectedPlayer(guid))
-                at->MemberLost(player, group->OpponentsMatchmakerRating);
+                group->m_Group->MemberLost(player, group->OpponentsMatchmakerRating, slot);
             else
-                at->OfflineMemberLost(guid, group->OpponentsMatchmakerRating);
-            at->SaveToDB();
+                group->m_Group->OfflineMemberLost(guid, group->OpponentsMatchmakerRating, slot);
         }
     }
 

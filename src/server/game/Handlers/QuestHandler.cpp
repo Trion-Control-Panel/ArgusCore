@@ -433,7 +433,6 @@ void WorldSession::HandleQuestLogRemoveQuest(WorldPackets::Quest::QuestLogRemove
                 }
             }
 
-            _player->SendForceSpawnTrackingUpdate(questId);
             _player->TakeQuestSourceItem(questId, true); // remove quest src item from player
             _player->AbandonQuest(questId); // remove all quest items player received before abandoning quest. Note, this does not remove normal drop items that happen to be quest requirements.
             _player->DespawnPersonalSummonsForQuest(questId);
@@ -725,64 +724,3 @@ void WorldSession::HandlePlayerChoiceResponse(WorldPackets::Quest::ChoiceRespons
     sScriptMgr->OnPlayerChoiceResponse(ObjectAccessor::GetWorldObject(*_player, _player->PlayerTalkClass->GetInteractionData().SourceGuid), _player, playerChoice, playerChoiceResponse);
 }
 
-void WorldSession::HandleSpawnTrackingUpdate(WorldPackets::Quest::SpawnTrackingUpdate& spawnTrackingUpdate)
-{
-    WorldPackets::Quest::QuestPOIUpdateResponse response;
-
-    auto spawnTypeForObjectType = [](TypeMask objectTypeMask) -> SpawnObjectType
-    {
-        if (objectTypeMask & TYPEMASK_UNIT)
-            return SPAWN_TYPE_CREATURE;
-
-        if (objectTypeMask & TYPEMASK_GAMEOBJECT)
-            return SPAWN_TYPE_GAMEOBJECT;
-
-        return NUM_SPAWN_TYPES;
-    };
-
-    for (WorldPackets::Quest::SpawnTrackingRequestInfo const& requestInfo : spawnTrackingUpdate.SpawnTrackingRequests)
-    {
-        WorldPackets::Quest::SpawnTrackingResponseInfo& responseInfo = response.SpawnTrackingResponses.emplace_back();
-        responseInfo.SpawnTrackingID = requestInfo.SpawnTrackingID;
-        responseInfo.ObjectID = requestInfo.ObjectID;
-
-        SpawnTrackingTemplateData const* spawnTrackingTemplateData = sObjectMgr->GetSpawnTrackingData(requestInfo.SpawnTrackingID);
-        QuestObjective const* activeQuestObjective = _player->GetActiveQuestObjectiveForSpawnTracking(requestInfo.SpawnTrackingID);
-
-        // Send phase info if map is the same or spawn tracking related quests are taken or completed
-        if (spawnTrackingTemplateData && (_player->GetMapId() == spawnTrackingTemplateData->MapId || activeQuestObjective))
-        {
-            responseInfo.PhaseID = spawnTrackingTemplateData->PhaseId;
-            responseInfo.PhaseGroupID = spawnTrackingTemplateData->PhaseGroup;
-            responseInfo.PhaseUseFlags = spawnTrackingTemplateData->PhaseUseFlags;
-
-            // Send spawn visibility data if available
-            SpawnObjectType spawnType = spawnTypeForObjectType(TypeMask(requestInfo.ObjectTypeMask));
-            if (spawnType != NUM_SPAWN_TYPES)
-            {
-                // There should only be one entity
-                for (auto const& [spawnTrackingId, data] : sObjectMgr->GetSpawnMetadataForSpawnTracking(requestInfo.SpawnTrackingID))
-                {
-                    SpawnData const* spawnData = data->ToSpawnData();
-                    if (!spawnData)
-                        continue;
-
-                    if (spawnData->id != uint32(requestInfo.ObjectID))
-                        continue;
-
-                    if (spawnType != data->type)
-                        continue;
-
-                    if (activeQuestObjective)
-                    {
-                        SpawnTrackingState state = _player->GetSpawnTrackingStateByObjectives(spawnTrackingId, data->spawnTrackingQuestObjectives);
-                        responseInfo.Visible = data->spawnTrackingStates[AsUnderlyingType(state)].Visible;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    SendPacket(response.Write());
-}

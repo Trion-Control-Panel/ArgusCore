@@ -19,8 +19,7 @@
 #include "AreaTrigger.h"
 #include "AccountMgr.h"
 #include "AchievementMgr.h"
-#include "ArenaTeam.h"
-#include "ArenaTeamMgr.h"
+#include "ArenaHelper.h"
 #include "Bag.h"
 #include "Battlefield.h"
 #include "BattlefieldMgr.h"
@@ -119,6 +118,7 @@
 #include "SpellMgr.h"
 #include "SpellPackets.h"
 #include "StringConvert.h"
+#include "StringFormat.h"
 #include "TalentPackets.h"
 #include "TerrainMgr.h"
 #include "ToyPackets.h"
@@ -200,7 +200,6 @@ Player::Player(WorldSession* session) : Unit(true), m_sceneMgr(this)
     m_bPassOnGroupLoot = false;
 
     m_GuildIdInvited = UI64LIT(0);
-    m_ArenaTeamIdInvited = 0;
 
     m_atLoginFlags = AT_LOGIN_NONE;
 
@@ -3749,9 +3748,6 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
         if (Guild* guild = sGuildMgr->GetGuildById(guildId))
             guild->DeleteMember(trans, playerguid, false, false);
 
-    // remove from arena teams
-    LeaveAllArenaTeams(playerguid);
-
     // the player was uninvited already on logout so just remove from group
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_GROUP_MEMBER);
     stmt->setUInt64(0, guid);
@@ -3909,6 +3905,10 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
             trans->Append(stmt);
 
             stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_ARENA_STATS);
+            stmt->setUInt64(0, guid);
+            trans->Append(stmt);
+
+            stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_ARENA_DATA);
             stmt->setUInt64(0, guid);
             trans->Append(stmt);
 
@@ -7086,17 +7086,7 @@ void Player::IncreaseCurrencyCap(uint32 id, uint32 amount)
 
 void Player::ResetCurrencyWeekCap()
 {
-    for (uint32 arenaSlot = 0; arenaSlot < MAX_ARENA_SLOT; arenaSlot++)
-    {
-        if (uint32 arenaTeamId = GetArenaTeamId(arenaSlot))
-        {
-            ArenaTeam* arenaTeam = sArenaTeamMgr->GetArenaTeamById(arenaTeamId);
-            ASSERT(arenaTeam);
-            arenaTeam->FinishWeek();                              // set played this week etc values to 0 in memory, too
-            arenaTeam->SaveToDB();                                // save changes
-            arenaTeam->NotifyStatsChanged();                      // notify the players of the changes
-        }
-    }
+    FinishWeek();
 
     for (PlayerCurrenciesMap::iterator itr = _currencyStorage.begin(); itr != _currencyStorage.end(); ++itr)
     {
@@ -7188,17 +7178,6 @@ void Player::SetInGuild(ObjectGuid::LowType guildId)
     SetUInt16Value(OBJECT_FIELD_TYPE, 1, guildId != 0);
 
     sCharacterCache->UpdateCharacterGuildId(GetGUID(), guildId);
-}
-
-void Player::SetArenaTeamInfoField(uint8 slot, ArenaTeamInfoType type, uint32 value)
-{
-    SetUInt32Value(PLAYER_FIELD_ARENA_TEAM_INFO_1_1 + (slot * ARENA_TEAM_END) + type, value);
-}
-
-void Player::SetInArenaTeam(uint32 ArenaTeamId, uint8 slot, uint8 type)
-{
-    SetArenaTeamInfoField(slot, ARENA_TEAM_ID, ArenaTeamId);
-    SetArenaTeamInfoField(slot, ARENA_TEAM_TYPE, type);
 }
 
 uint32 Player::GetZoneIdFromDB(ObjectGuid guid)
@@ -14222,8 +14201,6 @@ void Player::AddQuest(Quest const* quest, Object* questGiver)
     QuestStatusData& questStatusData = questStatusItr->second;
     QuestStatus oldStatus = questStatusData.Status;
 
-    SendForceSpawnTrackingUpdate(quest_id);
-
     // check for repeatable quests status reset
     SetQuestSlot(log_slot, quest_id);
     questStatusData.Slot = log_slot;
@@ -14317,8 +14294,6 @@ void Player::CompleteQuest(uint32 quest_id)
 {
     if (quest_id)
     {
-        SendForceSpawnTrackingUpdate(quest_id);
-
         SetQuestStatus(quest_id, QUEST_STATUS_COMPLETE);
 
         if (QuestStatusData const* questStatus = Trinity::Containers::MapGetValuePtr(m_QuestStatus, quest_id))
@@ -16206,14 +16181,17 @@ void Player::UpdateQuestObjectiveProgress(QuestObjectiveType objectiveType, int3
                     QuestStatusData& questStatus = objectiveItr.second.QuestStatusItr->second;
                     questStatus.SpawnTrackingList.insert(std::make_pair(objective->StorageIndex, data->spawnTrackingData->SpawnTrackingId));
 
-                    // Send QuestPOIUpdateResponse for every spawn linked to same SpawnTrackingId
+                    // Send QuestSpawnTrackingUpdate for every spawn linked to same SpawnTrackingId. Was
+                    // previously constructed as "QuestPOIUpdateResponse", a duplicate, wrongly-valued
+                    // opcode entry - this send was silently failing (WorldSession::SendPacket rejecting
+                    // an out-of-range opcode) until that was fixed. See ARGUSCORE_FIXES.md.
                     for (auto const& [spawnTrackingId, data] : sObjectMgr->GetSpawnMetadataForSpawnTracking(data->spawnTrackingData->SpawnTrackingId))
                     {
                         SpawnData const* spawnData = data->ToSpawnData();
                         if (!spawnData)
                             continue;
 
-                        WorldPackets::Quest::QuestPOIUpdateResponse response;
+                        WorldPackets::Quest::QuestSpawnTrackingUpdate response;
 
                         WorldPackets::Quest::SpawnTrackingResponseInfo& responseInfo = response.SpawnTrackingResponses.emplace_back();
                         responseInfo.SpawnTrackingID = data->spawnTrackingData->SpawnTrackingId;
@@ -16640,8 +16618,6 @@ void Player::SendQuestReward(Quest const* quest, Creature const* questGiver, uin
         moneyReward = uint32(GetQuestMoneyReward(quest) + int32(quest->GetRewMoneyMaxLevel() * sWorld->getRate(RATE_DROP_MONEY)));
     }
 
-    SendForceSpawnTrackingUpdate(questId);
-
     if (quest->HasFlag(QUEST_FLAGS_TRACKING_EVENT))
         return;
 
@@ -16843,26 +16819,6 @@ bool Player::HasPvPForcingQuest() const
     return false;
 }
 
-void Player::SendForceSpawnTrackingUpdate(uint32 questId) const
-{
-    if (questId)
-    {
-        WorldPackets::Quest::ForceSpawnTrackingUpdate data;
-        data.QuestID = questId;
-        SendDirectMessage(data.Write());
-    }
-}
-
-QuestObjective const* Player::GetActiveQuestObjectiveForSpawnTracking(uint32 spawnTrackingId) const
-{
-    if (std::vector<QuestObjective const*> const* questObjectiveList = sObjectMgr->GetSpawnTrackingQuestObjectiveList(spawnTrackingId))
-        for (QuestObjective const* questObjective : *questObjectiveList)
-            if (IsQuestObjectiveCompletable(questObjective->QuestID, questObjective->ID))
-                return questObjective;
-
-    return nullptr;
-}
-
 SpawnTrackingState Player::GetSpawnTrackingStateByObjectives(uint32 spawnTrackingId, std::vector<uint32> const& questObjectives) const
 {
     if (spawnTrackingId && !questObjectives.empty())
@@ -16926,47 +16882,35 @@ void Player::_LoadDeclinedNames(PreparedQueryResult result)
         m_declinedname->name[i] = (*result)[i].GetString();
 }
 
-void Player::_LoadArenaTeamInfo(PreparedQueryResult result)
+void Player::_LoadArenaData(PreparedQueryResult result)
 {
-    // arenateamid, played_week, played_season, personal_rating
-    memset((void*)&m_uint32Values[PLAYER_FIELD_ARENA_TEAM_INFO_1_1], 0, sizeof(uint32) * MAX_ARENA_SLOT * ARENA_TEAM_END);
+    if (!result)
+        return;
 
-    uint16 personalRatingCache[] = {0, 0, 0};
-
-    if (result)
+    do
     {
-        do
+        Field* fields = result->Fetch();
+        uint8 slot = fields[0].GetUInt8();
+
+        if (slot >= MAX_PVP_SLOT)
         {
-            Field* fields = result->Fetch();
-
-            uint32 arenaTeamId = fields[0].GetUInt32();
-
-            ArenaTeam* arenaTeam = sArenaTeamMgr->GetArenaTeamById(arenaTeamId);
-            if (!arenaTeam)
-            {
-                TC_LOG_ERROR("entities.player.loading", "Player::_LoadArenaTeamInfo: couldn't load arenateam {}", arenaTeamId);
-                continue;
-            }
-
-            uint8 arenaSlot = arenaTeam->GetSlot();
-            ASSERT(arenaSlot < 3);
-
-            personalRatingCache[arenaSlot] = fields[4].GetUInt16();
-
-            SetArenaTeamInfoField(arenaSlot, ARENA_TEAM_ID, arenaTeamId);
-            SetArenaTeamInfoField(arenaSlot, ARENA_TEAM_TYPE, arenaTeam->GetType());
-            SetArenaTeamInfoField(arenaSlot, ARENA_TEAM_MEMBER, (arenaTeam->GetCaptain() == GetGUID()) ? 0 : 1);
-            SetArenaTeamInfoField(arenaSlot, ARENA_TEAM_GAMES_WEEK, uint32(fields[1].GetUInt16()));
-            SetArenaTeamInfoField(arenaSlot, ARENA_TEAM_GAMES_SEASON, uint32(fields[2].GetUInt16()));
-            SetArenaTeamInfoField(arenaSlot, ARENA_TEAM_WINS_SEASON, uint32(fields[3].GetUInt16()));
+            TC_LOG_ERROR("entities.player.loading", "Player::_LoadArenaData: Player '{}' ({}) has invalid slot {} in table `character_arena_data`", GetName(), GetGUID().ToString(), slot);
+            continue;
         }
-        while (result->NextRow());
-    }
 
-    for (uint8 slot = 0; slot <= 2; ++slot)
-    {
-        SetArenaTeamInfoField(slot, ARENA_TEAM_PERSONAL_RATING, uint32(personalRatingCache[slot]));
+        ArenaHelper::RatedInfo& slotInfo = m_ratedInfos[slot];
+        slotInfo.ArenaPersonalRating   = fields[1].GetUInt32();
+        slotInfo.BestRatingOfWeek      = fields[2].GetUInt32();
+        slotInfo.BestRatingOfSeason    = fields[3].GetUInt32();
+        slotInfo.ArenaMatchMakerRating = fields[4].GetUInt32();
+        slotInfo.WeekGames             = fields[5].GetUInt32();
+        slotInfo.WeekWins              = fields[6].GetUInt32();
+        slotInfo.PrevWeekGames         = fields[7].GetUInt32();
+        slotInfo.PrevWeekWins          = fields[8].GetUInt32();
+        slotInfo.SeasonGames           = fields[9].GetUInt32();
+        slotInfo.SeasonWins            = fields[10].GetUInt32();
     }
+    while (result->NextRow());
 }
 
 void Player::_LoadEquipmentSets(PreparedQueryResult result)
@@ -17458,23 +17402,7 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
 
     _LoadGroup(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_GROUP));
 
-    _LoadArenaTeamInfo(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_ARENA_INFO));
-
-    // check arena teams integrity
-    for (uint32 arena_slot = 0; arena_slot < MAX_ARENA_SLOT; ++arena_slot)
-    {
-        uint32 arena_team_id = GetArenaTeamId(arena_slot);
-        if (!arena_team_id)
-            continue;
-
-        if (ArenaTeam* at = sArenaTeamMgr->GetArenaTeamById(arena_team_id))
-            if (at->IsMember(GetGUID()))
-                continue;
-
-        // arena team not exist or not member, cleanup fields
-        for (int j = 0; j < 6; ++j)
-            SetArenaTeamInfoField(arena_slot, ArenaTeamInfoType(j), 0);
-    }
+    _LoadArenaData(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_ARENA_DATA));
 
     _LoadCurrency(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_CURRENCY));
     SetUInt32Value(PLAYER_FIELD_LIFETIME_HONORABLE_KILLS, fields.totalKills);
@@ -19914,6 +19842,7 @@ void Player::SaveToDB(LoginDatabaseTransaction loginTransaction, CharacterDataba
         _SaveMail(trans);
 
     _SaveBGData(trans);
+    _SaveArenaData(trans);
     _SaveInventory(trans);
     _SaveVoidStorage(trans);
     _SaveQuestStatus(trans);
@@ -22074,24 +22003,6 @@ void Player::RemovePetitionsAndSigns(ObjectGuid guid)
 {
     sPetitionMgr->RemoveSignaturesBySigner(guid);
     sPetitionMgr->RemovePetitionsByOwner(guid);
-}
-
-void Player::LeaveAllArenaTeams(ObjectGuid guid)
-{
-    CharacterCacheEntry const* characterInfo = sCharacterCache->GetCharacterCacheByGuid(guid);
-    if (!characterInfo)
-        return;
-
-    for (uint8 i = 0; i < MAX_ARENA_SLOT; ++i)
-    {
-        uint32 arenaTeamId = characterInfo->ArenaTeamId[i];
-        if (arenaTeamId != 0)
-        {
-            ArenaTeam* arenaTeam = sArenaTeamMgr->GetArenaTeamById(arenaTeamId);
-            if (arenaTeam)
-                arenaTeam->DelMember(guid, true);
-        }
-    }
 }
 
 bool Player::ActivateTaxiPathTo(std::vector<uint32> const& nodes, Creature* npc /*= nullptr*/, uint32 spellid /*= 0*/, uint32 preferredMountDisplay /*= 0*/,
@@ -26305,6 +26216,210 @@ void Player::HandleFall(MovementInfo const& movementInfo)
     }
 }
 
+void Player::ResetMovementAntiCheatBaseline(Position const& pos, uint32 adjustedTime)
+{
+    m_anticheatLastPosition.Relocate(pos);
+    m_anticheatLastTime = adjustedTime;
+    m_anticheatBaselineValid = true;
+}
+
+// See ARGUSCORE_FIXES.md for the full design writeup (why Unit::GetSpeed is reused as-is, why the
+// baseline is dedicated state rather than reusing Unit::m_movementInfo, why this only checks
+// horizontal distance, why flight-path/vehicle-seat movement is excluded, and the false-positive
+// risk this was designed against).
+bool Player::ValidateMovementSpeed(MovementInfo const& movementInfo, uint32 adjustedTime)
+{
+    if (!sWorld->getBoolConfig(CONFIG_MOVEMENT_ANTICHEAT_ENABLE))
+        return true;
+
+    // GM noclip/fly mode doesn't follow normal movement physics - same exemption HandleFall already
+    // makes for fall damage, same reasoning.
+    if (IsGameMaster())
+        return true;
+
+    // No baseline yet (first packet this session), or a legitimate discontinuity was just handled
+    // (see ResetMovementAntiCheatBaseline call sites in MovementHandler.cpp) - establish/refresh
+    // rather than compare against nothing/stale data.
+    if (!m_anticheatBaselineValid)
+    {
+        ResetMovementAntiCheatBaseline(movementInfo.pos, adjustedTime);
+        return true;
+    }
+
+    // Server-driven spline movement (taxi/flight path) isn't client-authoritative position - skip,
+    // matching the same FLIGHT_MOTION_TYPE check already used elsewhere in MovementHandler.cpp.
+    if (GetMotionMaster()->GetCurrentMovementGeneratorType() == FLIGHT_MOTION_TYPE)
+    {
+        ResetMovementAntiCheatBaseline(movementInfo.pos, adjustedTime);
+        return true;
+    }
+
+    uint32 elapsed = adjustedTime > m_anticheatLastTime ? adjustedTime - m_anticheatLastTime : 0;
+
+    // Degenerate elapsed time (near-zero, or absurdly large e.g. after a lag spike/brief drop) isn't
+    // meaningful to check against - refresh the baseline and move on rather than risk a meaningless
+    // comparison in either direction.
+    if (elapsed == 0 || elapsed > 10000)
+    {
+        ResetMovementAntiCheatBaseline(movementInfo.pos, adjustedTime);
+        return true;
+    }
+
+    float distance = m_anticheatLastPosition.GetExactDist2d(movementInfo.pos);
+
+    // Highest applicable speed ceiling - not trying to distinguish walk vs. run precisely (run is
+    // always >= walk, so checking against it is always at least as permissive as correct, with no
+    // security downside).
+    UnitMoveType moveType = MOVE_RUN;
+    if (movementInfo.HasMovementFlag(MOVEMENTFLAG_FLYING | MOVEMENTFLAG_DISABLE_GRAVITY))
+        moveType = MOVE_FLIGHT;
+    else if (movementInfo.HasMovementFlag(MOVEMENTFLAG_SWIMMING))
+        moveType = MOVE_SWIM;
+
+    float maxSpeed = GetSpeed(moveType);
+    float toleranceMultiplier = sWorld->getFloatConfig(CONFIG_MOVEMENT_ANTICHEAT_TOLERANCE);
+    float allowed = maxSpeed * (float(elapsed) / 1000.0f) * toleranceMultiplier + 2.0f; // +2.0f flat slack for short ticks/rounding
+
+    ResetMovementAntiCheatBaseline(movementInfo.pos, adjustedTime);
+
+    if (distance <= allowed)
+        return true;
+
+    // Violation - detailed diagnostic line stays under its own category; the counter/decay itself is
+    // shared with the other two movement checks via ReportAntiCheatViolation.
+    TC_LOG_WARN("movement.anticheat", "Player {} ({}) moved implausibly - {:.2f}yd in {}ms (allowed {:.2f}yd at {:.2f}yd/s).",
+        GetName(), GetGUID().ToString(), distance, elapsed, allowed, maxSpeed);
+
+    ReportAntiCheatViolation("movement", Trinity::StringFormat("{:.2f}yd in {}ms (allowed {:.2f}yd)", distance, elapsed, allowed));
+
+    return false;
+}
+
+// Fly-hack check. Deliberately separate from ValidateMovementSpeed rather than folded into it: that
+// check explicitly excludes Z (see its own comment - a naive Z-delta-over-time check false-positives
+// constantly on stairs/slopes, since climbing a ramp legitimately raises Z with no special movement
+// flag). This instead compares against the actual ground/water surface at the reported (x,y) - reusing
+// WorldObject::UpdateAllowedPositionZ as-is, the same idiom already used to sanitize creature/pathing
+// positions (PathGenerator, MotionMaster, ChaseMovementGenerator, etc.), never previously applied to a
+// player's own reported position. It already accounts for water-walking/swimming
+// (GetMapWaterOrGroundLevel checks SPELL_AURA_WATER_WALK) and hover offset, so no separate handling of
+// those is needed here. No baseline/elapsed-time dependency, so unlike ValidateMovementSpeed this can
+// run on every packet including the very first one this session.
+bool Player::ValidateGroundPlausibility(MovementInfo const& movementInfo)
+{
+    if (!sWorld->getBoolConfig(CONFIG_MOVEMENT_ANTICHEAT_ENABLE))
+        return true;
+
+    if (IsGameMaster())
+        return true;
+
+    // Transports aren't part of the static/dynamic vmap tree (UpdateAllowedPositionZ no-ops for them
+    // anyway - see its own "TODO: Allow transports..." comment), and taxi/flight-path spline movement
+    // isn't client-authoritative position, matching the same exemption ValidateMovementSpeed uses.
+    if (GetTransport() || GetMotionMaster()->GetCurrentMovementGeneratorType() == FLIGHT_MOTION_TYPE)
+        return true;
+
+    // Legitimate airborne/near-ground states - flag-consistency validation elsewhere already prevents
+    // a player from claiming FLYING/DISABLE_GRAVITY without the matching permission, so these are
+    // trustworthy here. FALLING*/HOVER cover the actually-descending and hover-in-place cases that
+    // HandleFall's own system already reasons about; SWIMMING is redundant with the water-surface
+    // handling below but kept for defense in depth.
+    constexpr uint32 ExemptFlags = MOVEMENTFLAG_FLYING | MOVEMENTFLAG_DISABLE_GRAVITY | MOVEMENTFLAG_SWIMMING |
+        MOVEMENTFLAG_FALLING | MOVEMENTFLAG_FALLING_FAR | MOVEMENTFLAG_FALLING_SLOW | MOVEMENTFLAG_HOVER;
+    if (CanFly() || movementInfo.HasMovementFlag(ExemptFlags))
+        return true;
+
+    float clampedZ = movementInfo.pos.GetPositionZ();
+    float groundZ = INVALID_HEIGHT;
+    UpdateAllowedPositionZ(movementInfo.pos.GetPositionX(), movementInfo.pos.GetPositionY(), clampedZ, &groundZ);
+
+    // No usable ground/water data at this position (vmap gap, etc.) - can't judge, don't punish.
+    if (groundZ <= INVALID_HEIGHT)
+        return true;
+
+    // Generous - comfortably clears a normal jump apex (~2-2.5yd) plus real terrain/vmap slack (stairs,
+    // doorframes, uneven collision meshes). There's no dedicated "jumping" movement flag in this
+    // protocol version (the client only sets FALLING once it's actually descending), so the tolerance
+    // plus the graduated violation-count response below are what absorb a legitimate jump's initial
+    // push-off tick, not a flag exemption.
+    constexpr float FlyHackToleranceYd = 6.0f;
+    float heightAboveGround = movementInfo.pos.GetPositionZ() - groundZ;
+    if (heightAboveGround <= FlyHackToleranceYd)
+        return true;
+
+    TC_LOG_WARN("movement.anticheat", "Player {} ({}) is {:.2f}yd above ground with no flight/fall/swim state at ({:.2f}, {:.2f}, {:.2f}).",
+        GetName(), GetGUID().ToString(), heightAboveGround, movementInfo.pos.GetPositionX(), movementInfo.pos.GetPositionY(), movementInfo.pos.GetPositionZ());
+
+    ReportAntiCheatViolation("movement", Trinity::StringFormat("{:.2f}yd above ground, no flight/fall/swim state", heightAboveGround));
+
+    return false;
+}
+
+// Noclip / wall-hack check. Independent of ValidateMovementSpeed (speed-hack) and
+// ValidateGroundPlausibility (fly-hack) above - neither of those looks at what's actually between the
+// last known position and the new one, just the distance/altitude. Reuses WorldObject::IsWithinLOS as-is
+// (the same VMap collision/LOS query already used for spell/combat LOS and, closer to this use case, by
+// RandomMovementGenerator/FleeingMovementGenerator/ConfusedMovementGenerator to check whether a
+// destination is reachable in a straight line) - never previously applied to a player's own reported
+// movement. IsWithinLOS rays from this Player's own currently-stored position (GetPositionX/Y/Z()),
+// which at the point this runs in HandleMovementOpcode is still the last server-applied position -
+// UpdatePosition for this packet hasn't run yet - so, like ValidateGroundPlausibility, this needs no
+// separate baseline of its own.
+bool Player::ValidateMovementPath(MovementInfo const& movementInfo)
+{
+    if (!sWorld->getBoolConfig(CONFIG_MOVEMENT_ANTICHEAT_ENABLE))
+        return true;
+
+    if (IsGameMaster())
+        return true;
+
+    if (GetTransport() || GetMotionMaster()->GetCurrentMovementGeneratorType() == FLIGHT_MOTION_TYPE)
+        return true;
+
+    // Skip near-stationary/turn-only packets - nothing meaningful to check a path for, and
+    // IsWithinLOS is a real VMap raycast, not worth spending on a fraction-of-a-yard move.
+    constexpr float MinPathCheckDistanceYd = 1.0f;
+    if (GetExactDist(movementInfo.pos) < MinPathCheckDistanceYd)
+        return true;
+
+    if (IsWithinLOS(movementInfo.pos.GetPositionX(), movementInfo.pos.GetPositionY(), movementInfo.pos.GetPositionZ()))
+        return true;
+
+    TC_LOG_WARN("movement.anticheat", "Player {} ({}) moved from ({:.2f}, {:.2f}, {:.2f}) to ({:.2f}, {:.2f}, {:.2f}) through blocked line of sight (possible noclip/wall-hack).",
+        GetName(), GetGUID().ToString(), GetPositionX(), GetPositionY(), GetPositionZ(),
+        movementInfo.pos.GetPositionX(), movementInfo.pos.GetPositionY(), movementInfo.pos.GetPositionZ());
+
+    ReportAntiCheatViolation("movement", "moved through blocked line of sight (possible noclip)");
+
+    return false;
+}
+
+// Shared counter/decay-window bump for the three movement anti-cheat checks (Movement.AntiCheat.*) -
+// see ARGUSCORE_FIXES.md. Deliberately Movement-only: this briefly also fed from Warden::ApplyPenalty's
+// log-only branch, reverted because Warden has no real signal-producing capability against any real
+// 7.3.5 client (x64/Mac included - stale module data, and Wn64/Mc64 aren't even initialized), so
+// bridging to it added a config surface and an extra escalation path for a partner that could never
+// actually contribute. Only increments/decays/logs - the Correct/Kick decision is made solely by the
+// caller (MovementHandler.cpp, via GetMovementAntiCheatViolationCount() against
+// Movement.AntiCheat.ViolationThreshold/Action), not duplicated here.
+void Player::ReportAntiCheatViolation(char const* subsystem, std::string const& reason)
+{
+    if (!sWorld->getBoolConfig(CONFIG_MOVEMENT_ANTICHEAT_ENABLE))
+        return;
+
+    uint32 now = GameTime::GetGameTimeMS();
+
+    constexpr uint32 ViolationDecayWindowMs = 60000;
+    if (now - m_anticheatLastViolationTime > ViolationDecayWindowMs)
+        m_anticheatViolationCount = 0;
+
+    m_anticheatLastViolationTime = now;
+    ++m_anticheatViolationCount;
+
+    TC_LOG_WARN("movement.anticheat", "Player {} ({}) flagged by {}: {} (violation #{} in current window)",
+        GetName(), GetGUID().ToString(), subsystem, reason, m_anticheatViolationCount);
+}
+
 void Player::ResetAchievements()
 {
     m_achievementMgr->Reset();
@@ -27116,6 +27231,73 @@ void Player::_SaveBGData(CharacterDatabaseTransaction trans)
     stmt->setUInt32(10, m_bgData.mountSpell);
     stmt->setUInt64(11, m_bgData.queueId.GetPacked());
     trans->Append(stmt);
+}
+
+// Legion personal arena/RBG rating - replaces the old persistent Arena Team system. See
+// ARGUSCORE_FIXES.md. One row per MAX_PVP_SLOT, rewritten in full (delete + re-insert) on every save.
+void Player::_SaveArenaData(CharacterDatabaseTransaction trans)
+{
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_ARENA_DATA);
+    stmt->setUInt64(0, GetGUID().GetCounter());
+    trans->Append(stmt);
+
+    uint8 slot = 0;
+    for (ArenaHelper::RatedInfo const& slotInfo : m_ratedInfos)
+    {
+        stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHARACTER_ARENA_DATA);
+        stmt->setUInt64(0, GetGUID().GetCounter());
+        stmt->setUInt8(1, slot++);
+        stmt->setUInt32(2, slotInfo.ArenaPersonalRating);
+        stmt->setUInt32(3, slotInfo.BestRatingOfWeek);
+        stmt->setUInt32(4, slotInfo.BestRatingOfSeason);
+        stmt->setUInt32(5, slotInfo.ArenaMatchMakerRating);
+        stmt->setUInt32(6, slotInfo.WeekGames);
+        stmt->setUInt32(7, slotInfo.WeekWins);
+        stmt->setUInt32(8, slotInfo.PrevWeekGames);
+        stmt->setUInt32(9, slotInfo.PrevWeekWins);
+        stmt->setUInt32(10, slotInfo.SeasonGames);
+        stmt->setUInt32(11, slotInfo.SeasonWins);
+        trans->Append(stmt);
+    }
+}
+
+void Player::SetArenaPersonalRating(uint8 slot, uint32 value)
+{
+    if (slot >= MAX_PVP_SLOT)
+        return;
+
+    UpdateCriteria(CriteriaType::EarnPersonalArenaRating, value, ArenaHelper::GetTypeBySlot(slot));
+
+    ArenaHelper::RatedInfo& slotInfo = m_ratedInfos[slot];
+    slotInfo.ArenaPersonalRating = value;
+
+    if (slotInfo.BestRatingOfWeek < value)
+        slotInfo.BestRatingOfWeek = value;
+    if (slotInfo.BestRatingOfSeason < value)
+        slotInfo.BestRatingOfSeason = value;
+}
+
+void Player::SetArenaMatchMakerRating(uint8 slot, uint32 value)
+{
+    if (slot < MAX_PVP_SLOT)
+        m_ratedInfos[slot].ArenaMatchMakerRating = value;
+}
+
+void Player::IncrementWeekGames(uint8 slot)   { if (slot < MAX_PVP_SLOT) ++m_ratedInfos[slot].WeekGames; }
+void Player::IncrementWeekWins(uint8 slot)    { if (slot < MAX_PVP_SLOT) ++m_ratedInfos[slot].WeekWins; }
+void Player::IncrementSeasonGames(uint8 slot) { if (slot < MAX_PVP_SLOT) ++m_ratedInfos[slot].SeasonGames; }
+void Player::IncrementSeasonWins(uint8 slot)  { if (slot < MAX_PVP_SLOT) ++m_ratedInfos[slot].SeasonWins; }
+
+void Player::FinishWeek()
+{
+    for (ArenaHelper::RatedInfo& slotInfo : m_ratedInfos)
+    {
+        slotInfo.BestRatingOfWeek = 0;
+        slotInfo.PrevWeekWins     = slotInfo.WeekWins;
+        slotInfo.PrevWeekGames    = slotInfo.WeekGames;
+        slotInfo.WeekWins         = 0;
+        slotInfo.WeekGames        = 0;
+    }
 }
 
 void Player::DeleteEquipmentSet(uint64 id)

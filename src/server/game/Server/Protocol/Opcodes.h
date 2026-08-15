@@ -696,7 +696,9 @@ enum OpcodeClient : uint16
     CMSG_SORT_BAGS                                    = 0x3318,
     CMSG_SORT_BANK_BAGS                               = 0x3319,
     CMSG_SORT_REAGENT_BANK_BAGS                       = 0x331A,
-    CMSG_SPAWN_TRACKING_UPDATE                        = 0x9999, // TODO: TheLegionPreservationProject: does this exist?
+    // CMSG_SPAWN_TRACKING_UPDATE removed - confirmed absent from Legion 7.3.5 (TrinityCore/WowPacketParser
+    // has no entry for it before 10.1.5/Dragonflight); its handler was never registered in this table
+    // either way. See ARGUSCORE_FIXES.md.
     CMSG_SPELL_CLICK                                  = 0x3498,
     CMSG_SPIRIT_HEALER_ACTIVATE                       = 0x34B2,
     CMSG_SPLIT_GUILD_BANK_ITEM                        = 0x34C6,
@@ -945,14 +947,19 @@ enum OpcodeServer : uint16
     SMSG_CANCEL_SCENE                                 = 0x2654,
     SMSG_CANCEL_SPELL_VISUAL                          = 0x2C44,
     SMSG_CANCEL_SPELL_VISUAL_KIT                      = 0x2C48,
-    SMSG_CAPTURE_POINT_REMOVED                        = 0xBADD, // real value unknown (absent from all 4 reference cores) - was
-                                                                  // colliding with SMSG_SPELL_VISUAL_LOAD_SCREEN's own 0x9999
-                                                                  // placeholder; harmless while this packet is never actually
-                                                                  // constructed anywhere, but a real collision waiting to happen
-                                                                  // the moment it is. Moved to the UNKNOWN_OPCODE sentinel
-                                                                  // (matching SMSG_ITEM_UPGRADE_RESULT's convention) instead of
-                                                                  // guessing a distinct placeholder that could just as easily
-                                                                  // collide with something else undiscovered.
+    SMSG_CAPTURE_POINT_REMOVED                        = 0x2597, // Not a recovered value like most fixes in this file - absent
+                                                                  // from every 7.x-9.x WowPacketParser build (first real capture
+                                                                  // starts 8.1.5/BfA at 0x2598, shifting to 0x2599 by 8.3). But
+                                                                  // this IS real, live functionality here (GameObject::Delete,
+                                                                  // GAMEOBJECT_TYPE_CAPTURE_POINT - the old "harmless, never
+                                                                  // actually constructed" note above was wrong), so leaving it
+                                                                  // unsendable wasn't the right call either. 0x2597 is the single
+                                                                  // unused value in an otherwise fully-populated, contiguous run
+                                                                  // from 0x2590-0x25AF, sitting immediately after the already-real
+                                                                  // SMSG_UPDATE_CAPTURE_POINT (0x2596) and before
+                                                                  // SMSG_BATTLEGROUND_PLAYER_JOINED (0x2598) - the same thematic
+                                                                  // block, exactly the one gap. Reasoned, not directly captured.
+                                                                  // See ARGUSCORE_FIXES.md.
     SMSG_CAST_FAILED                                  = 0x2C56,
     SMSG_CATEGORY_COOLDOWN                            = 0x2C16,
     SMSG_CHALLENGE_MODE_ALL_MAP_STATS                 = 0x2622,
@@ -1078,7 +1085,6 @@ enum OpcodeServer : uint16
     SMSG_FLIGHT_SPLINE_SYNC                           = 0x2DF7,
     SMSG_FORCE_ANIM                                   = 0x2794,
     SMSG_FORCE_OBJECT_RELINK                          = 0x2667,
-    SMSG_FORCE_SPAWN_TRACKING_UPDATE                  = 0x9997, // TODO: TheLegionPreservationProject: does this exist?
     SMSG_FORCED_DEATH_UPDATE                          = 0x2706,
     SMSG_FRIEND_STATUS                                = 0x27CB,
     SMSG_GAME_OBJECT_ACTIVATE_ANIM_KIT                = 0x25D6,
@@ -1535,7 +1541,10 @@ enum OpcodeServer : uint16
     SMSG_QUEST_LOG_FULL                               = 0x2A86,
     SMSG_QUEST_POI_CHANGED                            = 0x2A9F,
     SMSG_QUEST_POI_QUERY_RESPONSE                     = 0x2A9C,
-    SMSG_QUEST_POI_UPDATE_RESPONSE                    = 0x9998, // TODO: TheLegionPreservationProject: does this exist?
+    // SMSG_QUEST_POI_UPDATE_RESPONSE removed - it was a duplicate of SMSG_QUEST_SPAWN_TRACKING_UPDATE
+    // below (same real opcode, 0x2A9E, under two different names from two different sources); the
+    // WorldPackets::Quest packet class that used to construct with this name now uses the real one.
+    // See ARGUSCORE_FIXES.md.
     SMSG_QUEST_PUSH_RESULT                            = 0x2A8F,
     SMSG_QUEST_SPAWN_TRACKING_UPDATE                  = 0x2A9E,
     SMSG_QUEST_UPDATE_ADD_CREDIT                      = 0x2A8B,
@@ -1679,17 +1688,10 @@ enum OpcodeServer : uint16
     SMSG_SPELL_PERIODIC_AURA_LOG                      = 0x2C1B,
     SMSG_SPELL_PREPARE                                = 0x2C38,
     SMSG_SPELL_START                                  = 0x2C3A,
-    SMSG_SPELL_VISUAL_LOAD_SCREEN                     = UNKNOWN_OPCODE, // real value unknown, absent from all 4 reference
-                                                                  // cores. Previously held guessed placeholder 0x9999, but that
-                                                                  // value is outside the valid SMSG opcode range, so
-                                                                  // ValidateServerOpcode was already rejecting the handler
-                                                                  // registration (the "currently working feature" the old
-                                                                  // comment protected was never actually reaching the client
-                                                                  // correctly) while Spell::EffectTeleportUnitsWithVisualLoadingScreen
-                                                                  // was still unconditionally writing that bogus opcode onto the
-                                                                  // wire. Moved to the UNKNOWN_OPCODE sentinel (matching
-                                                                  // SMSG_CAPTURE_POINT_REMOVED/SMSG_ITEM_UPGRADE_RESULT's
-                                                                  // convention) and the send site guarded instead.
+    SMSG_SPELL_VISUAL_LOAD_SCREEN                     = 0x25E4, // Recovered real value - TrinityCore/WowPacketParser has this
+                                                                  // exact opcode at this exact value for build 7.3.5.25848 (the
+                                                                  // closest WPP tracks to ArgusCore's target 26972), confirmed
+                                                                  // unused elsewhere in this table. See ARGUSCORE_FIXES.md.
     SMSG_SPIRIT_HEALER_CONFIRM                        = 0x2754,
     SMSG_STAND_STATE_UPDATE                           = 0x275B,
     SMSG_START_ELAPSED_TIMER                          = 0x261A,
@@ -1796,11 +1798,28 @@ enum OpcodeServer : uint16
     // adjacent heirloom sync), so it silently collided with the UNKNOWN_OPCODE sentinel
     // (Opcodes.h:43) and got dropped by WorldSession::SendPacket every time.
     SMSG_ACCOUNT_HEIRLOOM_UPDATE                      = 0x25C5,
-    SMSG_ITEM_UPGRADE_RESULT                          = 0xBADD, // no client handler
+    SMSG_ITEM_UPGRADE_RESULT                          = UNKNOWN_OPCODE, // Old comment ("no client handler") was wrong -
+                                                                  // WorldSession::HandleUpgradeItem is registered and reachable
+                                                                  // (CMSG_UPGRADE_ITEM, Opcodes.cpp). Real value not recoverable:
+                                                                  // absent from every 7.x+ WowPacketParser build - only appears
+                                                                  // in 5.4.7/6.0.3 (MoP/early WoD) under a completely different,
+                                                                  // incompatible numbering scheme (0x0888/0x0B2E) - consistent with
+                                                                  // the old MoP "item upgrade token" system having been removed
+                                                                  // from the game by Legion. Confirmed practically unreachable in
+                                                                  // this build regardless: 0 creatures in the world DB carry
+                                                                  // UNIT_NPC_FLAG_2_ITEM_UPGRADE_MASTER (checked live DB), so no
+                                                                  // client can ever be shown the UI that sends CMSG_UPGRADE_ITEM
+                                                                  // in the first place. Left as UNKNOWN_OPCODE rather than guessed
+                                                                  // at or removed - the handler plumbing is real and could matter
+                                                                  // again if an operator adds such an NPC later. See ARGUSCORE_FIXES.md.
     SMSG_COMPRESSED_PACKET                            = 0x3052,
     SMSG_MULTIPLE_PACKETS                             = 0x3051,
 
     // Deleted opcodes, here only to allow compile
+    // SMSG_ARENA_TEAM_STATS: confirmed absent from every 7.x+ WowPacketParser build (present in every
+    // Vanilla/WotLK/Cata/MoP one) - real, this correctly-marked entry was right. Its one remaining
+    // send site (ArenaTeam::SendStats) has since been removed entirely along with the rest of the
+    // legacy persistent Arena Team system - see ARGUSCORE_FIXES.md.
     SMSG_ARENA_TEAM_STATS                             = UNKNOWN_OPCODE,
 };
 

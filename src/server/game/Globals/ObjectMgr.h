@@ -1351,7 +1351,6 @@ class TC_GAME_API ObjectMgr
 
         SpawnTrackingTemplateData const* GetSpawnTrackingData(uint32 spawnTrackingId) const;
         Trinity::IteratorPair<SpawnTrackingLinkContainer::const_iterator> GetSpawnMetadataForSpawnTracking(uint32 spawnTrackingId) const { return Trinity::Containers::MapEqualRange(_spawnTrackingMapStore, spawnTrackingId); }
-        std::vector<QuestObjective const*> const* GetSpawnTrackingQuestObjectiveList(uint32 spawnTrackingId) const { auto it = _spawnTrackingQuestObjectiveStore.find(spawnTrackingId); return it != _spawnTrackingQuestObjectiveStore.end() ? &it->second : nullptr; }
         bool IsQuestObjectiveForSpawnTracking(uint32 spawnTrackingId, uint32 questObjectiveId) const;
 
         MailLevelReward const* GetMailLevelReward(uint8 level, uint8 race) const

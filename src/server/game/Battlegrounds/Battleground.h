@@ -18,6 +18,7 @@
 #ifndef __BATTLEGROUND_H
 #define __BATTLEGROUND_H
 
+#include "ArenaHelper.h"
 #include "DBCEnums.h"
 #include "ObjectGuid.h"
 #include "Position.h"
@@ -285,6 +286,7 @@ class TC_GAME_API Battleground
 
         int32 GetStartDelayTime() const     { return m_StartDelayTime; }
         uint8 GetArenaType() const          { return m_ArenaType; }
+        uint8 GetArenaSlot() const { return ArenaHelper::GetSlotByType(GetArenaType()); }
         PvPTeamId GetWinner() const { return _winnerTeamId; }
         uint32 GetScriptId() const;
         uint32 GetBonusHonorFromKill(uint32 kills) const;

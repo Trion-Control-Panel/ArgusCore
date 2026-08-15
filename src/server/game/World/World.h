@@ -199,6 +199,7 @@ enum WorldBoolConfigs : uint32
     CONFIG_ENABLE_AE_LOOT,
     CONFIG_LOAD_LOCALES,
     CONFIG_BATTLEPAY_ENABLED,
+    CONFIG_MOVEMENT_ANTICHEAT_ENABLE,
     BOOL_CONFIG_VALUE_COUNT
 };
 
@@ -227,6 +228,7 @@ enum WorldFloatConfigs : uint32
     CONFIG_MAX_VISIBILITY_DISTANCE_INSTANCE,
     CONFIG_MAX_VISIBILITY_DISTANCE_BATTLEGROUND,
     CONFIG_MAX_VISIBILITY_DISTANCE_ARENA,
+    CONFIG_MOVEMENT_ANTICHEAT_TOLERANCE,
     FLOAT_CONFIG_VALUE_COUNT
 };
 
@@ -411,9 +413,6 @@ enum WorldIntConfigs : uint32
     CONFIG_AHBOT_UPDATE_INTERVAL,
     CONFIG_FEATURE_SYSTEM_CHARACTER_UNDELETE_COOLDOWN,
     CONFIG_CHARTER_COST_GUILD,
-    CONFIG_CHARTER_COST_ARENA_2v2,
-    CONFIG_CHARTER_COST_ARENA_3v3,
-    CONFIG_CHARTER_COST_ARENA_5v5,
     CONFIG_NO_GRAY_AGGRO_ABOVE,
     CONFIG_NO_GRAY_AGGRO_BELOW,
     CONFIG_AUCTION_REPLICATE_DELAY,
@@ -439,6 +438,11 @@ enum WorldIntConfigs : uint32
     CONFIG_LAYER_CHANGE_COOLDOWN_SECS,
     CONFIG_LAYER_MERGE_INTERVAL_SECS,
     CONFIG_BATTLEPAY_CURRENCY,
+    CONFIG_MOVEMENT_ANTICHEAT_ACTION,
+    CONFIG_MOVEMENT_ANTICHEAT_VIOLATION_THRESHOLD,
+    CONFIG_MOVEMENT_ANTICHEAT_KICK_BAN_THRESHOLD,
+    CONFIG_MOVEMENT_ANTICHEAT_KICK_BAN_WINDOW_MINUTES,
+    CONFIG_MOVEMENT_ANTICHEAT_KICK_BAN_DURATION,
     INT_CONFIG_VALUE_COUNT
 };
 
@@ -753,6 +757,13 @@ class TC_GAME_API World
         BanReturn BanCharacter(std::string const& name, std::string const& duration, std::string const& reason, std::string const& author);
         bool RemoveBanCharacter(std::string const& name);
 
+        // Records an anti-cheat-triggered kick for this account (Movement.AntiCheat.Action = Kick,
+        // see MovementHandler.cpp) and bans it once Movement.AntiCheat.KickBanThreshold kicks have
+        // happened within Movement.AntiCheat.KickBanWindowMinutes. See ARGUSCORE_FIXES.md. Tracked
+        // here rather than on Player/WorldSession because both are destroyed on kick+disconnect - this
+        // needs to survive the reconnect a kicked cheater is expected to attempt.
+        void RecordAntiCheatKick(uint32 accountId);
+
         void ProcessCliCommands();
         void QueueCliCommand(CliCommandHolder* commandHolder) { cliCmdQueue.add(commandHolder); }
 
@@ -826,6 +837,9 @@ class TC_GAME_API World
         std::unordered_multimap<ObjectGuid, WorldSession*> m_sessionsByBnetGuid;
         using DisconnectMap = std::unordered_map<uint32, time_t>;
         DisconnectMap m_disconnects;
+        // AccountId -> recent anti-cheat kick timestamps, pruned to Movement.AntiCheat.KickBanWindowMinutes
+        // on each kick. See RecordAntiCheatKick.
+        std::unordered_map<uint32, std::vector<time_t>> m_antiCheatKicks;
         uint32 m_maxActiveSessionCount;
         uint32 m_maxQueuedSessionCount;
         uint32 m_PlayerCount;
