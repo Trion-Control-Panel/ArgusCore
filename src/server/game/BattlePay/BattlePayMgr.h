@@ -36,6 +36,7 @@
 #include <tuple>
 #include <vector>
 
+class Player;
 class WorldSession;
 
 class BattlePayMgr
@@ -66,6 +67,12 @@ public:
 
     void SendProductList(WorldSession* session) const;
 
+    // Character-select "you have a Character Boost credit" signal - one real
+    // BattlePayDistributionObject per unredeemed battlepay_pending_boost row for this account,
+    // including a full nested product (real DisplayInfo) - confirmed by testing that the client
+    // doesn't recognize a credit without one. See ARGUSCORE_FIXES.md.
+    void SendDistributionList(WorldSession* session) const;
+
     // Phase 2: purchase flow. See ARGUSCORE_FIXES.md for the full design writeup (deliver-then-
     // deduct with a crash-safe outbox, anti-exploit checks, why purchase state lives here globally
     // rather than on WorldSession).
@@ -76,6 +83,10 @@ public:
     // helper shape. See ARGUSCORE_FIXES.md.
     void StartPurchase(WorldSession* session, ObjectGuid targetCharacter, uint32 clientToken, uint32 productID);
     void ConfirmPurchase(WorldSession* session, WorldPackets::BattlePay::ConfirmPurchaseResponse const& confirmPurchase);
+
+    // Character-select Character Boost redemption (CMSG_BATTLE_PAY_DISTRIBUTION_ASSIGN_TO_TARGET) -
+    // see ARGUSCORE_FIXES.md and src/server/game/BattlePay/README.md for the full design writeup.
+    void AssignDistributionToCharacter(WorldSession* session, WorldPackets::BattlePay::DistributionAssignToTarget const& packet);
 
 private:
     void LoadDisplayInfos();
@@ -88,9 +99,24 @@ private:
 
     std::tuple<bool, WorldPackets::BattlePay::ProductDisplayInfo> WriteDisplayInfo(uint32 displayInfoID, LocaleConstant localeIndex, uint32 productId = 0) const;
 
+    // Shared by ApplyCharacterBoost/ApplyCharacterBoostOffline - real client data
+    // (CharacterLoadout.db2/CharacterLoadoutItem.db2, Purpose == 3), see ApplyCharacterBoost's comment
+    // for how that value was confirmed rather than guessed.
+    std::vector<uint32> GetBoostGearItems(uint8 classId) const;
+
     // Phase 2 purchase-flow helpers
     void SendPurchaseUpdate(WorldSession* session, Battlepay::Purchase const& purchase, uint32 resultCode) const;
     void DeliverAndDeduct(WorldSession* session, Battlepay::Purchase purchase, Battlepay::Product product);
+
+    // Character Boost bonus (Product::GrantsBoost) - see ARGUSCORE_FIXES.md and
+    // src/server/game/BattlePay/README.md for scope/limitations (online target only, no interactive
+    // spec/gear wizard - auto-applies to the target's current class/spec).
+    void ApplyCharacterBoost(Player* target, uint32 toLevel);
+
+    // Character-select Character Boost redemption (battlepay_pending_boost credits) - the target is
+    // guaranteed offline here (character select, nothing logged in yet), so this is a raw-SQL
+    // equivalent of ApplyCharacterBoost rather than a reuse of it. See ARGUSCORE_FIXES.md.
+    void ApplyCharacterBoostOffline(ObjectGuid targetGuid, uint32 toLevel);
 
     std::map<uint32, Battlepay::Product> _products;
     std::vector<Battlepay::ProductGroup> _groups;

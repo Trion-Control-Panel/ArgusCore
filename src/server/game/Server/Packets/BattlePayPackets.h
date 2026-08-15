@@ -262,6 +262,71 @@ namespace WorldPackets
             std::vector<BattlePayDistributionObject> DistributionObject;
         };
 
+        // Character-select Character Boost redemption flow (distinct from the in-game
+        // ApplyCharacterBoost purchase bonus). Field order/types ported verbatim from the reference
+        // cores - see ARGUSCORE_FIXES.md.
+
+        class DistributionAssignToTarget final : public ClientPacket
+        {
+        public:
+            DistributionAssignToTarget(WorldPacket&& packet) : ClientPacket(CMSG_BATTLE_PAY_DISTRIBUTION_ASSIGN_TO_TARGET, std::move(packet)) { }
+
+            void Read() override;
+
+            ObjectGuid TargetCharacter;
+            uint64 DistributionID = 0;
+            uint32 ProductID = 0;
+            uint16 SpecializationID = 0;
+            uint16 ChoiceID = 0;
+        };
+
+        class BattlePayStartDistributionAssignToTargetResponse final : public ServerPacket
+        {
+        public:
+            BattlePayStartDistributionAssignToTargetResponse() : ServerPacket(SMSG_BATTLE_PAY_START_DISTRIBUTION_ASSIGN_TO_TARGET_RESPONSE, 16) { }
+
+            WorldPacket const* Write() override;
+
+            uint64 DistributionID = 0;
+            uint32 UnkInt1 = 0;
+            uint32 UnkInt2 = 0;
+        };
+
+        class UpgradeStarted final : public ServerPacket
+        {
+        public:
+            UpgradeStarted() : ServerPacket(SMSG_CHARACTER_UPGRADE_STARTED, 16) { }
+
+            WorldPacket const* Write() override;
+
+            ObjectGuid CharacterGUID;
+        };
+
+        class UpgradeComplete final : public ServerPacket
+        {
+        public:
+            UpgradeComplete() : ServerPacket(SMSG_CHARACTER_UPGRADE_COMPLETE, 16) { }
+
+            WorldPacket const* Write() override;
+
+            ObjectGuid CharacterGUID;
+        };
+
+        // EquipmentItems is a preview list for the client's upgrade-queued UI - left empty in this
+        // port (gear is already delivered by the time this is sent, via mail - see
+        // BattlePayMgr::ApplyCharacterBoostOffline), matching how the reference's own equivalent line
+        // was never actually populated either (commented out in both reference cores).
+        class BattlePayCharacterUpgradeQueued final : public ServerPacket
+        {
+        public:
+            BattlePayCharacterUpgradeQueued() : ServerPacket(SMSG_CHARACTER_UPGRADE_QUEUED, 4 + 16) { }
+
+            WorldPacket const* Write() override;
+
+            std::vector<uint32> EquipmentItems;
+            ObjectGuid Character;
+        };
+
         class DisplayPromotion final : public ServerPacket
         {
         public:

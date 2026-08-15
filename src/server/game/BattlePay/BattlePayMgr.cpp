@@ -18,8 +18,10 @@
 // See ARGUSCORE_FIXES.md for details.
 
 #include "BattlePayMgr.h"
+#include "CharacterCache.h"
 #include "Containers.h"
 #include "DatabaseEnv.h"
+#include "DB2Stores.h"
 #include "Item.h"
 #include "ItemEnchantmentMgr.h"
 #include "ItemTemplate.h"
@@ -27,6 +29,7 @@
 #include "Mail.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "RaceMask.h"
 #include "World.h"
 #include "WorldSession.h"
 
@@ -137,7 +140,7 @@ void BattlePayMgr::LoadProducts()
     uint32 oldMSTime = getMSTime();
     _products.clear();
 
-    QueryResult result = WorldDatabase.Query("SELECT ProductID, Type, ChoiceType, Flags, DisplayInfoID, ScriptName, ClassMask, WebsiteType, CustomValue, ShopPointsPrice FROM battlepay_product");
+    QueryResult result = WorldDatabase.Query("SELECT ProductID, Type, ChoiceType, Flags, DisplayInfoID, ScriptName, ClassMask, WebsiteType, CustomValue, GrantsBoost, ShopPointsPrice FROM battlepay_product");
     if (result)
     {
         do
@@ -161,7 +164,8 @@ void BattlePayMgr::LoadProducts()
             }
 
             product.CustomValue = fields[8].GetUInt32();
-            product.ShopPointsPrice = fields[9].GetUInt64();
+            product.GrantsBoost = fields[9].GetBool();
+            product.ShopPointsPrice = fields[10].GetUInt64();
 
             _products[product.ProductID] = product;
         } while (result->NextRow());
@@ -574,6 +578,65 @@ void BattlePayMgr::SendProductList(WorldSession* session) const
     session->SendPacket(response.Write());
 }
 
+// PARKED - see ARGUSCORE_FIXES.md and src/server/game/BattlePay/README.md. Server-side this is
+// confirmed correct (a real, populated distribution object reaches the client without crashing it),
+// but the client never shows a Boost option for it. The remaining gap is native, client-side-only
+// keying (C_SharedCharacterServices.GetUpgradeDistributions()/C_CharacterServices.
+// GetCharacterServiceDisplayOrder()) that isn't recoverable from any source available locally (no
+// reference core implements this feature end to end, no public packet capture exists) - not a bug in
+// this function. Left in place, not removed, since everything downstream of the button
+// (AssignDistributionToCharacter/ApplyCharacterBoostOffline) is real and works.
+void BattlePayMgr::SendDistributionList(WorldSession* session) const
+{
+    uint32 battlenetAccountId = session->GetBattlenetAccountId();
+    LocaleConstant localeIndex = session->GetSessionDbLocaleIndex();
+
+    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_BATTLEPAY_PENDING_BOOST_LIST);
+    stmt->setUInt32(0, battlenetAccountId);
+    session->GetQueryProcessor().AddCallback(LoginDatabase.AsyncQuery(stmt).WithPreparedCallback(
+        [this, session, localeIndex](PreparedQueryResult result)
+        {
+            WorldPackets::BattlePay::DistributionListResponse response;
+            response.Result = 0; // Battlepay::Error::Ok
+
+            if (result)
+            {
+                std::lock_guard<std::mutex> lock(_lock);
+
+                do
+                {
+                    Field* fields = result->Fetch();
+
+                    WorldPackets::BattlePay::BattlePayDistributionObject object;
+                    object.DistributionID = fields[0].GetUInt64();
+                    object.ProductID = fields[1].GetUInt32();
+                    object.Status = Battlepay::DistributionStatus::Available;
+
+                    if (Battlepay::Product const* product = GetProduct(object.ProductID))
+                    {
+                        WorldPackets::BattlePay::BattlePayProduct packetProduct;
+                        packetProduct.ProductID = product->ProductID;
+                        packetProduct.Flags = product->Flags;
+                        packetProduct.Type = product->Type;
+
+                        if (product->WebsiteType == Battlepay::CharacterBoost)
+                            packetProduct.UnkBits = product->ScriptName.find("level90") != std::string::npos ? 1 : 2;
+
+                        auto [hasDisplay, display] = WriteDisplayInfo(product->DisplayInfoID, localeIndex);
+                        if (hasDisplay)
+                            packetProduct.DisplayInfo = display;
+
+                        object.Product = packetProduct;
+                    }
+
+                    response.DistributionObject.push_back(object);
+                } while (result->NextRow());
+            }
+
+            session->SendPacket(response.Write());
+        }));
+}
+
 void BattlePayMgr::SendPurchaseUpdate(WorldSession* session, Battlepay::Purchase const& purchase, uint32 resultCode) const
 {
     WorldPackets::BattlePay::BattlePayPurchase data;
@@ -784,10 +847,79 @@ void BattlePayMgr::ConfirmPurchase(WorldSession* session, WorldPackets::BattlePa
         }));
 }
 
+// Character-select Character Boost redemption. Ownership check mirrors the account check used by the
+// (unrelated) Class Trial handler (HandleBattlePayTrialBoostCharacter in the reference) for the same
+// "does this account actually own the target character" concern. See ARGUSCORE_FIXES.md.
+void BattlePayMgr::AssignDistributionToCharacter(WorldSession* session, WorldPackets::BattlePay::DistributionAssignToTarget const& packet)
+{
+    if (!IsAvailable())
+        return;
+
+    CharacterCacheEntry const* cacheEntry = sCharacterCache->GetCharacterCacheByGuid(packet.TargetCharacter);
+    if (!cacheEntry || cacheEntry->AccountId != session->GetAccountId())
+        return;
+
+    uint32 battlenetAccountId = session->GetBattlenetAccountId();
+    ObjectGuid targetCharacter = packet.TargetCharacter;
+    uint64 distributionId = packet.DistributionID;
+
+    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_BATTLEPAY_PENDING_BOOST_BY_DISTRIBUTION);
+    stmt->setUInt64(0, distributionId);
+    stmt->setUInt32(1, battlenetAccountId);
+    session->GetQueryProcessor().AddCallback(LoginDatabase.AsyncQuery(stmt).WithPreparedCallback(
+        [this, session, targetCharacter, distributionId](PreparedQueryResult result)
+        {
+            if (!result)
+                return; // unknown/already-redeemed distribution - no session-bound fallback to report against, just ignore
+
+            uint8 targetLevel = result->Fetch()[0].GetUInt8();
+
+            WorldPackets::BattlePay::UpgradeStarted upgradeStarted;
+            upgradeStarted.CharacterGUID = targetCharacter;
+            session->SendPacket(upgradeStarted.Write());
+
+            // Reference sends this second (both cores) but has a copy-paste bug there - it calls
+            // upgrade.Write() (the UpgradeStarted packet) again instead of assignResponse.Write().
+            // Sent correctly here. unkint1/unkint2 are genuine wire-format unknowns in the reference,
+            // left at 0.
+            WorldPackets::BattlePay::BattlePayStartDistributionAssignToTargetResponse assignResponse;
+            assignResponse.DistributionID = distributionId;
+            session->SendPacket(assignResponse.Write());
+
+            ApplyCharacterBoostOffline(targetCharacter, targetLevel);
+
+            LoginDatabasePreparedStatement* redeemStmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_BATTLEPAY_PENDING_BOOST_REDEEMED);
+            redeemStmt->setUInt64(0, targetCharacter.GetCounter());
+            redeemStmt->setUInt64(1, distributionId);
+            LoginDatabase.Execute(redeemStmt);
+
+            WorldPackets::BattlePay::BattlePayCharacterUpgradeQueued upgradeQueued;
+            upgradeQueued.Character = targetCharacter;
+            session->SendPacket(upgradeQueued.Write());
+
+            WorldPackets::BattlePay::UpgradeComplete upgradeComplete;
+            upgradeComplete.CharacterGUID = targetCharacter;
+            session->SendPacket(upgradeComplete.Write());
+        }));
+}
+
 void BattlePayMgr::DeliverAndDeduct(WorldSession* session, Battlepay::Purchase purchase, Battlepay::Product product)
 {
     Player* onlinePlayer = session->GetPlayer();
     bool isTargetCharacterOnline = onlinePlayer && onlinePlayer->GetGUID() == purchase.TargetCharacter;
+
+    // Character Boost mechanics (ApplyCharacterBoost) need a live Player* for the in-memory
+    // leveling/talent/gear APIs - unlike normal items, there's no mail-style fallback for "level this
+    // character up while it's offline" in this first pass. Denied cleanly here rather than silently
+    // delivering everything except the boost. See src/server/game/BattlePay/README.md.
+    if (product.GrantsBoost && !isTargetCharacterOnline)
+    {
+        SendPurchaseUpdate(session, purchase, Battlepay::PurchaseDenied);
+
+        std::lock_guard<std::mutex> lock(_lock);
+        _purchases.erase(session->GetBattlenetAccountId());
+        return;
+    }
 
     // Re-check "already own" here (matching the reference's re-validation at confirm time) to close
     // a race where the player acquired the item some other way between StartPurchase and here (e.g.
@@ -841,6 +973,9 @@ void BattlePayMgr::DeliverAndDeduct(WorldSession* session, Battlepay::Purchase p
 
             mailFallbackItems.push_back(item);
         }
+
+        if (product.GrantsBoost)
+            ApplyCharacterBoost(onlinePlayer, product.CustomValue);
     }
     else
     {
@@ -919,5 +1054,189 @@ void BattlePayMgr::DeliverAndDeduct(WorldSession* session, Battlepay::Purchase p
                     _purchases.erase(session->GetBattlenetAccountId());
                 });
         });
+}
+
+// CharacterLoadout.db2/CharacterLoadoutItem.db2, Purpose == 3 - real client data, not hand-authored.
+// ArgusCore already loads this DB2 (sCharacterLoadoutStore/sCharacterLoadoutItemStore, ObjectMgr.cpp)
+// for character-creation starting items (Purpose == 9, CharacterLoadoutEntry::IsForNewCharacter) -
+// Purpose 3 is the same data's max-level/boost loadout, confirmed via DestinyCore's (otherwise-
+// stubbed) boost code hardcoding the same value, and confirmed to have real per-class rows in this
+// build's data (logs/db2csv/CharacterLoadout.csv). No race filtering, matching the reference - boost
+// loadouts aren't race-keyed (RaceMask is 0 on every Purpose == 3 row in the local data).
+std::vector<uint32> BattlePayMgr::GetBoostGearItems(uint8 classId) const
+{
+    std::vector<uint32> items;
+    for (CharacterLoadoutEntry const* loadout : sCharacterLoadoutStore)
+    {
+        if (loadout->Purpose != 3 || loadout->ChrClassID != int8(classId))
+            continue;
+
+        for (CharacterLoadoutItemEntry const* loadoutItem : sCharacterLoadoutItemStore)
+            if (loadoutItem->CharacterLoadoutID == loadout->ID)
+                items.push_back(loadoutItem->ItemID);
+    }
+
+    return items;
+}
+
+// Free Character Boost bonus (Product::GrantsBoost) - auto-applies to the target's own current
+// class/spec, no interactive spec/gear-choice wizard (see ARGUSCORE_FIXES.md for why: the real wizard
+// protocol has zero working reference implementation anywhere, so it's out of scope for this pass).
+// Requires `target` to be the live, online Player* - caller (DeliverAndDeduct) already guarantees this.
+void BattlePayMgr::ApplyCharacterBoost(Player* target, uint32 toLevel)
+{
+    // Matches .levelup (HandleLevelUpCommand, cs_character.cpp) exactly.
+    target->GiveLevel(static_cast<uint8>(toLevel));
+    target->InitTalentForLevel();
+    target->SetXP(0);
+
+    // Gear: StoreNewItemInBestSlots (try-equip-then-bag, used by Player::CreateCharacter for the same
+    // purpose) rather than the mail-fallback pattern DeliverAndDeduct uses for normal purchased items -
+    // a boost is a best-effort gearing perk, not a paid-for item guarantee, matching how the character-
+    // creation starter kit itself is granted.
+    for (uint32 itemId : GetBoostGearItems(target->GetClass()))
+    {
+        if (!target->StoreNewItemInBestSlots(itemId, 1, ItemContext::NONE))
+            TC_LOG_ERROR("server.battlepay", "BattlePay: ApplyCharacterBoost couldn't fit boost gear ItemID {} for character {} ({}) - bags full.",
+                itemId, target->GetName(), target->GetGUID().ToString());
+    }
+
+    // Talents: give a clean slate to reselect, matching .reset talents (cs_reset.cpp) - InitTalentForLevel
+    // above only trims tiers for LOW levels, it doesn't touch existing talent choices at max level.
+    // No interactive spec picker in this pass (see the function comment) - keep whatever spec is
+    // already set, falling back to the class's real default spec (Player::GetDefaultSpecId(), backed
+    // by real DB2 data) only if none was ever chosen (e.g. a level 1 character boosted straight away).
+    if (target->GetPrimarySpecialization() == ChrSpecialization(0))
+        target->SetPrimarySpecialization(target->GetDefaultSpecId());
+
+    target->ResetTalents(true);
+    target->LearnSpecializationSpells();
+
+    // Flight unlock - real spell IDs, ported from DestinyCore's CharacterService::BoostCharacter
+    // (CharacterService.cpp:111,126 - the one genuinely-working piece of boost logic in either
+    // reference core). Pathfinder only applies at the Broken Isles/Argus flight-unlock level.
+    static uint32 const BoostFlyingSpells[] = { 34091, 54197, 90267, 115913 };
+    for (uint32 spellId : BoostFlyingSpells)
+        target->LearnSpell(spellId, false);
+
+    if (toLevel >= 110)
+        target->LearnSpell(191645, false); // Pathfinder
+
+    // Starting gold - a product/design choice, not a technical one; 1000g is a placeholder starting
+    // point, tune freely. 1 gold = 10000 copper.
+    target->SetMoney(1000 * 10000);
+}
+
+// Character-select redemption path (battlepay_pending_boost) - the target is guaranteed offline here
+// (character select, nothing logged in yet, true even for a character created moments ago), so this
+// mirrors CharacterService::BoostCharacter (logs/DestinyCore/.../CharacterService.cpp:33-162, the one
+// genuinely-working piece of boost logic in either reference core) via raw SQL using ArgusCore's own
+// prepared statements, rather than reusing ApplyCharacterBoost's live Player:: API calls (there's no
+// Player object to call them on).
+void BattlePayMgr::ApplyCharacterBoostOffline(ObjectGuid targetGuid, uint32 toLevel)
+{
+    CharacterCacheEntry const* cacheEntry = sCharacterCache->GetCharacterCacheByGuid(targetGuid);
+    if (!cacheEntry)
+        return;
+
+    ObjectGuid::LowType lowGuid = targetGuid.GetCounter();
+    uint8 level = static_cast<uint8>(toLevel);
+
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+
+    CharacterDatabasePreparedStatement* levelStmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_LEVEL);
+    levelStmt->setUInt8(0, level);
+    levelStmt->setUInt64(1, lowGuid);
+    trans->Append(levelStmt);
+
+    // Teleport to a level-appropriate zone - real, working coordinates ported verbatim from
+    // CharacterService::BoostCharacter, not guessed.
+    bool isAlliance = RACEMASK_ALLIANCE.HasRace(cacheEntry->Race);
+    float x, y, z, o = 0.0f;
+    uint32 mapId, zoneId;
+    if (level <= 90)
+    {
+        mapId = 0; zoneId = 4709; x = -11840.0f; y = -3207.0f; z = -29.0f;
+    }
+    else if (level == 100)
+    {
+        if (isAlliance) { mapId = 0; zoneId = 1519; x = -8833.0f; y = 628.0f; z = 94.0f; }
+        else { mapId = 1; zoneId = 1637; x = 1569.0f; y = -4397.0f; z = 16.0f; }
+    }
+    else
+    {
+        mapId = 1220; zoneId = 7502; x = -831.0f; y = 4374.0f; z = 738.0f; // Broken Isles/Argus
+    }
+
+    CharacterDatabasePreparedStatement* posStmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_POSITION);
+    posStmt->setFloat(0, x);
+    posStmt->setFloat(1, y);
+    posStmt->setFloat(2, z);
+    posStmt->setFloat(3, o);
+    posStmt->setUInt16(4, uint16(mapId));
+    posStmt->setUInt16(5, uint16(zoneId));
+    posStmt->setUInt64(6, lowGuid);
+    trans->Append(posStmt);
+
+    // Flight unlock - same spell IDs as ApplyCharacterBoost's online path.
+    static uint32 const BoostFlyingSpells[] = { 34091, 54197, 90267, 115913 };
+    for (uint32 spellId : BoostFlyingSpells)
+    {
+        CharacterDatabasePreparedStatement* spellStmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHAR_SPELL);
+        spellStmt->setUInt64(0, lowGuid);
+        spellStmt->setUInt32(1, spellId);
+        spellStmt->setUInt8(2, 1);
+        spellStmt->setUInt8(3, 0);
+        trans->Append(spellStmt);
+    }
+
+    if (level >= 110)
+    {
+        CharacterDatabasePreparedStatement* pathfinderStmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHAR_SPELL);
+        pathfinderStmt->setUInt64(0, lowGuid);
+        pathfinderStmt->setUInt32(1, 191645); // Pathfinder
+        pathfinderStmt->setUInt8(2, 1);
+        pathfinderStmt->setUInt8(3, 0);
+        trans->Append(pathfinderStmt);
+    }
+
+    // Clean talent slate - matches the online path's ResetTalents(true).
+    CharacterDatabasePreparedStatement* talentStmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_TALENT);
+    talentStmt->setUInt64(0, lowGuid);
+    trans->Append(talentStmt);
+
+    CharacterDatabasePreparedStatement* pvpTalentStmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_PVP_TALENT);
+    pvpTalentStmt->setUInt64(0, lowGuid);
+    trans->Append(pvpTalentStmt);
+
+    // Starting gold - matches ApplyCharacterBoost's own placeholder amount.
+    CharacterDatabasePreparedStatement* moneyStmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHAR_MONEY);
+    moneyStmt->setUInt64(0, 1000 * 10000);
+    moneyStmt->setUInt64(1, lowGuid);
+    trans->Append(moneyStmt);
+
+    // Gear via mail - no live Player/bags to store into here, unlike ApplyCharacterBoost. Matches the
+    // exact mail-creation pattern already proven in DeliverAndDeduct's offline-item fallback.
+    std::vector<uint32> gearItems = GetBoostGearItems(cacheEntry->Class);
+    if (!gearItems.empty())
+    {
+        MailSender sender(MAIL_NORMAL, UI64LIT(0), MAIL_STATIONERY_GM);
+        MailDraft draft("Character Boost", "Your character has been boosted - here's your gear.");
+
+        for (uint32 itemId : gearItems)
+        {
+            if (Item* mailItem = Item::CreateItem(itemId, 1, ItemContext::NONE))
+            {
+                mailItem->SaveToDB(trans);
+                draft.AddItem(mailItem);
+            }
+        }
+
+        draft.SendMailTo(trans, MailReceiver(nullptr, lowGuid), sender);
+    }
+
+    CharacterDatabase.CommitTransaction(trans);
+
+    sCharacterCache->UpdateCharacterLevel(targetGuid, level);
 }
 

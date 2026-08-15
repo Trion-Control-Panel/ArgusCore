@@ -485,6 +485,7 @@ namespace WorldPackets
         class StartPurchase;
         class PurchaseProduct;
         class ConfirmPurchaseResponse;
+        class DistributionAssignToTarget;
     }
 
     namespace Loot
@@ -1684,6 +1685,7 @@ class TC_GAME_API WorldSession
         void HandleBattlePayStartPurchase(WorldPackets::BattlePay::StartPurchase& startPurchase);
         void HandleBattlePayPurchaseProduct(WorldPackets::BattlePay::PurchaseProduct& purchaseProduct);
         void HandleBattlePayConfirmPurchase(WorldPackets::BattlePay::ConfirmPurchaseResponse& confirmPurchase);
+        void HandleBattlePayDistributionAssign(WorldPackets::BattlePay::DistributionAssignToTarget& distributionAssign);
 
         void HandleSelfResOpcode(WorldPackets::Spells::SelfRes& selfRes);
         void HandleRequestPetInfo(WorldPackets::Pet::RequestPetInfo& requestPetInfo);

@@ -264,6 +264,48 @@ WorldPacket const* WorldPackets::BattlePay::DistributionListResponse::Write()
     return &_worldPacket;
 }
 
+void WorldPackets::BattlePay::DistributionAssignToTarget::Read()
+{
+    _worldPacket >> ProductID;
+    _worldPacket >> DistributionID;
+    _worldPacket >> TargetCharacter;
+    _worldPacket >> SpecializationID;
+    _worldPacket >> ChoiceID;
+}
+
+WorldPacket const* WorldPackets::BattlePay::BattlePayStartDistributionAssignToTargetResponse::Write()
+{
+    _worldPacket << DistributionID;
+    _worldPacket << UnkInt1;
+    _worldPacket << UnkInt2;
+
+    return &_worldPacket;
+}
+
+WorldPacket const* WorldPackets::BattlePay::UpgradeStarted::Write()
+{
+    _worldPacket << CharacterGUID;
+
+    return &_worldPacket;
+}
+
+WorldPacket const* WorldPackets::BattlePay::UpgradeComplete::Write()
+{
+    _worldPacket << CharacterGUID;
+
+    return &_worldPacket;
+}
+
+WorldPacket const* WorldPackets::BattlePay::BattlePayCharacterUpgradeQueued::Write()
+{
+    _worldPacket << Character;
+    _worldPacket << static_cast<uint32>(EquipmentItems.size());
+    for (uint32 item : EquipmentItems)
+        _worldPacket << item;
+
+    return &_worldPacket;
+}
+
 WorldPacket const* WorldPackets::BattlePay::DisplayPromotion::Write()
 {
     _worldPacket << PromotionID;

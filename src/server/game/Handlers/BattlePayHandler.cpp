@@ -44,11 +44,12 @@ void WorldSession::HandleUpdateVasPurchaseStates(WorldPackets::BattlePay::Update
 
 // Called once at login (WorldSession::InitializeSessionCallback), not in response to any client
 // request. The real client Lua (Blizzard_StoreUISecure.lua) keeps the Shop frame on its loading
-// screen until it has a product list, a purchase list, AND a distribution list - the reference
-// cores send an (often promo-populated) distribution list here specifically to satisfy that third
-// condition ahead of time. This port has no real promo/distribution data, so it sends a genuinely
-// empty list - the client only needs to receive the message at all, not a non-empty one, to mark
-// HasDistributionList() true. See ARGUSCORE_FIXES.md.
+// screen until it has a product list, a purchase list, AND a distribution list - this satisfies
+// that third condition. Also doubles as the character-select "you have a Character Boost credit"
+// signal (C_SharedCharacterServices.GetUpgradeDistributions() client-side, confirmed from the real
+// 7.3.5 client Lua, GlueXML/CharacterSelect.lua) - one real BattlePayDistributionObject per
+// unredeemed battlepay_pending_boost row for this account, built by SendDistributionList. See
+// ARGUSCORE_FIXES.md.
 void WorldSession::SendDisplayPromo(int32 promotionID /*= 0*/)
 {
     SendPacket(WorldPackets::BattlePay::DisplayPromotion(uint32(promotionID)).Write());
@@ -56,9 +57,7 @@ void WorldSession::SendDisplayPromo(int32 promotionID /*= 0*/)
     if (!sBattlePayMgr->IsAvailable())
         return;
 
-    WorldPackets::BattlePay::DistributionListResponse response;
-    response.Result = 0; // Battlepay::Error::Ok
-    SendPacket(response.Write());
+    sBattlePayMgr->SendDistributionList(this);
 }
 
 void WorldSession::HandleBattlePayStartPurchase(WorldPackets::BattlePay::StartPurchase& startPurchase)
@@ -80,4 +79,9 @@ void WorldSession::HandleBattlePayPurchaseProduct(WorldPackets::BattlePay::Purch
 void WorldSession::HandleBattlePayConfirmPurchase(WorldPackets::BattlePay::ConfirmPurchaseResponse& confirmPurchase)
 {
     sBattlePayMgr->ConfirmPurchase(this, confirmPurchase);
+}
+
+void WorldSession::HandleBattlePayDistributionAssign(WorldPackets::BattlePay::DistributionAssignToTarget& distributionAssign)
+{
+    sBattlePayMgr->AssignDistributionToCharacter(this, distributionAssign);
 }

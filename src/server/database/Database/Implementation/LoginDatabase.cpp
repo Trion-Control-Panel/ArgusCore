@@ -202,6 +202,13 @@ void LoginDatabaseConnection::DoPrepareStatements()
     PrepareStatement(LOGIN_INS_BATTLEPAY_BALANCE_CREDIT, "INSERT INTO battlepay_account_balance (BattlenetAccountId, Balance) VALUES (?, ?) "
         "ON DUPLICATE KEY UPDATE Balance = Balance + VALUES(Balance)", CONNECTION_BOTH);
     PrepareStatement(LOGIN_SEL_BATTLENET_ACCOUNT_BY_ACCOUNT_ID, "SELECT battlenet_account FROM account WHERE id = ?", CONNECTION_SYNCH);
+
+    // BattlePay Character Boost credits - see ARGUSCORE_FIXES.md
+    PrepareStatement(LOGIN_SEL_BATTLEPAY_PENDING_BOOST_LIST, "SELECT Id, ProductID FROM battlepay_pending_boost WHERE BattlenetAccountId = ? AND RedeemedAt IS NULL", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_SEL_BATTLEPAY_PENDING_BOOST_BY_DISTRIBUTION, "SELECT TargetLevel FROM battlepay_pending_boost WHERE Id = ? AND BattlenetAccountId = ? AND RedeemedAt IS NULL", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_UPD_BATTLEPAY_PENDING_BOOST_REDEEMED, "UPDATE battlepay_pending_boost SET RedeemedAt = NOW(), RedeemedCharacterGuid = ? WHERE Id = ?", CONNECTION_ASYNC);
+    // Also the exact statement an external site's own code can mirror to grant a boost credit directly.
+    PrepareStatement(LOGIN_INS_BATTLEPAY_PENDING_BOOST, "INSERT INTO battlepay_pending_boost (BattlenetAccountId, ProductID, TargetLevel) VALUES (?, ?, ?)", CONNECTION_BOTH);
 }
 
 LoginDatabaseConnection::LoginDatabaseConnection(MySQLConnectionInfo& connInfo, ConnectionFlags connectionFlags) : MySQLConnection(connInfo, connectionFlags)

@@ -112,6 +112,20 @@ namespace Battlepay
         };
     }
 
+    // Ported from the reference cores' Battlepay::DistributionStatus - real values sent in
+    // BattlePayDistributionObject::Status. Corroborated identically in DestinyCore and AshamaneCore.
+    namespace DistributionStatus
+    {
+        enum : uint32
+        {
+            None = 0,
+            Available = 1,
+            AddToProcess = 2,
+            ProcessComplete = 3,
+            Finished = 4
+        };
+    }
+
     namespace ProductGroups
     {
         enum : uint32
@@ -211,6 +225,11 @@ namespace Battlepay
         // column, silently breaking Gold/Level delivery. Here it's a real, loaded column - meaning
         // depends on WebsiteType (Gold -> copper amount, CharacterBoost -> target level).
         uint32 CustomValue = 0;
+
+        // Independent of WebsiteType - lets any product bundle a free Character Boost as a bonus
+        // alongside its normal delivery. CustomValue doubles as the boost's target level in this case
+        // (matches the comment above). See BattlePayMgr::ApplyCharacterBoost.
+        bool GrantsBoost = false;
 
         // Deviation from reference: the reference prices in real-money fixed-point; this port has
         // no real-money concept, so every product has a single Shop Points price instead. (An
