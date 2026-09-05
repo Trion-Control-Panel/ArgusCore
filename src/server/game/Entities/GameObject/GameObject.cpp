@@ -935,9 +935,9 @@ void GameObject::AddToWorld()
         if (m_zoneScript)
             m_zoneScript->OnGameObjectCreate(this);
 
-        GetMap()->GetObjectsStore().Insert<GameObject>(this);
+        GetMap()->AddToObjectsStore(this);
         if (m_spawnId)
-            GetMap()->GetGameObjectBySpawnIdStore().insert(std::make_pair(m_spawnId, this));
+            GetMap()->AddGameObjectToSpawnIdStore(m_spawnId, this);
 
         // The state can be changed after GameObject::Create but before GameObject::AddToWorld
         bool toggledState = GetGoType() == GAMEOBJECT_TYPE_CHEST ? getLootState() == GO_READY : (GetGoState() == GO_STATE_READY || IsTransport());
@@ -974,8 +974,8 @@ void GameObject::RemoveFromWorld()
         WorldObject::RemoveFromWorld();
 
         if (m_spawnId)
-            Trinity::Containers::MultimapErasePair(GetMap()->GetGameObjectBySpawnIdStore(), m_spawnId, this);
-        GetMap()->GetObjectsStore().Remove<GameObject>(this);
+            GetMap()->RemoveGameObjectFromSpawnIdStore(m_spawnId, this);
+        GetMap()->RemoveFromObjectsStore(this);
     }
 }
 
@@ -2021,10 +2021,7 @@ bool GameObject::LoadFromDB(ObjectGuid::LowType spawnId, Map* map, bool addToMap
         [spawnId, charTrans](Map* map) -> void
         {
             // despawn all active objects, and remove their respawns
-            std::vector<GameObject*> toUnload;
-            for (auto const& pair : Trinity::Containers::MapEqualRange(map->GetGameObjectBySpawnIdStore(), spawnId))
-                toUnload.push_back(pair.second);
-            for (GameObject* obj : toUnload)
+            for (GameObject* obj : map->GetGameObjectsBySpawnId(spawnId))
                 map->AddObjectToRemoveList(obj);
             map->RemoveRespawnTime(SPAWN_TYPE_GAMEOBJECT, spawnId, charTrans);
         }
@@ -4324,6 +4321,25 @@ void GameObject::SetAnimKitId(uint16 animKitId, bool oneshot)
 
 void GameObject::SetVignette(uint32 vignetteId)
 {
+    // Phase 3 redesign, Stage 3 fix (ARGUSCORE_FIXES.md, review finding) - see
+    // Unit::SetVignette's own comment; same use-after-free, same fix. Trigger condition and
+    // missing !IsInWorld() check both corrected the same way (code-review deep-dive fix,
+    // ARGUSCORE_FIXES.md) - see Unit::SetVignette's own comment for the full reasoning.
+    if (Map* map = GetMap())
+    {
+        if (map->IsUnsafeForCurrentThreadToTouch(this))
+        {
+            ObjectGuid guid = GetGUID();
+            map->AddFarSpellCallback([guid, vignetteId](Map* map)
+            {
+                if (WorldObject* obj = ObjectAccessor::GetWorldObject(map, guid); obj && obj->IsInWorld())
+                    if (GameObject* go = obj->ToGameObject())
+                        go->SetVignette(vignetteId);
+            });
+            return;
+        }
+    }
+
     if (m_vignette)
     {
         if (m_vignette->Data->ID == vignetteId)

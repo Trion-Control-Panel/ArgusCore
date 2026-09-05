@@ -24,6 +24,7 @@
 #include "Item.h"
 #include "ListUtils.h"
 #include "Log.h"
+#include "Map.h"
 #include "MapUtils.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
@@ -596,8 +597,39 @@ void Aura::_ApplyForTarget(Unit* target, Unit* caster, AuraApplication* auraApp)
     {
         if (m_spellInfo->IsCooldownStartedOnEvent())
         {
-            Item* castItem = !m_castItemGuid.IsEmpty() ? caster->ToPlayer()->GetItemByGuid(m_castItemGuid) : nullptr;
-            caster->GetSpellHistory()->StartCooldown(m_spellInfo, castItem ? castItem->GetEntry() : 0, nullptr, true);
+            // Cross-partition guard (Stage 5c, ARGUSCORE_FIXES.md) - StartCooldown is a real write
+            // into caster's own SpellHistory (_spellCooldowns/_categoryCooldowns), executing on
+            // `target`'s thread - this function is reached from every aura-application path
+            // (target->_ApplyAura et al). caster can be a different, cross-partition unit. Mirrors
+            // _UnapplyForTarget's own SendCooldownEvent guard below in this file (same class of
+            // bug, opposite direction - apply vs. remove). SpellInfo captured by raw pointer, not
+            // GUID - SpellInfo objects are static, server-lifetime DBC/DB2-loaded data, never
+            // reallocated at runtime (established precedent: ThreatManager::AddThreat's own
+            // pre-existing guard, Piece 1, already captures a SpellInfo const* the same way).
+            if (Map* map = target->GetMap(); map->IsUnsafeForCurrentThreadToTouch(target) || map->IsUnsafeForCurrentThreadToTouch(caster))
+            {
+                ObjectGuid casterGuid = caster->GetGUID();
+                SpellInfo const* spellInfo = m_spellInfo;
+                ObjectGuid castItemGuid = m_castItemGuid;
+                map->AddFarSpellCallback([casterGuid, spellInfo, castItemGuid](Map* map)
+                {
+                    Unit* caster = ObjectAccessor::GetUnit(map, casterGuid);
+                    if (!caster || !caster->IsInWorld())
+                        return;
+
+                    Player* casterPlayer = caster->ToPlayer();
+                    if (!casterPlayer)
+                        return;
+
+                    Item* castItem = !castItemGuid.IsEmpty() ? casterPlayer->GetItemByGuid(castItemGuid) : nullptr;
+                    casterPlayer->GetSpellHistory()->StartCooldown(spellInfo, castItem ? castItem->GetEntry() : 0, nullptr, true);
+                });
+            }
+            else
+            {
+                Item* castItem = !m_castItemGuid.IsEmpty() ? caster->ToPlayer()->GetItemByGuid(m_castItemGuid) : nullptr;
+                caster->GetSpellHistory()->StartCooldown(m_spellInfo, castItem ? castItem->GetEntry() : 0, nullptr, true);
+            }
         }
     }
 }
@@ -626,8 +658,32 @@ void Aura::_UnapplyForTarget(Unit* target, Unit* caster, AuraApplication* auraAp
 
     // reset cooldown state for spells
     if (caster && GetSpellInfo()->IsCooldownStartedOnEvent())
-        // note: item based cooldowns and cooldown spell mods with charges ignored (unknown existed cases)
-        caster->GetSpellHistory()->SendCooldownEvent(GetSpellInfo());
+    {
+        // Cross-partition guard (Stage 5c, ARGUSCORE_FIXES.md) - SendCooldownEvent does a real
+        // write into caster's own SpellHistory (via StartCooldown), executing on `target`'s thread
+        // - this is the true low-level funnel every aura-removal function
+        // (RemoveAurasDueToSpellByDispel/RemoveAurasByType/RemoveAurasWithInterruptFlags/
+        // RemoveAllAurasOnDeath/etc.) ultimately reaches through target->_UnapplyAura. Guarding
+        // here once covers all of them transitively, rather than guarding each wrapper
+        // individually. Mirrors _ApplyForTarget's own StartCooldown guard above (same class of
+        // bug, opposite direction).
+        if (Map* map = target->GetMap(); map->IsUnsafeForCurrentThreadToTouch(target) || map->IsUnsafeForCurrentThreadToTouch(caster))
+        {
+            ObjectGuid casterGuid = caster->GetGUID();
+            SpellInfo const* spellInfo = GetSpellInfo();
+            map->AddFarSpellCallback([casterGuid, spellInfo](Map* map)
+            {
+                Unit* caster = ObjectAccessor::GetUnit(map, casterGuid);
+                if (!caster || !caster->IsInWorld())
+                    return;
+
+                caster->GetSpellHistory()->SendCooldownEvent(spellInfo);
+            });
+        }
+        else
+            // note: item based cooldowns and cooldown spell mods with charges ignored (unknown existed cases)
+            caster->GetSpellHistory()->SendCooldownEvent(GetSpellInfo());
+    }
 }
 
 // removes aura from all targets
@@ -748,6 +804,79 @@ void Aura::UpdateTargetMap(Unit* caster, bool apply)
             itr = targets.erase(itr);
         else
         {
+            // Cross-partition guard (Piece 6, ARGUSCORE_FIXES.md) - the real universal chokepoint
+            // for aura application: both the Unit::AddAura convenience overload and every normal
+            // spell-cast application funnel through this loop before _CreateAuraApplication ever
+            // runs, below. Cross-partition targets are erased from the local targets map exactly
+            // like the immunity-failed targets above, and deferred separately via the shared
+            // cross-partition deferred-operations queue (Map::_farSpellCallbacks), so
+            // same-partition targets in the same AOE batch aren't disturbed. Captures
+            // GetWeakPtr() rather than `this` - an Aura's lifetime is governed by its owner's
+            // m_ownedAuras list from construction, independent of application count, so a
+            // zero-application Aura mid-defer is a normal, safe state, not a dangling one (see
+            // the matching note on HandlePeriodicHealthLeechAuraTick's own guard,
+            // SpellAuraEffects.cpp, Piece 5b).
+            // Aura::GetOwner() returns WorldObject*, not Unit* - a DYNOBJ_AURA_TYPE aura is owned
+            // by a DynamicObject, not a Unit (see the GetType()==DYNOBJ_AURA_TYPE check further
+            // below in this same function). Keeping owner typed as WorldObject* throughout (and
+            // resolving it via ObjectAccessor::GetWorldObject, not GetUnit, in the deferred
+            // callback) avoids a bogus Unit* narrowing and a null-deref for dynobj-owned area
+            // auras. IsCrossPartition/ResolveCrossPartitionPair already operate on WorldObject*,
+            // so no Unit-specific handling was ever needed here.
+            WorldObject* owner = GetOwner();
+            if (owner->IsInWorld())
+            {
+                // CurrentFanOutShardForThisMap() gate added in a Stage 7 recheck (ARGUSCORE_FIXES.md)
+                // - this guard ("Piece 6") predates the gate's discovery (Stage 5a's SetMinion
+                // finding) and was never revisited. Not a use-after-free (GUID/weak_ptr, no-op-safe
+                // replay) - closes needless deferral outside a live fan-out.
+                if (Map* map = owner->GetMap(); map->IsUnsafeForCurrentThreadToTouch(owner) || map->IsUnsafeForCurrentThreadToTouch(itr->first))
+                {
+                    Trinity::unique_weak_ptr<Aura> auraWeak = GetWeakPtr();
+                    ObjectGuid ownerGuid = owner->GetGUID();
+                    ObjectGuid targetGuid = itr->first->GetGUID();
+                    uint32 effMask = itr->second;
+                    bool applyNow = apply;
+                    map->AddFarSpellCallback([auraWeak, ownerGuid, targetGuid, effMask, applyNow](Map* map)
+                    {
+                        Trinity::unique_strong_ref_ptr<Aura> aura = auraWeak.lock();
+                        if (!aura)
+                            return;
+
+                        WorldObject* owner = ObjectAccessor::GetWorldObject(map, ownerGuid);
+                        if (!owner || !owner->IsInWorld())
+                            return;
+
+                        Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+                        if (!target || !target->IsInWorld())
+                            return;
+
+                        map->ResolveCrossPartitionPair(owner, target);
+
+                        // Mirrors the synchronous branches below exactly: an already-applied
+                        // target only ever gets UpdateApplyEffectMask (which applies/removes the
+                        // newly-diffed effect bits internally) and never a second _ApplyAura call
+                        // - calling both double-applies every bit already in effMask, tripping
+                        // AuraApplication::_HandleEffect's "not already applied" assert in a
+                        // checked build and silently double-applying effect handlers (e.g. a stat
+                        // mod applied twice) in a release one. Only a brand-new application gets
+                        // _ApplyAura, and only when the original call had apply==true.
+                        AuraApplication* aurApp = aura->GetApplicationOfTarget(target->GetGUID());
+                        if (aurApp)
+                            aurApp->UpdateApplyEffectMask(effMask, true);
+                        else
+                        {
+                            aurApp = target->_CreateAuraApplication(aura.get(), effMask);
+                            if (applyNow && aurApp)
+                                target->_ApplyAura(aurApp, effMask);
+                        }
+                    });
+
+                    itr = targets.erase(itr);
+                    continue;
+                }
+            }
+
             // owner has to be in world, or effect has to be applied to self
             if (!GetOwner()->IsSelfOrInSameMap(itr->first))
             {
@@ -772,9 +901,48 @@ void Aura::UpdateTargetMap(Unit* caster, bool apply)
     }
 
     // remove auras from units no longer needing them
-    for (Unit* unit : targetsToRemove)
-        if (AuraApplication* aurApp = GetApplicationOfTarget(unit->GetGUID()))
-            unit->_UnapplyAura(aurApp, AURA_REMOVE_BY_DEFAULT);
+    {
+        // Cross-partition guard - independent review found the application loop below (Piece 6)
+        // had one but this removal loop didn't: _UnapplyAura is the same class of cross-unit
+        // write (touching a target Unit different from the aura's own owner) as
+        // _CreateAuraApplication/_ApplyAura below, just for the opposite direction (removing
+        // instead of applying). Unlike Piece 6's pin-then-replay, removal doesn't need
+        // Map::ResolveCrossPartitionPair first - there's no ongoing relationship that needs to
+        // stay same-partition afterward (the aura is going away), just a single write that needs
+        // to happen during a safe barrier-phase moment - so this simply defers the _UnapplyAura
+        // call itself via the same shared queue, without a transfer step.
+        WorldObject* owner = GetOwner();
+        Map* map = owner->IsInWorld() ? owner->GetMap() : nullptr;
+
+        for (Unit* unit : targetsToRemove)
+        {
+            // CORRECTED in a full-branch code-review deep-dive (ARGUSCORE_FIXES.md) - see
+            // CombatReference::EndCombat's own matching correction (CombatManager.cpp) for why
+            // IsCrossPartition(owner, unit) alone (checking the pair against each other) isn't
+            // enough - fixed by checking IsUnsafeForCurrentThreadToTouch on each side
+            // independently, which needs no anchor object at all.
+            if (map && (map->IsUnsafeForCurrentThreadToTouch(owner) || map->IsUnsafeForCurrentThreadToTouch(unit)))
+            {
+                Trinity::unique_weak_ptr<Aura> auraWeak = GetWeakPtr();
+                ObjectGuid targetGuid = unit->GetGUID();
+                map->AddFarSpellCallback([auraWeak, targetGuid](Map* map)
+                {
+                    Trinity::unique_strong_ref_ptr<Aura> aura = auraWeak.lock();
+                    if (!aura)
+                        return;
+
+                    Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+                    if (!target || !target->IsInWorld())
+                        return;
+
+                    if (AuraApplication* aurApp = aura->GetApplicationOfTarget(target->GetGUID()))
+                        target->_UnapplyAura(aurApp, AURA_REMOVE_BY_DEFAULT);
+                });
+            }
+            else if (AuraApplication* aurApp = GetApplicationOfTarget(unit->GetGUID()))
+                unit->_UnapplyAura(aurApp, AURA_REMOVE_BY_DEFAULT);
+        }
+    }
 
     if (!apply)
         return;

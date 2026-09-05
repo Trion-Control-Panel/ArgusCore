@@ -20,6 +20,7 @@
 #include "CombatPackets.h"
 #include "CreatureAI.h"
 #include "CreatureGroups.h"
+#include "Map.h"
 #include "MapUtils.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
@@ -35,8 +36,55 @@ class ThreatManager::Heap : public boost::heap::fibonacci_heap<ThreatReference c
 {
 };
 
-void ThreatReference::AddThreat(float amount)
+void ThreatReference::AddThreat(float amount, bool bypassPartitionGuard /*= false*/)
 {
+    // Cross-partition guard (Stage 5b, ARGUSCORE_FIXES.md) - this is the true low-level funnel:
+    // mutates _mgr's (i.e. _owner's ThreatManager's) heap directly, and is called both from the
+    // already-guarded ThreatManager::AddThreat (safe - by the time execution reaches that call,
+    // the outer guard has already established same-partition) AND directly from external code
+    // that bypasses ThreatManager::AddThreat entirely (e.g. boss_faction_champions.cpp's
+    // UpdateThreat(), walking me->GetThreatManager().GetModifiableThreatList() and calling
+    // ref->AddThreat(...) straight on each ThreatReference). Same shape as UnregisterAndFree's
+    // guard (see its comment) - GUID capture + re-resolution via _owner's _myThreatListEntries at
+    // replay time rather than trusting a captured `this`.
+    //
+    // CORRECTED in a full-branch code-review deep-dive (ARGUSCORE_FIXES.md) - the boss_faction_champions.cpp
+    // case this comment already names is the "wrong anchor" bug class in the flesh: `me` (that
+    // script's own creature, the real calling-thread anchor) is neither `_owner` nor `_victim`
+    // here. IsCrossPartition(_owner, _victim) only answers "are these two cross-partition from
+    // EACH OTHER" - fixed by checking IsUnsafeForCurrentThreadToTouch on each side independently,
+    // which needs no anchor object at all and is provably at least as conservative in every case
+    // (see CombatReference::EndCombat's own matching fix, CombatManager.cpp, for the general
+    // argument).
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = _owner->GetMap(); map->IsUnsafeForCurrentThreadToTouch(_owner) || map->IsUnsafeForCurrentThreadToTouch(_victim))
+        {
+            ObjectGuid ownerGuid = _owner->GetGUID();
+            ObjectGuid victimGuid = _victim->GetGUID();
+            map->AddFarSpellCallback([ownerGuid, victimGuid, amount](Map* map)
+            {
+                Unit* ownerUnit = ObjectAccessor::GetUnit(map, ownerGuid);
+                if (!ownerUnit || !ownerUnit->IsInWorld())
+                    return;
+
+                Creature* owner = ownerUnit->ToCreature();
+                if (!owner)
+                    return;
+
+                Unit* victim = ObjectAccessor::GetUnit(map, victimGuid);
+                if (!victim || !victim->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(owner, victim);
+
+                if (ThreatReference* currentRef = Trinity::Containers::MapGetValuePtr(owner->GetThreatManager()._myThreatListEntries, victimGuid))
+                    currentRef->AddThreat(amount, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
     if (amount == 0.0f)
         return;
     _baseAmount = std::max<float>(_baseAmount + amount, 0.0f);
@@ -47,8 +95,42 @@ void ThreatReference::AddThreat(float amount)
     _mgr._needClientUpdate = true;
 }
 
-void ThreatReference::ScaleThreat(float factor)
+void ThreatReference::ScaleThreat(float factor, bool bypassPartitionGuard /*= false*/)
 {
+    // Cross-partition guard (Stage 5b, ARGUSCORE_FIXES.md) - see ThreatReference::AddThreat's own
+    // comment immediately above, same funnel-point reasoning applies verbatim (also directly,
+    // externally reachable - e.g. SpellEffects.cpp's/SpellAuraEffects.cpp's feign-death/sanctuary
+    // handlers calling ref->ScaleThreat(0.0f) on entries from GetThreatenedByMeList(), and
+    // boss_faction_champions.cpp's UpdateThreat()).
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = _owner->GetMap(); map->IsUnsafeForCurrentThreadToTouch(_owner) || map->IsUnsafeForCurrentThreadToTouch(_victim))
+        {
+            ObjectGuid ownerGuid = _owner->GetGUID();
+            ObjectGuid victimGuid = _victim->GetGUID();
+            map->AddFarSpellCallback([ownerGuid, victimGuid, factor](Map* map)
+            {
+                Unit* ownerUnit = ObjectAccessor::GetUnit(map, ownerGuid);
+                if (!ownerUnit || !ownerUnit->IsInWorld())
+                    return;
+
+                Creature* owner = ownerUnit->ToCreature();
+                if (!owner)
+                    return;
+
+                Unit* victim = ObjectAccessor::GetUnit(map, victimGuid);
+                if (!victim || !victim->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(owner, victim);
+
+                if (ThreatReference* currentRef = Trinity::Containers::MapGetValuePtr(owner->GetThreatManager()._myThreatListEntries, victimGuid))
+                    currentRef->ScaleThreat(factor, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
     if (factor == 1.0f)
         return;
     _baseAmount *= factor;
@@ -120,8 +202,44 @@ bool ThreatReference::ShouldBeSuppressed() const
     return false;
 }
 
-void ThreatReference::UpdateTauntState(TauntState state)
+void ThreatReference::UpdateTauntState(TauntState state, bool bypassPartitionGuard /*= false*/)
 {
+    // Cross-partition guard (code-review deep-dive fix, ARGUSCORE_FIXES.md) - reads _victim's own
+    // aura state (HasAuraTypeWithCaster) and writes into _owner's shared threat heap
+    // (HeapNotifyIncreased/Decreased) and _mgr._needClientUpdate - the same funnel-point shape as
+    // every sibling ThreatReference method in this file (AddThreat/ScaleThreat/
+    // UpdateSuppressedState/UpdateTempModifier/UnregisterAndFree), all of which already have this
+    // guard; this one was missed. Only caller is ThreatManager::TauntUpdate(), walking
+    // _myThreatListEntries and calling this per-entry - same shape as those siblings' own callers.
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = _owner->GetMap(); map->IsUnsafeForCurrentThreadToTouch(_owner) || map->IsUnsafeForCurrentThreadToTouch(_victim))
+        {
+            ObjectGuid ownerGuid = _owner->GetGUID();
+            ObjectGuid victimGuid = _victim->GetGUID();
+            map->AddFarSpellCallback([ownerGuid, victimGuid, state](Map* map)
+            {
+                Unit* ownerUnit = ObjectAccessor::GetUnit(map, ownerGuid);
+                if (!ownerUnit || !ownerUnit->IsInWorld())
+                    return;
+
+                Creature* owner = ownerUnit->ToCreature();
+                if (!owner)
+                    return;
+
+                Unit* victim = ObjectAccessor::GetUnit(map, victimGuid);
+                if (!victim || !victim->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(owner, victim);
+
+                if (ThreatReference* currentRef = Trinity::Containers::MapGetValuePtr(owner->GetThreatManager()._myThreatListEntries, victimGuid))
+                    currentRef->UpdateTauntState(state, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
     // Check for SPELL_AURA_MOD_DETAUNT (applied from owner to victim)
     if (state < TAUNT_STATE_TAUNT && _victim->HasAuraTypeWithCaster(SPELL_AURA_MOD_DETAUNT, _owner->GetGUID()))
         state = TAUNT_STATE_DETAUNT;
@@ -139,13 +257,175 @@ void ThreatReference::UpdateTauntState(TauntState state)
     _mgr._needClientUpdate = true;
 }
 
-void ThreatReference::ClearThreat()
+void ThreatReference::UpdateSuppressedState(bool canExpire, bool bypassPartitionGuard /*= false*/)
 {
-    _mgr.ClearThreat(this);
+    // Cross-partition guard (Stage 5b, ARGUSCORE_FIXES.md) - factored out of
+    // ThreatManager::EvaluateSuppressed, see this method's own declaration comment
+    // (ThreatManager.h) for the full reasoning. Same shape as AddThreat/ScaleThreat immediately
+    // above - funnel point, CurrentFanOutShardForThisMap() gate, GUID capture + re-resolution.
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = _owner->GetMap(); map->IsUnsafeForCurrentThreadToTouch(_owner) || map->IsUnsafeForCurrentThreadToTouch(_victim))
+        {
+            ObjectGuid ownerGuid = _owner->GetGUID();
+            ObjectGuid victimGuid = _victim->GetGUID();
+            map->AddFarSpellCallback([ownerGuid, victimGuid, canExpire](Map* map)
+            {
+                Unit* ownerUnit = ObjectAccessor::GetUnit(map, ownerGuid);
+                if (!ownerUnit || !ownerUnit->IsInWorld())
+                    return;
+
+                Creature* owner = ownerUnit->ToCreature();
+                if (!owner)
+                    return;
+
+                Unit* victim = ObjectAccessor::GetUnit(map, victimGuid);
+                if (!victim || !victim->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(owner, victim);
+
+                if (ThreatReference* currentRef = Trinity::Containers::MapGetValuePtr(owner->GetThreatManager()._myThreatListEntries, victimGuid))
+                    currentRef->UpdateSuppressedState(canExpire, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
+    bool const shouldBeSuppressed = ShouldBeSuppressed();
+    if (IsOnline() && shouldBeSuppressed)
+    {
+        _online = ONLINE_STATE_SUPPRESSED;
+        HeapNotifyDecreased();
+    }
+    else if (canExpire && IsSuppressed() && !shouldBeSuppressed)
+    {
+        _online = ONLINE_STATE_ONLINE;
+        HeapNotifyIncreased();
+    }
 }
 
-void ThreatReference::UnregisterAndFree()
+void ThreatReference::UpdateTempModifier(int32 mod, bool bypassPartitionGuard /*= false*/)
 {
+    // Cross-partition guard (Stage 5b, ARGUSCORE_FIXES.md) - factored out of
+    // ThreatManager::UpdateMyTempModifiers, see UpdateSuppressedState's comment immediately above
+    // for the shared _threatenedByMe cross-object-write reasoning (same call shape - a
+    // SPELL_AURA_MOD_TOTAL_THREAT aura applying/fading on the caster writes into every creature
+    // currently threatened by that caster, via caster->GetThreatManager().UpdateMyTempModifiers()
+    // in SpellAuraEffects.cpp).
+    //
+    // CORRECTED in a full-branch code-review deep-dive (ARGUSCORE_FIXES.md) - this used to take a
+    // separately-computed `isIncrease` bool from the caller. UpdateMyTempModifiers derived that
+    // bool ONCE from a single arbitrary entry (_threatenedByMe.begin()->second->_tempModifier) and
+    // applied it uniformly to every entry in the loop, on the documented assumption that "every
+    // entry always shares the same _tempModifier value". That assumption breaks the moment any one
+    // entry's own update has to defer (this same guard) while a sibling's does not: the deferred
+    // entry's _tempModifier stays stale (old value) until its callback drains at the barrier, while
+    // the synchronous sibling's is already the new value - so a later call in the same tick (or
+    // before the first defer drains) can read a "first entry" whose _tempModifier no longer matches
+    // the stale one, compute isIncrease from the WRONG reference point, and hand that wrong
+    // direction to HeapNotifyIncreased/Decreased on replay - corrupting the fibonacci heap's
+    // ordering invariants (they require the direction passed to match the entry's own actual
+    // before/after transition, not some other entry's). Also, reading that first entry's
+    // _tempModifier at all was itself an unguarded cross-object read (_threatenedByMe entries are
+    // owned by a DIFFERENT creature's ThreatManager - see its own field comment), independently
+    // exposed to the exact same race this whole guard exists to close. Fixed by computing
+    // isIncrease HERE, per-ref, at the one point where touching _tempModifier is already proven
+    // safe (either synchronously right now, or inside this same guarded replay) - every ref always
+    // compares against its own current value, never a borrowed one from a sibling of unknown
+    // staleness.
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = _owner->GetMap(); map->IsUnsafeForCurrentThreadToTouch(_owner) || map->IsUnsafeForCurrentThreadToTouch(_victim))
+        {
+            ObjectGuid ownerGuid = _owner->GetGUID();
+            ObjectGuid victimGuid = _victim->GetGUID();
+            map->AddFarSpellCallback([ownerGuid, victimGuid, mod](Map* map)
+            {
+                Unit* ownerUnit = ObjectAccessor::GetUnit(map, ownerGuid);
+                if (!ownerUnit || !ownerUnit->IsInWorld())
+                    return;
+
+                Creature* owner = ownerUnit->ToCreature();
+                if (!owner)
+                    return;
+
+                Unit* victim = ObjectAccessor::GetUnit(map, victimGuid);
+                if (!victim || !victim->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(owner, victim);
+
+                if (ThreatReference* currentRef = Trinity::Containers::MapGetValuePtr(owner->GetThreatManager()._myThreatListEntries, victimGuid))
+                    currentRef->UpdateTempModifier(mod, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
+    bool const isIncrease = (_tempModifier < mod);
+    _tempModifier = mod;
+    if (isIncrease)
+        HeapNotifyIncreased();
+    else
+        HeapNotifyDecreased();
+}
+
+void ThreatReference::ClearThreat(bool bypassPartitionGuard /*= false*/)
+{
+    _mgr.ClearThreat(this, bypassPartitionGuard);
+}
+
+void ThreatReference::UnregisterAndFree(bool bypassPartitionGuard /*= false*/)
+{
+    // Cross-partition guard (Stage 5b, ARGUSCORE_FIXES.md) - the real threat-teardown funnel
+    // point: touches both _owner's and _victim's ThreatManager state and deletes `this`. Same
+    // shape/reasoning as CombatReference::EndCombat's own guard (see its comment,
+    // CombatManager.cpp) - including the CurrentFanOutShardForThisMap() gate (see
+    // Unit::SetMinion's comment, Unit.cpp, for why bare IsCrossPartition alone is not enough) and
+    // the "don't trust a captured raw `this`; re-resolve the CURRENT reference at replay time"
+    // reasoning (nothing else deletes a ThreatReference - verified, PurgeThreatListRef/
+    // PurgeThreatenedByMeRef only ever run from here - but a second, independent
+    // UnregisterAndFree() call on this same reference from a different caller before this replay
+    // runs is not ruled out). The lookup reads _owner->GetThreatManager()'s private
+    // _myThreatListEntries directly rather than needing a new accessor - ThreatManager already
+    // declares `friend class ThreatReference`, and this replay lambda is lexically inside a
+    // ThreatReference member function, so it inherits that access.
+    // CORRECTED in a full-branch code-review deep-dive (ARGUSCORE_FIXES.md) - see
+    // CombatReference::EndCombat's own matching correction (CombatManager.cpp) for the full
+    // reasoning: IsCrossPartition(_owner, _victim) answers "are these two cross-partition from
+    // EACH OTHER", not "is it safe for the thread ACTUALLY executing this code right now to touch
+    // either one" - UnregisterAndFree, like EndCombat, is routinely reached from a third party's
+    // own thread. Fixed by checking IsUnsafeForCurrentThreadToTouch on each side independently.
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = _owner->GetMap(); map->IsUnsafeForCurrentThreadToTouch(_owner) || map->IsUnsafeForCurrentThreadToTouch(_victim))
+        {
+            ObjectGuid ownerGuid = _owner->GetGUID();
+            ObjectGuid victimGuid = _victim->GetGUID();
+            map->AddFarSpellCallback([ownerGuid, victimGuid](Map* map)
+            {
+                Unit* ownerUnit = ObjectAccessor::GetUnit(map, ownerGuid);
+                if (!ownerUnit || !ownerUnit->IsInWorld())
+                    return;
+
+                Creature* owner = ownerUnit->ToCreature();
+                if (!owner)
+                    return;
+
+                Unit* victim = ObjectAccessor::GetUnit(map, victimGuid);
+                if (!victim || !victim->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(owner, victim);
+
+                if (ThreatReference* currentRef = Trinity::Containers::MapGetValuePtr(owner->GetThreatManager()._myThreatListEntries, victimGuid))
+                    currentRef->UnregisterAndFree(/*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
     _owner->GetThreatManager().PurgeThreatListRef(_victim->GetGUID());
     _victim->GetThreatManager().PurgeThreatenedByMeRef(_owner->GetGUID());
     delete this;
@@ -346,34 +626,106 @@ bool ThreatManager::IsThreateningTo(ObjectGuid const& who, bool includeOffline) 
 }
 bool ThreatManager::IsThreateningTo(Unit const* who, bool includeOffline) const { return IsThreateningTo(who->GetGUID(), includeOffline); }
 
-void ThreatManager::EvaluateSuppressed(bool canExpire)
+void ThreatManager::EvaluateSuppressed(bool canExpire, bool bypassPartitionGuard /*= false*/)
 {
-    for (auto const& pair : _threatenedByMe)
+    // Stage 5b fix (ARGUSCORE_FIXES.md) - this used to mutate each pair.second (a ThreatReference
+    // conceptually owned by a DIFFERENT creature's ThreatManager, since _threatenedByMe holds the
+    // entries where the CURRENT unit is the victim, not the owner) directly and unconditionally -
+    // see ThreatReference::UpdateSuppressedState's own comment (ThreatManager.h) for the full
+    // cross-partition reasoning. Delegating to the now-guarded per-entry method closes that gap.
+    //
+    // CORRECTED in a full-branch code-review deep-dive, round 6 (ARGUSCORE_FIXES.md) - the above
+    // fix protected each per-entry mutation but missed that iterating `_threatenedByMe` ITSELF is a
+    // read of `_owner`'s own container, and this whole function is routinely called as
+    // `target->GetThreatManager().EvaluateSuppressed()` from a CC/immunity aura's OnApply handler
+    // (SpellAuraEffects.cpp - HandleModConfuse/HandleAuraModStun/HandleAuraModRoot/etc.), which runs
+    // on the CASTER's own thread (aura application happens inside Spell::_cast, on the caster's own
+    // call stack) reaching into `target`'s ThreatManager - `target` can be cross-partition from the
+    // caster. Guarding the whole function closes that gap; the per-entry guards remain as a second,
+    // independent line of defense for any other caller.
+    if (!bypassPartitionGuard)
     {
-        bool const shouldBeSuppressed = pair.second->ShouldBeSuppressed();
-        if (pair.second->IsOnline() && shouldBeSuppressed)
+        if (Map* map = _owner->GetMap(); map->IsUnsafeForCurrentThreadToTouch(_owner))
         {
-            pair.second->_online = ThreatReference::ONLINE_STATE_SUPPRESSED;
-            pair.second->HeapNotifyDecreased();
-        }
-        else if (canExpire && pair.second->IsSuppressed() && !shouldBeSuppressed)
-        {
-            pair.second->_online = ThreatReference::ONLINE_STATE_ONLINE;
-            pair.second->HeapNotifyIncreased();
+            ObjectGuid ownerGuid = _owner->GetGUID();
+            map->AddFarSpellCallback([ownerGuid, canExpire](Map* map)
+            {
+                Unit* owner = ObjectAccessor::GetUnit(map, ownerGuid);
+                if (!owner || !owner->IsInWorld())
+                    return;
+
+                owner->GetThreatManager().EvaluateSuppressed(canExpire, /*bypassPartitionGuard=*/true);
+            });
+            return;
         }
     }
+
+    for (auto const& pair : _threatenedByMe)
+        pair.second->UpdateSuppressedState(canExpire);
 }
 
-void ThreatManager::AddThreat(Unit* target, float amount, SpellInfo const* spell, bool ignoreModifiers, bool ignoreRedirects)
+void ThreatManager::AddThreat(Unit* target, float amount, SpellInfo const* spell, bool ignoreModifiers, bool ignoreRedirects, bool bypassPartitionGuard)
 {
     // step 1: we can shortcut if the spell has one of the NO_THREAT attrs set - nothing will happen
-    if (spell)
+    // (SPELL_ATTR2_NO_INITIAL_THREAT's own check, which used to sit here too, was moved below the
+    // guard - it reads _owner->IsEngaged(), _owner's own mutable state, which round 6's code-review
+    // deep-dive (ARGUSCORE_FIXES.md) found unsafe to read before the guard has proven _owner safe.
+    // This particular attribute check is spell-template-data-only otherwise, so it's fine to check
+    // first and skip the rest of the shortcut without needing _owner at all)
+    if (spell && spell->HasAttribute(SPELL_ATTR1_NO_THREAT))
+        return;
+
+    // Cross-partition guard (Piece 1, ARGUSCORE_FIXES.md) - true top, deliberately before
+    // everything below, because CalculateModifiedThreat (further down) does a hidden,
+    // unconditional write into the *target's* ThreatManager::_multiSchoolModifiers cache before
+    // SetInCombatWith is even reached - a guard placed later would miss it. Defers the entire
+    // call as one unit via the shared cross-partition deferred-operations queue
+    // (Map::_farSpellCallbacks), pins both sides into the same partition
+    // (Map::ResolveCrossPartitionPair), then replays the real, completely unmodified AddThreat -
+    // now a same-partition call, safe without further special-casing. Redirect fan-out (further
+    // below) and the vehicle-boarding threat transfer are covered transitively, since each
+    // re-enters this same guarded function fresh.
+    //
+    // !bypassPartitionGuard: without this, a pair Map::ResolveCrossPartitionPair can't actually
+    // unify (both sides non-transferable - e.g. two Players) would see IsCrossPartition still
+    // true on replay and re-defer, enqueuing onto Map::_farSpellCallbacks from inside the very
+    // drain loop currently processing it - an infinite synchronous loop that hangs this Map's
+    // update thread forever, not a graceful "stays cross-partition" degradation. The replay below
+    // always passes bypassPartitionGuard=true, so a replay can defer at most once, ever, and
+    // proceeds with the real logic below even if the pin genuinely couldn't succeed - the same
+    // (rare, Player-vs-Player only) behavior this code would have had before partitioning existed.
+    //
+    // CurrentFanOutShardForThisMap() gate added in a Stage 7 recheck - see
+    // CombatManager::SetInCombatWith's own matching comment (Piece 2) for why this predates the
+    // gate's discovery and the consequences of its earlier absence (needless deferral outside a
+    // live fan-out, not a use-after-free - this guard's replay is GUID/no-op-safe).
+    if (!bypassPartitionGuard)
     {
-        if (spell->HasAttribute(SPELL_ATTR1_NO_THREAT))
+        if (Map* map = _owner->GetMap(); map->IsUnsafeForCurrentThreadToTouch(_owner) || map->IsUnsafeForCurrentThreadToTouch(target))
+        {
+            ObjectGuid ownerGuid = _owner->GetGUID();
+            ObjectGuid targetGuid = target->GetGUID();
+            map->AddFarSpellCallback([ownerGuid, targetGuid, amount, spell, ignoreModifiers, ignoreRedirects](Map* map)
+            {
+                Unit* owner = ObjectAccessor::GetUnit(map, ownerGuid);
+                if (!owner || !owner->IsInWorld())
+                    return;
+
+                Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+                if (!target || !target->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(owner, target);
+                owner->GetThreatManager().AddThreat(target, amount, spell, ignoreModifiers, ignoreRedirects, /*bypassPartitionGuard=*/true);
+            });
             return;
-        if (!_owner->IsEngaged() && spell->HasAttribute(SPELL_ATTR2_NO_INITIAL_THREAT))
-            return;
+        }
     }
+
+    // moved from step 1 above (see that comment) - _owner is proven safe by the guard above by
+    // this point, so reading _owner->IsEngaged() here is safe
+    if (spell && !_owner->IsEngaged() && spell->HasAttribute(SPELL_ATTR2_NO_INITIAL_THREAT))
+        return;
 
     // while riding a vehicle, all threat goes to the vehicle, not the pilot
     if (Unit* vehicle = target->GetVehicleBase())
@@ -505,8 +857,34 @@ void ThreatManager::MatchUnitThreatToHighestThreat(Unit* target)
     AddThreat(target, highest->GetThreat() - GetThreat(target, true), nullptr, true, true);
 }
 
-void ThreatManager::TauntUpdate()
+void ThreatManager::TauntUpdate(bool bypassPartitionGuard /*= false*/)
 {
+    // Cross-partition guard (code-review deep-dive, round 6, ARGUSCORE_FIXES.md) - this reads
+    // `_owner`'s own aura list and iterates `_myThreatListEntries` (`_owner`'s own container)
+    // before ever reaching the already-guarded per-entry `UpdateTauntState` calls below. Routinely
+    // reached as `target->GetThreatManager().TauntUpdate()` from a taunt aura's OnApply handler
+    // (SpellAuraEffects.cpp's HandleModTaunt), which runs on the CASTER's own thread (aura
+    // application happens inside Spell::_cast, on the caster's own call stack) reaching into
+    // `target`'s ThreatManager - `target` can be cross-partition from the caster. (HandleModDetaunt's
+    // own `caster->GetThreatManager().TauntUpdate()` call is safe without this - there, `_owner` IS
+    // the executing caster itself.)
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = _owner->GetMap(); map->IsUnsafeForCurrentThreadToTouch(_owner))
+        {
+            ObjectGuid ownerGuid = _owner->GetGUID();
+            map->AddFarSpellCallback([ownerGuid](Map* map)
+            {
+                Unit* owner = ObjectAccessor::GetUnit(map, ownerGuid);
+                if (!owner || !owner->IsInWorld())
+                    return;
+
+                owner->GetThreatManager().TauntUpdate(/*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
     Unit::AuraEffectList const& tauntEffects = _owner->GetAuraEffectsByType(SPELL_AURA_MOD_TAUNT);
 
     uint32 tauntPriority = 0; // lowest is highest
@@ -525,7 +903,8 @@ void ThreatManager::TauntUpdate()
     }
 
     // taunt aura update also re-evaluates all suppressed states (retail behavior)
-    EvaluateSuppressed(true);
+    // _owner already proven safe above, so bypass EvaluateSuppressed's own (redundant) guard check
+    EvaluateSuppressed(true, /*bypassPartitionGuard=*/true);
 }
 
 void ThreatManager::ResetAllThreat()
@@ -534,36 +913,91 @@ void ThreatManager::ResetAllThreat()
         pair.second->ScaleThreat(0.0f);
 }
 
-void ThreatManager::ClearThreat(Unit* target)
+void ThreatManager::ClearThreat(Unit* target, bool bypassPartitionGuard /*= false*/)
 {
     auto it = _myThreatListEntries.find(target->GetGUID());
     if (it != _myThreatListEntries.end())
-        ClearThreat(it->second);
+        ClearThreat(it->second, bypassPartitionGuard);
 }
 
-void ThreatManager::ClearThreat(ThreatReference* ref)
+void ThreatManager::ClearThreat(ThreatReference* ref, bool bypassPartitionGuard /*= false*/)
 {
+    // bypassPartitionGuard threaded through to UnregisterAndFree (ARGUSCORE_FIXES.md,
+    // code-review deep-dive follow-up) - this pair of overloads used to be the one gap in this
+    // whole pattern's otherwise-universal "deferred replay always passes bypassPartitionGuard=true"
+    // invariant: every caller reaching this from inside an already-deferred AddFarSpellCallback
+    // replay (RemoveMeFromThreatLists below, halls_of_reflection.cpp's DeleteAllFromThreatList) had
+    // no way to say so, silently relying on Map::DelayedUpdate's callback drain always running with
+    // no live fan-out context (true today, but incidental, not something this call site could
+    // enforce or even see).
     SendRemoveToClients(ref->_victim);
-    ref->UnregisterAndFree();
+    ref->UnregisterAndFree(bypassPartitionGuard);
     if (!_currentVictimRef)
         UpdateVictim();
 }
 
 void ThreatManager::ClearAllThreat()
 {
+    // Stage 5b fix (ARGUSCORE_FIXES.md, found while guarding ThreatReference::UnregisterAndFree) -
+    // this used to be a do-while loop re-reading _myThreatListEntries.begin() every iteration,
+    // which relied on UnregisterAndFree() synchronously removing the entry it just processed.
+    // Once UnregisterAndFree() can defer to the barrier (cross-partition case), that assumption
+    // breaks: the same still-un-removed entry would be picked again next iteration - an infinite
+    // loop that hangs this Map's update thread, not just a delay. Snapshotting into a separate
+    // vector first (same shape as RemoveMeFromThreatLists/EndAllPvECombat/EndAllPvPCombat) removes
+    // the dependency entirely - each entry is processed exactly once regardless of whether its
+    // own UnregisterAndFree() call completes synchronously or defers.
     if (!_myThreatListEntries.empty())
     {
         _needThreatClearUpdate = true;
-        do
-            _myThreatListEntries.begin()->second->UnregisterAndFree();
-        while (!_myThreatListEntries.empty());
+        std::vector<ThreatReference*> threatReferencesToRemove;
+        threatReferencesToRemove.reserve(_myThreatListEntries.size());
+        for (auto const& [guid, ref] : _myThreatListEntries)
+            threatReferencesToRemove.push_back(ref);
+        for (ThreatReference* ref : threatReferencesToRemove)
+            ref->UnregisterAndFree();
     }
 }
 
-void ThreatManager::FixateTarget(Unit* target)
+void ThreatManager::FixateTarget(Unit* target, bool bypassPartitionGuard /*= false*/)
 {
     if (target)
     {
+        // Cross-partition guard (ARGUSCORE_FIXES.md, code-review deep-dive follow-up) - closes a
+        // desync with AddThreat's own guard immediately above: several boss scripts
+        // (boss_professor_putricide.cpp's Choking Gas Bomb explosion, boss_krickandick.cpp's
+        // needle) call AddThreat(target, ...) and then FixateTarget(target) back to back on the
+        // same ThreatManager. If AddThreat had to defer (target cross-partition-unsafe from the
+        // calling thread), the ThreatReference for target does not exist in _myThreatListEntries
+        // yet when this runs - without this guard, FixateTarget would just see it missing and
+        // silently clear _fixateRef to null, losing the fixate outright rather than merely
+        // delaying it. Deferring this call too, onto the same FIFO Map::_farSpellCallbacks queue
+        // AddThreat's own deferral uses, preserves the caller's ordering: AddThreat's replay
+        // (enqueued first, by the statement immediately before this one) always runs and creates
+        // the entry before this FixateTarget replay (enqueued second) looks it up.
+        if (!bypassPartitionGuard)
+        {
+            if (Map* map = _owner->GetMap(); map->IsUnsafeForCurrentThreadToTouch(_owner) || map->IsUnsafeForCurrentThreadToTouch(target))
+            {
+                ObjectGuid ownerGuid = _owner->GetGUID();
+                ObjectGuid targetGuid = target->GetGUID();
+                map->AddFarSpellCallback([ownerGuid, targetGuid](Map* map)
+                {
+                    Unit* owner = ObjectAccessor::GetUnit(map, ownerGuid);
+                    if (!owner || !owner->IsInWorld())
+                        return;
+
+                    Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+                    if (!target || !target->IsInWorld())
+                        return;
+
+                    map->ResolveCrossPartitionPair(owner, target);
+                    owner->GetThreatManager().FixateTarget(target, /*bypassPartitionGuard=*/true);
+                });
+                return;
+            }
+        }
+
         auto it = _myThreatListEntries.find(target->GetGUID());
         if (it != _myThreatListEntries.end())
         {
@@ -734,10 +1168,108 @@ void ThreatManager::RegisterForAIUpdate(ObjectGuid const& guid)
     return threat;
 }
 
-void ThreatManager::ForwardThreatForAssistingMe(Unit* assistant, float baseAmount, SpellInfo const* spell, bool ignoreModifiers)
+// Cross-partition precondition (Stage 5b review finding, ARGUSCORE_FIXES.md) - this walks
+// _threatenedByMe and calls threatened->GetThreatManager().AddThreat(assistant, ...) for each
+// foreign `threatened`. That inner AddThreat call IS guarded (checks
+// IsCrossPartition(threatened, assistant)), which correctly covers the assistant-vs-threatened
+// pairing, but says nothing about whether it's safe for the CURRENTLY EXECUTING thread to be
+// walking `_owner`'s (this ThreatManager's) own _threatenedByMe container at all - `assistant`
+// could be same-shard with a remote `threatened` while the actual calling thread (whichever
+// object's Update()/spell-processing is really running) is on a THIRD shard entirely.
+//
+// HISTORY: originally relied on callers guarding/pinning an "assistant vs _owner-equivalent"
+// pair before ever reaching here (true for HandlePeriodicHealAurasTick/
+// HandleObsModPowerAuraTick/HandlePeriodicEnergizeAuraTick, SpellAuraEffects.cpp, but a Stage 7
+// recheck found NOT true of Spell.cpp's three ForwardThreatForAssistingMe call sites). A
+// follow-up fix guarded each of those three call sites individually (checking
+// IsCrossPartition(m_caster->ToUnit(), _owner-equivalent)) - an independent review then found
+// THAT was itself broken for the exact "totem/trap/proxy cast" scenario it was meant to cover:
+// m_caster is a WorldObject* (a trap/GameObject caster makes ->ToUnit() return null), silently
+// disabling the guard precisely when it mattered most, and duplicating ~20 near-identical lines
+// per call site meant a fourth future caller would start unguarded by default.
+//
+// FIXED for real this time (code-review deep-dive fix, ARGUSCORE_FIXES.md) by moving the guard
+// IN HERE instead of relying on any caller's own anchor-tracking: Map::IsUnsafeForCurrentThreadToTouch
+// (see its own comment, Map.h) answers "is it safe for the thread I'm ACTUALLY executing on right
+// now to touch _owner" directly, by comparing CurrentFanOutShardForThisMap() (no anchor object
+// needed - it's the literal executing task's own shard) against _owner's recorded per-tick
+// dispatch shard. Every current and future caller is protected uniformly, with zero possibility
+// of forgetting to guard/pin first. SpellInfo* is stable/non-owned (spell template data, loaded
+// once, never deleted), safe across a defer unlike a live Spell* object, so the whole call - not
+// just a fragment - can be deferred here.
+//
+// !bypassPartitionGuard: same infinite-redefer-hang prevention as every other guard in this
+// pattern (see e.g. CombatManager::SetInCombatWith's own comment) - the deferred replay below
+// always passes bypassPartitionGuard=true.
+void ThreatManager::ForwardThreatForAssistingMe(Unit* assistant, float baseAmount, SpellInfo const* spell, bool ignoreModifiers, bool bypassPartitionGuard)
 {
     if (spell && (spell->HasAttribute(SPELL_ATTR1_NO_THREAT) || spell->HasAttribute(SPELL_ATTR4_NO_HELPFUL_THREAT))) // shortcut, none of the calls would do anything
         return;
+
+    // NOTE (round 6 code-review deep-dive, ARGUSCORE_FIXES.md) - the `_threatenedByMe.empty()`
+    // early-out that used to sit here, before the guard below, was reading _owner's own container
+    // before establishing it's safe to do so. Moved below (right before the main body) so it only
+    // ever runs once _owner is already proven safe - either synchronously (guard below found it
+    // safe) or because this is itself the bypassPartitionGuard=true replay, which only ever runs
+    // during Map::DelayedUpdate's barrier where nothing is unsafe.
+    if (!bypassPartitionGuard)
+    {
+        // CORRECTED in a full-branch code-review deep-dive (ARGUSCORE_FIXES.md) - this used to
+        // check only IsUnsafeForCurrentThreadToTouch(_owner), on the reasoning (see the big comment
+        // above) that assistant's own safety is covered transitively by each per-iteration
+        // AddThreat call below. That's true for the AddThreat calls themselves, but misses two
+        // things this function does BEFORE ever reaching them: assistant is dereferenced directly
+        // (assistant->GetGUID() below, harmless since GUIDs are immutable, but establishes the
+        // pattern), and every entry in _threatenedByMe has pair.second->GetOwner()->HasUnitState()
+        // read directly, completely unguarded, to sort into canBeThreatened/cannotBeThreatened -
+        // an unsynchronized read of a foreign creature's mutable state with no safety check
+        // whatsoever, not even the "wrong side" kind, just entirely absent. Folded into one upfront
+        // pre-scan (same shape as KillRewarder::Reward's own pre-scan-and-defer-the-whole-call
+        // redesign) that checks _owner, assistant, and every _threatenedByMe owner before
+        // committing to the synchronous path below.
+        Map* map = _owner->GetMap();
+        bool unsafe = map->IsUnsafeForCurrentThreadToTouch(_owner) || map->IsUnsafeForCurrentThreadToTouch(assistant);
+        if (!unsafe)
+        {
+            for (auto const& pair : _threatenedByMe)
+            {
+                if (map->IsUnsafeForCurrentThreadToTouch(pair.second->GetOwner()))
+                {
+                    unsafe = true;
+                    break;
+                }
+            }
+        }
+        if (unsafe)
+        {
+            ObjectGuid ownerGuid = _owner->GetGUID();
+            ObjectGuid assistantGuid = assistant->GetGUID();
+            map->AddFarSpellCallback([ownerGuid, assistantGuid, baseAmount, spell, ignoreModifiers](Map* map)
+            {
+                Unit* owner = ObjectAccessor::GetUnit(map, ownerGuid);
+                if (!owner || !owner->IsInWorld())
+                    return;
+
+                Unit* assistant = ObjectAccessor::GetUnit(map, assistantGuid);
+                if (!assistant || !assistant->IsInWorld())
+                    return;
+
+                // Review finding (code-review deep-dive fix, ARGUSCORE_FIXES.md) - without this,
+                // owner's bookkeeping shard never converges toward wherever it's actually being
+                // reached from, so this exact owner/assistant pair could keep re-deferring on
+                // every future call between them instead of settling into synchronous execution -
+                // a persistent latency tax, not a correctness bug (bypassPartitionGuard=true below
+                // already prevents THIS call from re-deferring). owner and assistant are about to
+                // gain a real threat relationship via AddThreat inside this same call, so pinning
+                // them together here is the correct target, not an arbitrary choice.
+                map->ResolveCrossPartitionPair(owner, assistant);
+
+                owner->GetThreatManager().ForwardThreatForAssistingMe(assistant, baseAmount, spell, ignoreModifiers, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
     if (_threatenedByMe.empty())
         return;
 
@@ -771,28 +1303,103 @@ void ThreatManager::RemoveMeFromThreatLists(bool (*unitFilter)(Unit const* other
             threatReferencesToRemove.push_back(ref);
 
     for (ThreatReference* ref : threatReferencesToRemove)
+    {
+        // Cross-partition guard (Stage 5b, ARGUSCORE_FIXES.md) - ref->_mgr is a DIFFERENT
+        // creature's ThreatManager (this walks _threatenedByMe: entries where the ref's _owner is
+        // a foreign creature and _victim is this manager's own owner), so ref->_mgr.ClearThreat()
+        // below is a foreign-manager call (SendRemoveToClients + UnregisterAndFree + UpdateVictim)
+        // executing on THIS unit's thread rather than that manager's owner's thread.
+        // UnregisterAndFree guards its own inner piece, but SendRemoveToClients/UpdateVictim sit
+        // outside that inner guard in ThreatManager::ClearThreat and would still run unguarded
+        // around it - defer the whole per-entry call as one unit instead, same shape as every
+        // other funnel point this stage fixes. The replay re-resolves via a fresh
+        // _myThreatListEntries lookup (through the public ClearThreat(Unit*) overload) rather than
+        // trusting the captured `ref`, so a second, independent removal of the same relationship
+        // before the replay runs is a safe no-op.
+        // CORRECTED in a full-branch code-review deep-dive (ARGUSCORE_FIXES.md) - see
+        // CombatReference::EndCombat's own matching correction (CombatManager.cpp) for the full
+        // reasoning. `_owner` here is NOT reliably the real calling-thread anchor either:
+        // RemoveMeFromThreatLists is only ever reached via CombatManager::EndAllPvECombat <-
+        // Unit::CombatStop, and CombatStop is routinely called on a foreign unit from a third
+        // party's own thread (confirmed: Spell::EffectSanctuary's `unitTarget->CombatStop(...)`,
+        // where `unitTarget` becomes `_owner` here while the real anchor is m_caster). Fixed by
+        // checking IsUnsafeForCurrentThreadToTouch on each side independently instead of
+        // IsCrossPartition(_owner, foreignOwner), which only ever answered "are these two
+        // cross-partition from EACH OTHER".
+        Creature* foreignOwner = ref->GetOwner();
+        if (Map* map = _owner->GetMap(); map->IsUnsafeForCurrentThreadToTouch(_owner) || map->IsUnsafeForCurrentThreadToTouch(foreignOwner))
+        {
+            ObjectGuid ownerGuid = _owner->GetGUID();
+            ObjectGuid foreignGuid = foreignOwner->GetGUID();
+            map->AddFarSpellCallback([ownerGuid, foreignGuid](Map* map)
+            {
+                Unit* owner = ObjectAccessor::GetUnit(map, ownerGuid);
+                if (!owner || !owner->IsInWorld())
+                    return;
+
+                Unit* foreignUnit = ObjectAccessor::GetUnit(map, foreignGuid);
+                if (!foreignUnit || !foreignUnit->IsInWorld())
+                    return;
+
+                Creature* foreign = foreignUnit->ToCreature();
+                if (!foreign)
+                    return;
+
+                map->ResolveCrossPartitionPair(owner, foreign);
+                foreign->GetThreatManager().ClearThreat(owner, /*bypassPartitionGuard=*/true);
+            });
+            continue;
+        }
+
         ref->_mgr.ClearThreat(_owner);
+    }
 }
 
-void ThreatManager::UpdateMyTempModifiers()
+void ThreatManager::UpdateMyTempModifiers(bool bypassPartitionGuard /*= false*/)
 {
+    // Cross-partition guard (code-review deep-dive, round 6, ARGUSCORE_FIXES.md) - reads _owner's
+    // own aura list before ever reaching the already-guarded per-entry UpdateTempModifier calls
+    // below. Routinely reached as `caster->GetThreatManager().UpdateMyTempModifiers()` from a
+    // SPELL_AURA_MOD_TOTAL_THREAT aura's OnApply/OnChangeAmount handler (SpellAuraEffects.cpp's
+    // HandleAuraModTotalThreat), which can run on a THIRD PARTY's thread reaching into `caster`
+    // (e.g. natural aura expiry processed during the aura-bearing unit's own tick, which reads
+    // GetCaster() - a foreign, potentially cross-partition object relative to that tick).
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = _owner->GetMap(); map->IsUnsafeForCurrentThreadToTouch(_owner))
+        {
+            ObjectGuid ownerGuid = _owner->GetGUID();
+            map->AddFarSpellCallback([ownerGuid](Map* map)
+            {
+                Unit* owner = ObjectAccessor::GetUnit(map, ownerGuid);
+                if (!owner || !owner->IsInWorld())
+                    return;
+
+                owner->GetThreatManager().UpdateMyTempModifiers(/*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
     int32 mod = 0;
     for (AuraEffect const* eff : _owner->GetAuraEffectsByType(SPELL_AURA_MOD_TOTAL_THREAT))
         mod += eff->GetAmount();
 
-    if (_threatenedByMe.empty())
-        return;
-
-    auto it = _threatenedByMe.begin();
-    bool const isIncrease = (it->second->_tempModifier < mod);
-    do
-    {
-        it->second->_tempModifier = mod;
-        if (isIncrease)
-            it->second->HeapNotifyIncreased();
-        else
-            it->second->HeapNotifyDecreased();
-    } while ((++it) != _threatenedByMe.end());
+    // Stage 5b fix (ARGUSCORE_FIXES.md) - this used to write it->second->_tempModifier and call
+    // HeapNotify* directly on every _threatenedByMe entry (i.e. mutating OTHER creatures'
+    // ThreatManager state from the current unit's own thread). Delegating to the now-guarded
+    // per-entry method closes that gap.
+    //
+    // CORRECTED in a full-branch code-review deep-dive (ARGUSCORE_FIXES.md) - this used to compute
+    // a single isIncrease bool once from _threatenedByMe.begin()->second->_tempModifier and pass it
+    // uniformly to every entry, on the assumption every entry always shares the same _tempModifier.
+    // That is unsound once any one entry's UpdateTempModifier has had to defer while a sibling's did
+    // not (see UpdateTempModifier's own comment for the full failure chain - wrong heap-notify
+    // direction on replay, corrupting the fibonacci heap's ordering invariants). UpdateTempModifier
+    // now computes its own isIncrease internally, per-ref, at the point it's actually safe to touch
+    // that ref's _tempModifier - so it's simply called with the shared mod value here.
+    for (auto const& [guid, ref] : _threatenedByMe)
+        ref->UpdateTempModifier(mod);
 }
 
 void ThreatManager::UpdateMySpellSchoolModifiers()

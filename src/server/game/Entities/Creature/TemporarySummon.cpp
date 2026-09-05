@@ -229,13 +229,46 @@ void TempSummon::InitStats(WorldObject* summoner, Milliseconds duration)
 
         if (slot != 0)
         {
-            if (!unitSummoner->m_SummonSlot[slot].IsEmpty() && unitSummoner->m_SummonSlot[slot] != GetGUID())
+            // Cross-partition guard (Stage 5a, ARGUSCORE_FIXES.md) - unitSummoner->m_SummonSlot[slot]
+            // is the SUMMONER's own state, read/written here from the NEW SUMMON's own creation
+            // thread - real cross-unit mutation (plus a potential further cross-unit UnSummon()
+            // call on whatever stale occupant is found) if summoner and summon land on different
+            // shards (a summon at a destination location can be far from its summoner). Deferred
+            // as the whole block; no ResolveCrossPartitionPair pin needed, same reasoning as
+            // Totem::UnSummon's mirror fix - only this summon's GUID value is needed for the
+            // replay's comparison/assignment, nothing ongoing to pin.
+            ObjectGuid summonGuid = GetGUID();
+            auto applySlot = [summonGuid, slot](Unit* unitSummoner, Map* map)
             {
-                Creature* oldSummon = GetMap()->GetCreature(unitSummoner->m_SummonSlot[slot]);
-                if (oldSummon && oldSummon->IsSummon())
-                    oldSummon->ToTempSummon()->UnSummon();
+                if (!unitSummoner->m_SummonSlot[slot].IsEmpty() && unitSummoner->m_SummonSlot[slot] != summonGuid)
+                {
+                    Creature* oldSummon = map->GetCreature(unitSummoner->m_SummonSlot[slot]);
+                    if (oldSummon && oldSummon->IsSummon())
+                        oldSummon->ToTempSummon()->UnSummon();
+                }
+                unitSummoner->m_SummonSlot[slot] = summonGuid;
+            };
+
+            // CurrentFanOutShardForThisMap() gate (code-review finding, ARGUSCORE_FIXES.md) - this
+            // guard predates the gate's discovery and was never revisited, despite its own comment
+            // above claiming parity with Totem::UnSummon's mirror fix, which DOES have it. Without
+            // it, a bare IsCrossPartition() true outside a live fan-out worker thread still
+            // deferred - not a use-after-free (GUID-only capture, no-op-safe replay), but a real
+            // dropped-slot-assignment bug: a deferred callback with no guaranteed drain window
+            // could leave unitSummoner->m_SummonSlot[slot] never updated, stranding a stale prior
+            // occupant un-UnSummon()'d and this new summon unreachable via that slot.
+            if (Map* map = GetMap(); map->IsUnsafeForCurrentThreadToTouch(this) || map->IsUnsafeForCurrentThreadToTouch(unitSummoner))
+            {
+                ObjectGuid summonerGuid = unitSummoner->GetGUID();
+                map->AddFarSpellCallback([summonerGuid, applySlot](Map* map)
+                {
+                    Unit* unitSummoner = ObjectAccessor::GetUnit(map, summonerGuid);
+                    if (unitSummoner && unitSummoner->IsInWorld())
+                        applySlot(unitSummoner, map);
+                });
             }
-            unitSummoner->m_SummonSlot[slot] = GetGUID();
+            else
+                applySlot(unitSummoner, GetMap());
         }
 
         if (!m_Properties->GetFlags().HasFlag(SummonPropertiesFlags::UseCreatureLevel))

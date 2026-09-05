@@ -23,6 +23,7 @@
 #include "MMapDefines.h"
 #include "MoveSplineInitArgs.h"
 #include <G3D/Vector3.h>
+#include <shared_mutex>
 
 class WorldObject;
 
@@ -110,6 +111,13 @@ class TC_GAME_API PathGenerator
         dtNavMesh const* _navMesh;              // the nav mesh
         dtNavMeshQuery const* _navMeshQuery;    // the nav mesh query used to find the path
 
+        // Phase 3 redesign (ARGUSCORE_FIXES.md) - the shared_mutex guarding _navMesh against a
+        // concurrent addTile/removeTile from a Map Partitioning worker thread loading a grid (see
+        // MMapData::NavMeshLock's own comment, MMapManager.h). Null if pathfinding is disabled for
+        // this map (matching _navMesh/_navMeshQuery's own null-when-disabled convention) - in that
+        // case CalculatePath bails out before touching the mesh at all, so no lock is needed.
+        std::shared_mutex* _navMeshLock;
+
         dtQueryFilter _filter;  // use single filter for all movements, update it when needed
 
         std::vector<uint32> _jumpSegmentIndices; // indices i where path segment [i]->[i+1] requires a jump
@@ -156,6 +164,29 @@ class TC_GAME_API PathGenerator
         // but clear at jump height are marked in _jumpSegmentIndices. Segments blocked at
         // both levels are truncated so the unit stops before the obstacle.
         void ValidatePathAgainstCollision();
+
+        // Phase 3 redesign (ARGUSCORE_FIXES.md) - wraps a single _navMeshQuery/_navMesh call in a
+        // brief shared_lock on _navMeshLock (if this map has one). Deliberately per-call, not one
+        // lock held across the whole CalculatePath body: an earlier version of this fix held it
+        // for the whole function, which an independent review found could deadlock against
+        // TerrainInfo::_loadMutex - some of the terrain queries CalculatePath also makes
+        // (UpdateFilter/BuildPolyPath's liquid/underwater checks) can themselves need _loadMutex,
+        // and _loadMutex's own load path separately needs to take this same NavMeshLock in write
+        // mode - holding NavMeshLock across both kinds of call let the two locks nest in opposite
+        // orders on different threads. Per-call locking never holds NavMeshLock while any terrain
+        // query is in flight, so the two locks are never nested at all - Detour's own safety
+        // contract only requires no addTile/removeTile DURING a single query call, not across a
+        // whole path computation, so this loses nothing Detour actually needs.
+        template <typename Fn>
+        auto WithNavMeshLock(Fn&& fn) const
+        {
+            if (_navMeshLock)
+            {
+                std::shared_lock<std::shared_mutex> lock(*_navMeshLock);
+                return fn();
+            }
+            return fn();
+        }
 };
 
 #endif

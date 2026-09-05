@@ -38,6 +38,7 @@
 #include "CreatureAIImpl.h"
 #include "CreatureAIFactory.h"
 #include "CreatureGroups.h"
+#include "CrossPartitionGuard.h"
 #include "DB2Stores.h"
 #include "Formulas.h"
 #include "GameObjectAI.h"
@@ -810,8 +811,69 @@ bool Unit::HasBreakableByDamageCrowdControlAura(Unit* excludeCasterChannel) cons
     return effects;
 }
 
-/*static*/ uint32 Unit::DealDamage(Unit* attacker, Unit* victim, uint32 damage, CleanDamage const* cleanDamage, DamageEffectType damagetype, SpellSchoolMask damageSchoolMask, SpellInfo const* spellProto, bool durabilityLoss)
+/*static*/ uint32 Unit::DealDamage(Unit* attacker, Unit* victim, uint32 damage, CleanDamage const* cleanDamage, DamageEffectType damagetype, SpellSchoolMask damageSchoolMask, SpellInfo const* spellProto, bool durabilityLoss, bool bypassPartitionGuard)
 {
+    // Cross-partition guard (Piece 5, ARGUSCORE_FIXES.md) - true top, before any of the
+    // substantial cross-unit work below (AI hooks, script hook, the pet-owner-attacked notify
+    // loop, aura-removal, ModifyHealth) - all of it is self-contained to a single DealDamage
+    // invocation, so it's deferred and replayed as one unit via the shared cross-partition
+    // deferred-operations queue, same pattern as Pieces 1/2. Only applies when there's a real
+    // second party - a null attacker (environmental damage, scripted self-damage) has nothing to
+    // pin against.
+    //
+    // Known, honest scope boundary: this can't preserve DealDamage's own return value (the
+    // actual post-mitigation damageTaken) for a deferred call - callers that only apply the
+    // damage and move on are unaffected, but AuraEffect::HandlePeriodicHealthLeechAuraTick has a
+    // confirmed synchronous dependency on the exact return value for leech heal-back and gets
+    // its own dedicated guard *before* it ever reaches here (Piece 5b) specifically to avoid
+    // this. Any other caller with a similar dependency has not been audited - flagged in
+    // ARGUSCORE_FIXES.md as a real, open follow-up, not silently assumed complete. The best
+    // effort synchronous value returned here is the nominal pre-mitigation damage, not a claim
+    // of exactness.
+    //
+    // !bypassPartitionGuard: without this, a pair Map::ResolveCrossPartitionPair can't actually
+    // unify (both sides non-transferable - e.g. two Players) would see IsCrossPartition still
+    // true on replay and re-defer, enqueuing onto Map::_farSpellCallbacks from inside the very
+    // drain loop currently processing it - an infinite synchronous loop that hangs this Map's
+    // update thread forever, not a graceful "stays cross-partition" degradation. The replay below
+    // always passes bypassPartitionGuard=true, so a replay can defer at most once, ever, and
+    // proceeds with the real logic below even if the pin genuinely couldn't succeed - the same
+    // (rare, Player-vs-Player only) behavior this code would have had before partitioning existed.
+    // CurrentFanOutShardForThisMap() gate (Stage 7 recheck fix, ARGUSCORE_FIXES.md, independent
+    // review finding) - this guard predates the gate's discovery (Stage 5a's SetMinion finding)
+    // and was never revisited, unlike DealHeal's own guard (added in the same Stage 5a pass,
+    // explicitly "mirrors DealDamage's own guard verbatim") which already has it. Without it, a
+    // bare IsCrossPartition() true outside a live fan-out worker thread (e.g. the `.damage` GM
+    // command, or a script/boss-mod calling DealDamage synchronously during serial teardown) can
+    // never be drained in time and becomes a silent permanent no-op instead of a one-tick delay -
+    // not a use-after-free (GUID/no-op-safe replay), but a real dropped-damage bug.
+    if (!bypassPartitionGuard && attacker)
+    {
+        if (Map* map = victim->GetMap(); map->IsUnsafeForCurrentThreadToTouch(attacker) || map->IsUnsafeForCurrentThreadToTouch(victim))
+        {
+            ObjectGuid attackerGuid = attacker->GetGUID();
+            ObjectGuid victimGuid = victim->GetGUID();
+            Optional<CleanDamage> cleanDamageCopy;
+            if (cleanDamage)
+                cleanDamageCopy.emplace(*cleanDamage);
+
+            map->AddFarSpellCallback([attackerGuid, victimGuid, damage, cleanDamageCopy, damagetype, damageSchoolMask, spellProto, durabilityLoss](Map* map)
+            {
+                Unit* attacker = ObjectAccessor::GetUnit(map, attackerGuid);
+                if (!attacker || !attacker->IsInWorld())
+                    return;
+
+                Unit* victim = ObjectAccessor::GetUnit(map, victimGuid);
+                if (!victim || !victim->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(attacker, victim);
+                Unit::DealDamage(attacker, victim, damage, cleanDamageCopy ? &*cleanDamageCopy : nullptr, damagetype, damageSchoolMask, spellProto, durabilityLoss, /*bypassPartitionGuard=*/true);
+            });
+            return damage;
+        }
+    }
+
     uint32 damageDone = damage;
     uint32 damageTaken = damage;
     if (attacker)
@@ -3355,6 +3417,66 @@ void Unit::_AddAura(UnitAura* aura, Unit* caster)
                  *        but may be created as a result of aura links.
                  */
 
+        // Cross-partition guard (Piece 6b, ARGUSCORE_FIXES.md) - single-target aura bookkeeping
+        // reaches into the CASTER's own GetSingleCastAuras() list, a second cross-unit write
+        // distinct from Aura::UpdateTargetMap's target-side m_appliedAuras insert (Piece 6), and
+        // it happens earlier - at aura construction time, before UpdateTargetMap ever runs for
+        // this aura. Only this cross-unit section is deferred, not the whole _AddAura call - the
+        // rest (m_ownedAuras insert, _RemoveNoStackAurasDueToAura) is owner-local and stays
+        // synchronous. Uses GetWeakPtr() rather than the raw `aura` pointer for the same aura
+        // lifetime reasoning as Piece 6/5b.
+        if (IsInWorld())
+        {
+            // CurrentFanOutShardForThisMap() gate added in a Stage 7 recheck (ARGUSCORE_FIXES.md) -
+            // this guard predates the gate's discovery and was never revisited, unlike every guard
+            // added since. Not a use-after-free (weak_ptr/GUID, no-op-safe replay).
+            if (Map* map = GetMap(); map->IsUnsafeForCurrentThreadToTouch(this) || map->IsUnsafeForCurrentThreadToTouch(caster))
+            {
+                Trinity::unique_weak_ptr<Aura> auraWeak = aura->GetWeakPtr();
+                ObjectGuid ownerGuid = GetGUID();
+                ObjectGuid casterGuid = caster->GetGUID();
+                map->AddFarSpellCallback([auraWeak, ownerGuid, casterGuid](Map* map)
+                {
+                    // Review finding (code-review deep-dive fix, ARGUSCORE_FIXES.md) - was only
+                    // `if (!aura) return;` (weak_ptr lock success), unlike the symmetric
+                    // RemoveOwnedAura guard's own replay, which also checks
+                    // `!aura->IsSingleTarget()` before proceeding. A still-alive-but-already-
+                    // removed Aura (removed via some OTHER path between this defer and this
+                    // replay draining) would otherwise still get pushed into
+                    // caster->GetSingleCastAuras() and could evict live auras via
+                    // aurasSharingLimit.back()->Remove() based on a dead aura's own bookkeeping.
+                    Trinity::unique_strong_ref_ptr<Aura> aura = auraWeak.lock();
+                    if (!aura || aura->IsRemoved())
+                        return;
+
+                    Unit* owner = ObjectAccessor::GetUnit(map, ownerGuid);
+                    if (!owner || !owner->IsInWorld())
+                        return;
+
+                    Unit* caster = ObjectAccessor::GetUnit(map, casterGuid);
+                    if (!caster || !caster->IsInWorld())
+                        return;
+
+                    map->ResolveCrossPartitionPair(owner, caster);
+
+                    std::vector<Aura*> aurasSharingLimit;
+                    for (Aura* scAura : caster->GetSingleCastAuras())
+                        if (scAura->IsSingleTargetWith(aura.get()))
+                            aurasSharingLimit.push_back(scAura);
+
+                    caster->GetSingleCastAuras().push_front(aura.get());
+
+                    uint32 maxOtherAuras = aura->GetSpellInfo()->MaxAffectedTargets - 1;
+                    while (aurasSharingLimit.size() > maxOtherAuras)
+                    {
+                        aurasSharingLimit.back()->Remove();
+                        aurasSharingLimit.pop_back();
+                    }
+                });
+                return;
+            }
+        }
+
         std::vector<Aura*> aurasSharingLimit;
         // remove other single target auras
         for (Aura* scAura : caster->GetSingleCastAuras())
@@ -3651,7 +3773,43 @@ void Unit::RemoveOwnedAura(AuraMap::iterator& i, AuraRemoveMode removeMode)
 
     // Unregister single target aura
     if (aura->IsSingleTarget())
-        aura->UnregisterSingleTarget();
+    {
+        // Cross-partition guard (Stage 7 recheck fix, ARGUSCORE_FIXES.md) -
+        // Aura::UnregisterSingleTarget erases `aura` from its CASTER's own GetSingleCastAuras()
+        // std::list, a real cross-unit write executing on `this` (the aura's owner)'s thread.
+        // Symmetric counterpart of the already-guarded insert side (Piece 6b,
+        // Unit::_AddAura) - missed by the Stage 5c aura-removal audit because every OTHER
+        // cross-unit reach on this path funnels through Aura::_UnapplyForTarget (fixed then), but
+        // this one doesn't go through that function at all. GetWeakPtr() capture matches every
+        // other Aura capture in this guard pattern - an Aura mid-removal (m_isRemoved already true
+        // by the time a deferred replay could run) is a normal, expected state to observe, not a
+        // dangling one.
+        Unit* caster = aura->GetCaster();
+        if (caster && caster != this)
+        {
+            if (Map* map = GetMap(); map->IsUnsafeForCurrentThreadToTouch(this) || map->IsUnsafeForCurrentThreadToTouch(caster))
+            {
+                Trinity::unique_weak_ptr<Aura> auraWeak = aura->GetWeakPtr();
+                ObjectGuid casterGuid = caster->GetGUID();
+                map->AddFarSpellCallback([auraWeak, casterGuid](Map* map)
+                {
+                    Trinity::unique_strong_ref_ptr<Aura> aura = auraWeak.lock();
+                    if (!aura || !aura->IsSingleTarget())
+                        return;
+
+                    Unit* caster = ObjectAccessor::GetUnit(map, casterGuid);
+                    if (!caster || !caster->IsInWorld())
+                        return;
+
+                    aura->UnregisterSingleTarget();
+                });
+            }
+            else
+                aura->UnregisterSingleTarget();
+        }
+        else
+            aura->UnregisterSingleTarget();
+    }
 
     aura->_Remove(removeMode);
 
@@ -3921,8 +4079,54 @@ void Unit::RemoveAurasDueToSpellByDispel(uint32 spellId, uint32 dispellerSpellId
     }
 }
 
-void Unit::RemoveAurasDueToSpellBySteal(uint32 spellId, ObjectGuid casterGUID, WorldObject* stealer, int32 stolenCharges /*= 1*/)
+void Unit::RemoveAurasDueToSpellBySteal(uint32 spellId, ObjectGuid casterGUID, WorldObject* stealer, int32 stolenCharges /*= 1*/, bool bypassPartitionGuard /*= false*/)
 {
+    // Cross-partition guard (Stage 5c, ARGUSCORE_FIXES.md) - unlike the other aura-removal
+    // functions in this file (whose only cross-unit reach was the SpellHistory cooldown-event
+    // write already fixed at the shared Aura::_UnapplyForTarget funnel), this one creates or
+    // modifies a real Aura directly on `stealer` (Aura::TryRefreshStackOrCreate + ApplyForTargets,
+    // or ModCharges/ModStackAmount on an existing one) - a genuinely bigger cross-unit write not
+    // covered by that fix. Deferred as the whole call, matching CombatReference::EndCombat/
+    // ThreatReference::UnregisterAndFree's shape - the loop below is a self-only read
+    // (m_ownedAuras) until a match is found, so redoing it fresh at replay time is harmless either
+    // way (no-op if the matching aura is gone by then).
+    //
+    // Review finding (Stage 5c, ARGUSCORE_FIXES.md) - the original version of this guard only
+    // checked IsCrossPartition(this, stealer), missing a THIRD party: the stolen aura's ORIGINAL
+    // caster (casterGUID) also gets its own GetSingleCastAuras() list mutated
+    // (UnregisterSingleTarget/push_front below) when the aura is single-target and the stealer
+    // doesn't already have a copy - a real, reachable std::list corruption if that original
+    // caster is cross-partition from `this` while `this`/`stealer` happen to be same-partition
+    // (the top-level guard alone would have missed this). Resolved here, before the aura lookup
+    // loop, via the casterGUID parameter already passed in, and included in the guard condition.
+    if (!bypassPartitionGuard && stealer)
+    {
+        Unit* originalCaster = !casterGUID.IsEmpty() ? ObjectAccessor::GetUnit(*this, casterGUID) : nullptr;
+        if (Map* map = GetMap(); map->CurrentFanOutShardForThisMap() &&
+            (map->IsCrossPartition(this, stealer) || (originalCaster && map->IsCrossPartition(this, originalCaster))))
+        {
+            ObjectGuid targetGuid = GetGUID();
+            ObjectGuid stealerGuid = stealer->GetGUID();
+            map->AddFarSpellCallback([targetGuid, spellId, casterGUID, stealerGuid, stolenCharges](Map* map)
+            {
+                Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+                if (!target || !target->IsInWorld())
+                    return;
+
+                WorldObject* stealer = ObjectAccessor::GetWorldObject(map, stealerGuid);
+                if (!stealer || !stealer->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(target, stealer);
+                if (Unit* originalCaster = !casterGUID.IsEmpty() ? ObjectAccessor::GetUnit(*target, casterGUID) : nullptr)
+                    map->ResolveCrossPartitionPair(target, originalCaster);
+
+                target->RemoveAurasDueToSpellBySteal(spellId, casterGUID, stealer, stolenCharges, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
     AuraMapBoundsNonConst range = m_ownedAuras.equal_range(spellId);
     for (AuraMap::iterator iter = range.first; iter != range.second;)
     {
@@ -5469,11 +5673,83 @@ void Unit::SendSpellNonMeleeDamageLog(SpellNonMeleeDamage const* log)
             return healInfo->GetSpellInfo();
         return nullptr;
     }();
+    // actor's own two calls below (this one and TriggerAurasProcOnEvent further down) are left
+    // unguarded on the precondition that CALLERS only ever pass an `actor` already validated as
+    // same-partition with whatever it's running alongside this tick - true for every Spell/
+    // AuraEffect-driven call site (Spell processing runs on the caster's own thread, and
+    // AuraEffect periodic ticks that reach here do so from behind their OWN caster/target guard,
+    // e.g. HandlePeriodicHealAurasTick, which already confirmed same-partition before ever
+    // reaching this call). This precondition does NOT hold universally by construction - Stage 5c's
+    // review found Unit::Kill's owner-proc call passing actor=attacker->GetOwner() (a pet/totem's
+    // controller, a third party never validated against attacker/victim) violated it; fixed at
+    // that call site (Unit::Kill, see its own comment) rather than here, since this function has
+    // no way to independently verify the precondition itself. Any NEW caller must ensure this
+    // holds, the same way every current one now does.
+    //
+    // FIXED at the call site (code-review deep-dive fix, ARGUSCORE_FIXES.md; was: "Known,
+    // NOT-yet-fixed violation", Stage 7 recheck finding): Spell.cpp's two SendCastResult-adjacent
+    // proc calls (grep `ProcSkillsAndAuras(actorForProc` in Spell.cpp) used to pass
+    // `actor=m_originalCaster` directly, which for totem/trap/proxy casts differs from `m_caster`
+    // (whose thread Spell processing actually runs on) and was never validated against it. Both
+    // calls pass `actionTarget=nullptr`, so the guarded actionTarget branch above never engages
+    // either - a real gap in the actor-side precondition, distinct from (and not covered by) the
+    // actionTarget guard. Unlike Unit::Kill's owner-proc call, `spell`(=`this`) is non-null at
+    // both Spell.cpp sites, and TriggerAurasProcOnEvent's use of it goes far deeper than reading
+    // its SpellInfo (m_appliedMods, per-aura TriggerProcOnEvent script hooks) - genuinely cannot
+    // cross a defer boundary the way DealDamage/ForwardThreatForAssistingMe's own guards do. Fixed
+    // by having each call site pass `nullptr` instead of `m_originalCaster` whenever
+    // Map::IsUnsafeForCurrentThreadToTouch(m_originalCaster) says it's unsafe (see that function's
+    // own comment, Map.h, for why this - not IsCrossPartition(m_caster->ToUnit(), ...) - is the
+    // right primitive here: m_caster is a WorldObject*, and an earlier version of this fix using
+    // ->ToUnit() went silently inert for exactly the trap/GameObject-caster scenario it was meant
+    // to cover) - this function's own existing `actor` null-checks then cleanly skip both
+    // actor-side calls, rather than leaving a genuine data race on `actor`'s own proc/reactive
+    // state.
     if (typeMaskActor && actor && !(spellInfo && spellInfo->HasAttribute(SPELL_ATTR3_SUPPRESS_CASTER_PROCS)))
         actor->ProcSkillsAndReactives(false, actionTarget, typeMaskActor, hitMask, attType);
 
     if (typeMaskActionTarget && actionTarget && !(spellInfo && spellInfo->HasAttribute(SPELL_ATTR3_SUPPRESS_TARGET_PROCS)))
-        actionTarget->ProcSkillsAndReactives(true, actor, typeMaskActionTarget, hitMask, attType);
+    {
+        // Cross-partition guard (Stage 5c, ARGUSCORE_FIXES.md) - actionTarget->ProcSkillsAndReactives
+        // mutates a DIFFERENT unit's own state than `actor` (and, per the precondition documented
+        // above, than whichever thread this function is running on). Deferring only this one call,
+        // not the whole function: `spell`/`damageInfo`/`healInfo` below are transient, caller-owned
+        // pointers (often stack-allocated by the caller, e.g.
+        // Spell::TargetInfo::DoDamageAndTriggers's own CalcDamageInfo) that cannot be captured
+        // across a defer boundary the way a GUID or value type can - actor->TriggerAurasProcOnEvent
+        // needs them and so can't be deferred the same way. That's a real, honest, documented
+        // residual scope boundary (same class as Unit::DealDamage's own accepted one, see its
+        // comment) - not fixed here, only the actionTarget call, which takes none of those
+        // pointers, is closeable this way.
+        if (actor && actor != actionTarget)
+        {
+            if (Map* map = actionTarget->GetMap(); map->IsUnsafeForCurrentThreadToTouch(actor) || map->IsUnsafeForCurrentThreadToTouch(actionTarget))
+            {
+                ObjectGuid actorGuid = actor->GetGUID();
+                ObjectGuid actionTargetGuid = actionTarget->GetGUID();
+                ProcFlagsInit capturedTypeMask = typeMaskActionTarget;
+                ProcFlagsHit capturedHitMask = hitMask;
+                WeaponAttackType capturedAttType = attType;
+                map->AddFarSpellCallback([actorGuid, actionTargetGuid, capturedTypeMask, capturedHitMask, capturedAttType](Map* map)
+                {
+                    Unit* actor = ObjectAccessor::GetUnit(map, actorGuid);
+                    if (!actor || !actor->IsInWorld())
+                        return;
+
+                    Unit* actionTarget = ObjectAccessor::GetUnit(map, actionTargetGuid);
+                    if (!actionTarget || !actionTarget->IsInWorld())
+                        return;
+
+                    map->ResolveCrossPartitionPair(actor, actionTarget);
+                    actionTarget->ProcSkillsAndReactives(true, actor, capturedTypeMask, capturedHitMask, capturedAttType);
+                });
+            }
+            else
+                actionTarget->ProcSkillsAndReactives(true, actor, typeMaskActionTarget, hitMask, attType);
+        }
+        else
+            actionTarget->ProcSkillsAndReactives(true, actor, typeMaskActionTarget, hitMask, attType);
+    }
 
     if (actor)
         actor->TriggerAurasProcOnEvent(nullptr, nullptr, actionTarget, typeMaskActor, typeMaskActionTarget, spellTypeMask, spellPhaseMask, hitMask, spell, damageInfo, healInfo);
@@ -5729,7 +6005,7 @@ Unit* Unit::getAttackerForHelper() const                 // If someone wants to 
     return nullptr;
 }
 
-bool Unit::Attack(Unit* victim, bool meleeAttack)
+bool Unit::Attack(Unit* victim, bool meleeAttack, bool bypassPartitionGuard /*= false*/)
 {
     if (!victim || victim == this)
         return false;
@@ -5757,6 +6033,56 @@ bool Unit::Attack(Unit* victim, bool meleeAttack)
     {
         if (victim->ToCreature()->IsEvadingAttacks())
             return false;
+    }
+
+    // Cross-partition guard (Stage 5a, ARGUSCORE_FIXES.md) - placed after the deterministic,
+    // side-effect-free validity checks above (matching the established "checks first, guard
+    // before real work" placement - see AuraEffect::HandlePeriodicHealthLeechAuraTick's own
+    // comment for why), before any of the real cross-unit work below: m_attacking->_addAttacker/
+    // _removeAttacker write into the OTHER unit's own m_attackers set, and EngageWithTarget/
+    // CallAssistance reach further still. Deferred as the whole call, same shape as
+    // Unit::DealDamage/DealHeal.
+    //
+    // Known, honest scope boundary, same as DealDamage/DealHeal's own: returns false on defer
+    // (the attack did not synchronously start this tick) rather than the real outcome. Review
+    // found the return value is checked far more widely than a first pass suggested - the base
+    // UnitAI::AttackStart/AttackStartCaster (used by most creature AI), CreatureAI, SmartAI, and
+    // 15+ boss scripts all follow it - but every sampled caller only gates same-tick, non-critical
+    // follow-up (chase/idle motion; PetAI additionally gates a combat flag/reaction sound) that
+    // simply doesn't fire this tick in the rare cross-partition case, never a hard correctness
+    // requirement - matching Stage 1's "spawn failed is already a handled outcome" precedent. Not
+    // exhaustively re-verified caller-by-caller beyond that sample.
+    // CurrentFanOutShardForThisMap() gate (Stage 5a fix, ARGUSCORE_FIXES.md review finding) -
+    // bare IsCrossPartition is not enough: a review found Unit::SetMinion's identical-shaped
+    // guard fired from Minion::RemoveFromWorld, which runs in Map::RemoveAllObjectsInRemoveList's
+    // SERIAL phase (after that tick's far-callback drain has already happened) - deferring there
+    // enqueues a callback that can never be drained before the object is deleted moments later,
+    // turning "one tick late" into a silent permanent no-op / dangling-pointer bug. Gating on
+    // "am I actually on a live fan-out worker thread right now" (matching Map::AddToActive/
+    // RemoveFromActive's already-correct Stage 3 precedent) fixes this: outside an active
+    // fan-out task - including this same serial phase - there is no concurrent thread to race
+    // against, so running synchronously is always both safe and necessary.
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = victim->GetMap(); map->IsUnsafeForCurrentThreadToTouch(this) || map->IsUnsafeForCurrentThreadToTouch(victim))
+        {
+            ObjectGuid attackerGuid = GetGUID();
+            ObjectGuid victimGuid = victim->GetGUID();
+            map->AddFarSpellCallback([attackerGuid, victimGuid, meleeAttack](Map* map)
+            {
+                Unit* attacker = ObjectAccessor::GetUnit(map, attackerGuid);
+                if (!attacker || !attacker->IsInWorld())
+                    return;
+
+                Unit* victim = ObjectAccessor::GetUnit(map, victimGuid);
+                if (!victim || !victim->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(attacker, victim);
+                attacker->Attack(victim, meleeAttack, /*bypassPartitionGuard=*/true);
+            });
+            return false;
+        }
     }
 
     // remove SPELL_AURA_MOD_UNATTACKABLE at attack (in case non-interruptible spells stun aura applied also that not let attack)
@@ -5840,10 +6166,48 @@ bool Unit::Attack(Unit* victim, bool meleeAttack)
     return true;
 }
 
-bool Unit::AttackStop()
+bool Unit::AttackStop(bool bypassPartitionGuard /*= false*/)
 {
     if (!m_attacking)
         return false;
+
+    // Cross-partition guard (Stage 5a, ARGUSCORE_FIXES.md) - mirrors Unit::Attack's own guard;
+    // m_attacking->_removeAttacker(this) below writes into the OTHER unit's own m_attackers set.
+    // The replay re-invokes AttackStop() with no captured target - it re-reads m_attacking fresh
+    // at replay time rather than forcing the originally-captured victim, so it does the right
+    // thing even if this attacker's target changed (or it stopped attacking some other way)
+    // between now and the barrier.
+    //
+    // Known, accepted side effect on defer: Unit::RemoveAllAttackers's own loop treats a false
+    // return from AttackStop as "this attacker wasn't really attacking me" and forcibly erases it
+    // from m_attackers directly (logging an error) instead of looping forever waiting for a
+    // removal that hasn't happened yet - returning true instead would make that loop spin forever
+    // on the same still-present entry, a real hang, so false is the only safe choice here despite
+    // the spurious log line it can produce in the rare cross-partition case. The forced erase
+    // itself is harmless (a self-write on m_attackers, and the deferred replay's own
+    // _removeAttacker call on an already-absent entry is a safe std::set::erase no-op).
+    // CurrentFanOutShardForThisMap() gate (Stage 5a fix, ARGUSCORE_FIXES.md review finding) -
+    // see Unit::Attack's own comment for why bare IsCrossPartition is insufficient here too.
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = m_attacking->GetMap(); map->IsUnsafeForCurrentThreadToTouch(this) || map->IsUnsafeForCurrentThreadToTouch(m_attacking))
+        {
+            ObjectGuid attackerGuid = GetGUID();
+            map->AddFarSpellCallback([attackerGuid](Map* map)
+            {
+                Unit* attacker = ObjectAccessor::GetUnit(map, attackerGuid);
+                if (!attacker || !attacker->IsInWorld())
+                    return;
+
+                if (Unit* victim = attacker->m_attacking)
+                    if (victim->IsInWorld())
+                        map->ResolveCrossPartitionPair(attacker, victim);
+
+                attacker->AttackStop(/*bypassPartitionGuard=*/true);
+            });
+            return false;
+        }
+    }
 
     Unit* victim = m_attacking;
 
@@ -5868,8 +6232,32 @@ bool Unit::AttackStop()
     return true;
 }
 
-void Unit::ValidateAttackersAndOwnTarget()
+void Unit::ValidateAttackersAndOwnTarget(bool bypassPartitionGuard /*= false*/)
 {
+    // Cross-partition guard (code-review deep-dive, round 7, ARGUSCORE_FIXES.md) - reads `this`
+    // unit's own m_attackers container (via getAttackers()) and each foreign attacker's
+    // IsValidAttackTarget(this) unguarded before ever reaching the (individually-guarded)
+    // AttackStop() calls below. Reachable on a foreign unit from a third party's own thread via
+    // Unit::SetImmuneToAll/SetImmuneToPC/SetImmuneToNPC (see their own guards, below/above in this
+    // file), which are themselves routinely called as `target->SetImmuneToPC(true)` from spell
+    // scripts running on the caster's own thread against a cross-partition `target`.
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = GetMap(); map->IsUnsafeForCurrentThreadToTouch(this))
+        {
+            ObjectGuid thisGuid = GetGUID();
+            map->AddFarSpellCallback([thisGuid](Map* map)
+            {
+                Unit* self = ObjectAccessor::GetUnit(map, thisGuid);
+                if (!self || !self->IsInWorld())
+                    return;
+
+                self->ValidateAttackersAndOwnTarget(/*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
     // iterate attackers
     UnitVector toRemove;
     AttackerSet const& attackers = getAttackers();
@@ -5886,8 +6274,42 @@ void Unit::ValidateAttackersAndOwnTarget()
             AttackStop();
 }
 
-void Unit::CombatStop(bool includingCast, bool mutualPvP, bool (*unitFilter)(Unit const* otherUnit))
+void Unit::CombatStop(bool includingCast, bool mutualPvP, bool (*unitFilter)(Unit const* otherUnit), bool bypassPartitionGuard /*= false*/)
 {
+    // Cross-partition guard (code-review deep-dive, round 6, ARGUSCORE_FIXES.md) - CombatStop reads
+    // and writes `this` unit's own m_attackers container directly, and transitively touches
+    // CombatManager's/ThreatManager's own _pveRefs/_pvpRefs/_myThreatListEntries/_threatenedByMe
+    // containers via EndAllPvECombat/EndAllPvPCombat/SuppressPvPCombat/RemoveMeFromThreatLists/
+    // ClearAllThreat below - none of which had any guard of their own at the point they touch those
+    // containers (their downstream per-entry funnel points, e.g. CombatReference::EndCombat and
+    // ThreatReference::UnregisterAndFree, are correctly guarded, but nothing protected the OUTER
+    // container reads/iterations those functions do before ever reaching a per-entry call).
+    // CombatStop is routinely called on a foreign unit from a third party's own thread (confirmed:
+    // Spell::EffectSanctuary's `unitTarget->CombatStop(...)`, called from the caster's own thread
+    // against `unitTarget`, which can be cross-partition from the caster). Guarding the true entry
+    // point here, once, transitively protects every container this whole call tree touches that
+    // belongs to `this` - once IsUnsafeForCurrentThreadToTouch(this) is false, every container
+    // `this` (or its CombatManager/ThreatManager) owns is safe for this thread to touch for the rest
+    // of this call. Foreign objects reached from within this call tree (individual attackers via
+    // AttackStop, individual combat/threat partners via EndCombat/UnregisterAndFree) still carry
+    // their own independent guards, unaffected by this one.
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = GetMap(); map->IsUnsafeForCurrentThreadToTouch(this))
+        {
+            ObjectGuid thisGuid = GetGUID();
+            map->AddFarSpellCallback([thisGuid, includingCast, mutualPvP, unitFilter](Map* map)
+            {
+                Unit* self = ObjectAccessor::GetUnit(map, thisGuid);
+                if (!self || !self->IsInWorld())
+                    return;
+
+                self->CombatStop(includingCast, mutualPvP, unitFilter, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
     if (includingCast && IsNonMeleeSpellCast(false))
         InterruptNonMeleeSpells(false);
 
@@ -6125,9 +6547,63 @@ Guardian* Unit::GetGuardianPet() const
     return nullptr;
 }
 
-void Unit::SetMinion(Minion *minion, bool apply)
+void Unit::SetMinion(Minion *minion, bool apply, bool bypassPartitionGuard /*= false*/)
 {
     TC_LOG_DEBUG("entities.unit", "SetMinion {} for {}, apply {}", minion->GetEntry(), GetEntry(), apply);
+
+    // Cross-partition guard (Stage 5a, ARGUSCORE_FIXES.md) - writes real cross-unit state on BOTH
+    // sides: this owner's m_Controlled/pet-GUID/minion-GUID/critter-GUID bookkeeping AND the
+    // minion's own owner GUID/unit flags/speed rates/battle-pet display data. Reachable from a
+    // fan-out worker thread via the minion's own creation (TempSummon::InitStats/Pet::CreateBaseAtCreature-
+    // style flows calling GetOwner()->SetMinion(this, true)) or removal - owner and minion aren't
+    // guaranteed to share a shard (a minion summoned at a destination location away from its
+    // owner, or an owner that has since moved, can land on either side of a partition boundary).
+    // Deferred as the whole call, same shape as Unit::Attack/DealDamage/DealHeal.
+    //
+    // Known, honest scope boundary: on defer, the owner<->minion linkage (m_Controlled entry,
+    // pet/minion/critter GUIDs, owner GUID on the minion) simply isn't established/torn down this
+    // tick - the same one-tick-late window Stage 1's AddToMap defer already established and
+    // documented as an accepted behavior change for freshly-created objects.
+    //
+    // CONFIRMED BUG, fixed (Stage 5a review finding) - bare IsCrossPartition was not enough:
+    // Minion::RemoveFromWorld() calls SetMinion(this, false) from inside
+    // Map::RemoveAllObjectsInRemoveList()'s SERIAL phase, which runs AFTER that tick's
+    // Map::_farSpellCallbacks drain has already completed, immediately before the minion is
+    // synchronously deleted. A defer taken there can never be drained before deletion - it is a
+    // silent PERMANENT no-op, not a one-tick delay, leaving owner->m_Controlled holding a
+    // dangling pointer forever (a real use-after-free on every subsequent read: GetFirstMinion,
+    // GetGuardianPet, this same function's own apply=false replacement scan, scripts, etc.).
+    // Gating on CurrentFanOutShardForThisMap() - matching Map::AddToActive/RemoveFromActive's
+    // already-correct Stage 3 precedent - fixes this: it is only set while genuinely executing on
+    // a live PartitionWorkerPool worker thread, so the serial teardown phase (and the boundary
+    // pass, and any plain non-fan-out call) correctly falls through to synchronous execution
+    // instead, where no race is possible and nothing is ever missed.
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = minion->GetMap(); map->IsUnsafeForCurrentThreadToTouch(this) || map->IsUnsafeForCurrentThreadToTouch(minion))
+        {
+            ObjectGuid ownerGuid = GetGUID();
+            ObjectGuid minionGuid = minion->GetGUID();
+            map->AddFarSpellCallback([ownerGuid, minionGuid, apply](Map* map)
+            {
+                Unit* owner = ObjectAccessor::GetUnit(map, ownerGuid);
+                if (!owner || !owner->IsInWorld())
+                    return;
+
+                Unit* minionUnit = ObjectAccessor::GetUnit(map, minionGuid);
+                if (!minionUnit || !minionUnit->IsInWorld())
+                    return;
+
+                Minion* minion = dynamic_cast<Minion*>(minionUnit);
+                if (!minion)
+                    return;
+
+                map->ResolveCrossPartitionPair(owner, minion);
+                owner->SetMinion(minion, apply, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
 
     if (apply)
     {
@@ -6321,8 +6797,35 @@ void Unit::RemoveAllMinionsByEntry(uint32 entry)
     }
 }
 
-void Unit::SetCharm(Unit* charm, bool apply)
+void Unit::SetCharm(Unit* charm, bool apply, bool bypassPartitionGuard /*= false*/)
 {
+    // Cross-partition guard (code-review finding, ARGUSCORE_FIXES.md) - writes real cross-unit
+    // state on BOTH sides: this charmer's UNIT_FIELD_CHARM/m_charmed/m_Controlled bookkeeping AND
+    // the charm target's UNIT_FIELD_CHARMEDBY/m_charmer/PvP flags/walk state/unit flags -
+    // structurally identical two-sided write to the already-guarded Unit::SetMinion (see its own
+    // comment) and Unit::DealHeal, just never given the same guard. Reachable from a fan-out
+    // worker thread via Unit::SetCharmedBy/RemoveCharmedBy, both called on the CHARM TARGET's own
+    // thread (`charmer->SetCharm(this, ...)`) reaching out into `charmer` - a long-range
+    // charm/possess effect (e.g. Mind Control cast across a wide area, or a vehicle boarded from
+    // range) is not guaranteed to have both sides share a shard.
+    //
+    // Uses the shared Trinity::MapPartitioning::GuardAndDeferCrossPartitionPair helper
+    // (CrossPartitionGuard.h, Stage 10 code-review deep-dive follow-up) instead of hand-copying
+    // the guard-and-defer boilerplate, as a working demonstration of that new shared primitive.
+    if (Map* map = charm->GetMap(); Trinity::MapPartitioning::GuardAndDeferCrossPartitionPair(map, this, charm, bypassPartitionGuard,
+        [apply](WorldObject* charmerObj, WorldObject* charmObj)
+        {
+            Unit* charmer = charmerObj->ToUnit();
+            Unit* charmTarget = charmObj->ToUnit();
+            if (!charmer || !charmTarget)
+                return;
+
+            charmer->SetCharm(charmTarget, apply, /*bypassPartitionGuard=*/true);
+        }))
+    {
+        return;
+    }
+
     if (apply)
     {
         if (GetTypeId() == TYPEID_PLAYER)
@@ -6402,11 +6905,78 @@ void Unit::SetCharm(Unit* charm, bool apply)
     UpdatePetCombatState();
 }
 
-/*static*/ void Unit::DealHeal(HealInfo& healInfo)
+/*static*/ void Unit::DealHeal(HealInfo& healInfo, bool bypassPartitionGuard /*= false*/)
 {
-    int32 gain = 0;
     Unit* healer = healInfo.GetHealer();
     Unit* victim = healInfo.GetTarget();
+
+    // Cross-partition guard (Stage 5a, ARGUSCORE_FIXES.md) - mirrors Unit::DealDamage's own
+    // guard verbatim (see its comment for the general shape/reasoning). This was a real,
+    // oversight-shaped gap: DealHeal does the same cross-unit work (AI hooks on both sides,
+    // ModifyHealth, Player criteria/battleground-score updates on both healer and victim) that
+    // DealDamage's guard already exists to protect, but had no guard of its own.
+    //
+    // Known, honest scope boundary, exactly matching DealDamage's own documented one: on defer,
+    // healInfo.SetEffectiveHeal() below is set to the nominal pre-absorb heal amount, not the
+    // real post-absorb/post-overheal value - a best-effort approximation, not a claim of
+    // exactness. Callers that read healInfo's mutated fields immediately after this call inherit
+    // that approximation on the rare cross-partition tick (confirmed present: Unit::HealBySpell's
+    // own callers). Two periodic-tick callers with the same "exact value consumed by trailing
+    // cross-unit work in the SAME tick" shape as DealDamage's own already-fixed leech-heal case
+    // - AuraEffect::HandlePeriodicHealAurasTick and HandlePeriodicHealthFunnelAuraTick - got
+    // their own dedicated guard instead of relying on this approximation, exactly like leech-heal
+    // (see their own comments, SpellAuraEffects.cpp).
+    //
+    // Review found one concrete, confirmed instance of this approximation reaching further than
+    // "just imprecise": Spell::TargetInfo::DoDamageAndTriggers (Spell.cpp) assigns this
+    // approximation into spell->m_healing, and spell_sha_downpour::CountEffectivelyHealedTarget
+    // (spell_shaman.cpp, an AfterHit hook) reads it via SpellScript::GetHitHeal() to count
+    // "effectively healed" targets for a cooldown-reduction calculation - on a cross-partition
+    // tick this nominal (pre-overheal) value is truthy even for a target that was actually fully
+    // overhealed (real gain 0), so Downpour's cooldown can come back very slightly early. Narrow
+    // (needs an AoE heal spanning a shard boundary) and not a crash/hang/duplication - a genuine
+    // but low-severity gameplay-correctness gap, left unfixed rather than restructuring
+    // Spell::TargetInfo::DoDamageAndTriggers's core per-target hit dispatch (both the "Do
+    // healing" and "Do damage" branches, plus CallScriptAfterHitHandlers ordering) to close it,
+    // which is Stage 5b/foundational-Spell-processing scope, not a 5a fix. Every OTHER
+    // GetHitHeal() consumer in scripts/ is registered on OnHit/OnEffectHitTarget, which run
+    // BEFORE DoDamageAndTriggers/DealHeal execute for that target, so they're unaffected - this
+    // is confirmed to be the only exposed case, not a hypothetical "any other caller" flag.
+    // CurrentFanOutShardForThisMap() gate (Stage 5a fix, ARGUSCORE_FIXES.md review finding) -
+    // see Unit::SetMinion's own comment for why bare IsCrossPartition is insufficient - a defer
+    // taken outside a live fan-out worker thread (e.g. from serial teardown code) can never be
+    // drained in time and becomes a silent permanent no-op instead of a one-tick delay.
+    if (!bypassPartitionGuard && healer && healer != victim)
+    {
+        if (Map* map = victim->GetMap(); map->IsUnsafeForCurrentThreadToTouch(healer) || map->IsUnsafeForCurrentThreadToTouch(victim))
+        {
+            ObjectGuid healerGuid = healer->GetGUID();
+            ObjectGuid victimGuid = victim->GetGUID();
+            uint32 heal = healInfo.GetHeal();
+            SpellInfo const* spellInfo = healInfo.GetSpellInfo();
+            SpellSchoolMask schoolMask = healInfo.GetSchoolMask();
+
+            map->AddFarSpellCallback([healerGuid, victimGuid, heal, spellInfo, schoolMask](Map* map)
+            {
+                Unit* healer = ObjectAccessor::GetUnit(map, healerGuid);
+                if (!healer || !healer->IsInWorld())
+                    return;
+
+                Unit* victim = ObjectAccessor::GetUnit(map, victimGuid);
+                if (!victim || !victim->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(healer, victim);
+                HealInfo replayHealInfo(healer, victim, heal, spellInfo, schoolMask);
+                Unit::DealHeal(replayHealInfo, /*bypassPartitionGuard=*/true);
+            });
+
+            healInfo.SetEffectiveHeal(heal); // best-effort nominal value, not exact - see comment above
+            return;
+        }
+    }
+
+    int32 gain = 0;
     uint32 addhealth = healInfo.GetHeal();
 
     if (UnitAI* victimAI = victim->GetAI())
@@ -6586,10 +7156,41 @@ Unit* Unit::GetNextRandomRaidMemberOrPet(float radius)
     return nearMembers[randTarget];
 }
 
-// only called in Player::SetSeer
-// so move it to Player?
-void Unit::AddPlayerToVision(Player* player)
+// only called in Player::SetViewpoint (pre-existing comment corrected - review found the real
+// caller, not Player::SetSeer, which is just a trivial m_seer setter called after this)
+void Unit::AddPlayerToVision(Player* player, bool bypassPartitionGuard /*= false*/)
 {
+    // Cross-partition guard (Stage 5a, ARGUSCORE_FIXES.md) - called as
+    // targetUnit->AddPlayerToVision(this) from Player::SetViewpoint, i.e. on the PLAYER's own
+    // thread, writing into the TARGET unit's own m_sharedVision list and active/grid-container
+    // state - real cross-unit mutation if target and player land on different shards (far sight/
+    // mind vision targets aren't guaranteed to share a shard with the player watching through
+    // them). Deferred as the whole call, same shape as Unit::Attack/SetMinion.
+    // CurrentFanOutShardForThisMap() gate: see SetMinion's own comment for why bare
+    // IsCrossPartition is insufficient.
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = GetMap(); map->IsUnsafeForCurrentThreadToTouch(this) || map->IsUnsafeForCurrentThreadToTouch(player))
+        {
+            ObjectGuid targetGuid = GetGUID();
+            ObjectGuid playerGuid = player->GetGUID();
+            map->AddFarSpellCallback([targetGuid, playerGuid](Map* map)
+            {
+                Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+                if (!target || !target->IsInWorld())
+                    return;
+
+                Player* player = ObjectAccessor::GetPlayer(map, playerGuid);
+                if (!player || !player->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(target, player);
+                target->AddPlayerToVision(player, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
     if (m_sharedVision.empty())
     {
         setActive(true);
@@ -6598,9 +7199,34 @@ void Unit::AddPlayerToVision(Player* player)
     m_sharedVision.push_back(player);
 }
 
-// only called in Player::SetSeer
-void Unit::RemovePlayerFromVision(Player* player)
+// only called in Player::SetViewpoint (see AddPlayerToVision's own comment for the correction)
+void Unit::RemovePlayerFromVision(Player* player, bool bypassPartitionGuard /*= false*/)
 {
+    // Cross-partition guard (Stage 5a, ARGUSCORE_FIXES.md) - see AddPlayerToVision's own comment;
+    // same reasoning symmetrically, including the CurrentFanOutShardForThisMap() gate.
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = GetMap(); map->IsUnsafeForCurrentThreadToTouch(this) || map->IsUnsafeForCurrentThreadToTouch(player))
+        {
+            ObjectGuid targetGuid = GetGUID();
+            ObjectGuid playerGuid = player->GetGUID();
+            map->AddFarSpellCallback([targetGuid, playerGuid](Map* map)
+            {
+                Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+                if (!target || !target->IsInWorld())
+                    return;
+
+                Player* player = ObjectAccessor::GetPlayer(map, playerGuid);
+                if (!player || !player->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(target, player);
+                target->RemovePlayerFromVision(player, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
     m_sharedVision.remove(player);
     if (m_sharedVision.empty())
     {
@@ -6675,11 +7301,20 @@ void Unit::SendHealSpellLog(HealInfo& healInfo, bool critical /*= false*/)
     SendCombatLogMessage(&spellHealLog);
 }
 
-int32 Unit::HealBySpell(HealInfo& healInfo, bool critical /*= false*/)
+int32 Unit::HealBySpell(HealInfo& healInfo, bool critical /*= false*/, bool bypassPartitionGuard /*= false*/)
 {
     // calculate heal absorb and reduce healing
     Unit::CalcHealAbsorb(healInfo);
-    Unit::DealHeal(healInfo);
+    // bypassPartitionGuard forwarded from the caller (Stage 5a, ARGUSCORE_FIXES.md) - lets a
+    // caller that already has its own outer cross-partition guard (e.g.
+    // AuraEffect::HandlePeriodicHealthFunnelAuraTick) pass true here once it has proven
+    // healer/target are safe (same shard, or already pinned by an in-progress replay), instead
+    // of Unit::DealHeal's own internal guard redundantly re-checking - and, on the "both
+    // non-transferable" edge case, potentially re-deferring from inside the very
+    // Map::_farSpellCallbacks drain loop that outer guard's replay is already running in,
+    // matching the same infinite-loop hazard Unit::DealDamage's own bypassPartitionGuard exists
+    // to prevent.
+    Unit::DealHeal(healInfo, bypassPartitionGuard);
     SendHealSpellLog(healInfo, critical);
     return healInfo.GetEffectiveHeal();
 }
@@ -8224,10 +8859,39 @@ void Unit::SetImmuneToAll(bool apply, bool keepCombat)
         RemoveUnitFlag(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
 }
 
-void Unit::SetImmuneToPC(bool apply, bool keepCombat)
+void Unit::SetImmuneToPC(bool apply, bool keepCombat, bool bypassPartitionGuard /*= false*/)
 {
     if (apply)
     {
+        // Cross-partition guard (code-review deep-dive, round 7, ARGUSCORE_FIXES.md) - the
+        // !keepCombat branch below reads `this`'s own _pveRefs/_pvpRefs containers (via
+        // GetPvECombatRefs/GetPvPCombatRefs) and each foreign combat partner's
+        // HasUnitFlag(UNIT_FLAG_PLAYER_CONTROLLED) directly and unguarded, before ever reaching the
+        // (individually-guarded) EndCombat() calls - the same class of gap round 6 closed for
+        // EndAllPvECombat/EndAllPvPCombat/SuppressPvPCombat/RevalidateCombat, just reached via this
+        // function's own hand-rolled filter loop instead of one of those. Reachable on a foreign
+        // unit from spell scripts (`target->SetImmuneToPC(true)` in spell_quest.cpp and others)
+        // running on the caster's own thread against a cross-partition `target`. Guarding the whole
+        // apply==true branch (rather than just the !keepCombat piece) also covers
+        // ValidateAttackersAndOwnTarget's own call below for free, though that call also carries its
+        // own independent guard.
+        if (!bypassPartitionGuard)
+        {
+            if (Map* map = GetMap(); map->IsUnsafeForCurrentThreadToTouch(this))
+            {
+                ObjectGuid thisGuid = GetGUID();
+                map->AddFarSpellCallback([thisGuid, keepCombat](Map* map)
+                {
+                    Unit* self = ObjectAccessor::GetUnit(map, thisGuid);
+                    if (!self || !self->IsInWorld())
+                        return;
+
+                    self->SetImmuneToPC(true, keepCombat, /*bypassPartitionGuard=*/true);
+                });
+                return;
+            }
+        }
+
         SetUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
         ValidateAttackersAndOwnTarget();
         if (!keepCombat)
@@ -8247,10 +8911,29 @@ void Unit::SetImmuneToPC(bool apply, bool keepCombat)
         RemoveUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
 }
 
-void Unit::SetImmuneToNPC(bool apply, bool keepCombat)
+void Unit::SetImmuneToNPC(bool apply, bool keepCombat, bool bypassPartitionGuard /*= false*/)
 {
     if (apply)
     {
+        // Cross-partition guard - see SetImmuneToPC's own matching comment immediately above for
+        // the full reasoning; identical shape, mirrored here for the NPC-side filter.
+        if (!bypassPartitionGuard)
+        {
+            if (Map* map = GetMap(); map->IsUnsafeForCurrentThreadToTouch(this))
+            {
+                ObjectGuid thisGuid = GetGUID();
+                map->AddFarSpellCallback([thisGuid, keepCombat](Map* map)
+                {
+                    Unit* self = ObjectAccessor::GetUnit(map, thisGuid);
+                    if (!self || !self->IsInWorld())
+                        return;
+
+                    self->SetImmuneToNPC(true, keepCombat, /*bypassPartitionGuard=*/true);
+                });
+                return;
+            }
+        }
+
         SetUnitFlag(UNIT_FLAG_IMMUNE_TO_NPC);
         ValidateAttackersAndOwnTarget();
         if (!keepCombat)
@@ -10891,7 +11574,37 @@ void Unit::SetMeleeAnimKitId(uint16 animKitId)
     {
         // proc only once for victim
         if (Unit* owner = attacker->GetOwner())
-            Unit::ProcSkillsAndAuras(owner, victim, PROC_FLAG_KILL, PROC_FLAG_NONE, PROC_SPELL_TYPE_MASK_ALL, PROC_SPELL_PHASE_NONE, PROC_HIT_NONE, nullptr, nullptr, nullptr);
+        {
+            // Cross-partition guard (Stage 5c review finding, ARGUSCORE_FIXES.md) - `owner` (the
+            // pet/totem's controller) is a THIRD party here, distinct from attacker/victim (already
+            // confirmed same-partition by DealDamage's own guard before Kill() is ever reached) -
+            // ProcSkillsAndAuras's own actor-side calls assume actor is safe to touch synchronously
+            // (see its comment), which is only true if the caller already validated actor against
+            // whatever it's running alongside; nothing validates `owner` against attacker/victim
+            // here. spell/damageInfo/healInfo are all nullptr at this call site (unlike the general
+            // case ProcSkillsAndAuras's own comment describes), so nothing blocks deferring the
+            // whole call.
+            if (Map* map = attacker->GetMap(); map->IsUnsafeForCurrentThreadToTouch(attacker) || map->IsUnsafeForCurrentThreadToTouch(owner))
+            {
+                ObjectGuid ownerGuid = owner->GetGUID();
+                ObjectGuid victimGuid = victim->GetGUID();
+                map->AddFarSpellCallback([ownerGuid, victimGuid](Map* map)
+                {
+                    Unit* owner = ObjectAccessor::GetUnit(map, ownerGuid);
+                    if (!owner || !owner->IsInWorld())
+                        return;
+
+                    Unit* victim = ObjectAccessor::GetUnit(map, victimGuid);
+                    if (!victim || !victim->IsInWorld())
+                        return;
+
+                    map->ResolveCrossPartitionPair(owner, victim);
+                    Unit::ProcSkillsAndAuras(owner, victim, PROC_FLAG_KILL, PROC_FLAG_NONE, PROC_SPELL_TYPE_MASK_ALL, PROC_SPELL_PHASE_NONE, PROC_HIT_NONE, nullptr, nullptr, nullptr);
+                });
+            }
+            else
+                Unit::ProcSkillsAndAuras(owner, victim, PROC_FLAG_KILL, PROC_FLAG_NONE, PROC_SPELL_TYPE_MASK_ALL, PROC_SPELL_PHASE_NONE, PROC_HIT_NONE, nullptr, nullptr, nullptr);
+        }
     }
 
     if (!victim->IsCritter())
@@ -12746,13 +13459,59 @@ void Unit::ExitVehicle(Position const* /*exitPosition*/)
     //! Coming Soon(TM)
 }
 
-void Unit::_ExitVehicle(Position const* exitPosition)
+void Unit::_ExitVehicle(Position const* exitPosition, bool bypassPartitionGuard /*= false*/)
 {
     /// It's possible m_vehicle is nullptr, when this function is called indirectly from @VehicleJoinEvent::Abort.
     /// In that case it was not possible to add the passenger to the vehicle. The vehicle aura has already been removed
     /// from the target in the aforementioned function and we don't need to do anything else at this point.
     if (!m_vehicle)
         return;
+
+    // Cross-partition guard (Stage 7 recheck, ARGUSCORE_FIXES.md) - Vehicle::RemovePassenger
+    // (called a few lines below) mutates the vehicle base's own Seats/UsableSeatNum/charm state,
+    // and everything after it in this function keeps reading the returned Vehicle*'s base (exit
+    // position, collision height, minion-despawn/death-state checks) - a real synchronous
+    // dependency on the vehicle base's state, same shape as DealDamage/Piece 5's documented
+    // return-value caveat (ARGUSCORE_FIXES.md). Unlike DealDamage's case, nothing here can
+    // tolerate an approximated result, so - matching the "guard belongs where the real anchor is
+    // known" precedent (Stage 5c) - the guard sits here, at the true top of this function, and
+    // defers the WHOLE call rather than just the inner RemovePassenger. All three real callers
+    // (`Unit::RemoveAllPassengers`, `AuraEffect::HandleAuraControlVehicle`'s !seatChange branch,
+    // `boss_kologarn.cpp`'s OnRemoveVehicle) invoke this as `passenger->_ExitVehicle(...)` - `this`
+    // is always the passenger, matching VehicleJoinEvent::Execute's own anchor (Passenger's thread
+    // mutating Target's state).
+    if (!bypassPartitionGuard)
+    {
+        Unit* vehicleBase = m_vehicle->GetBase();
+        if (Map* map = GetMap(); map->IsUnsafeForCurrentThreadToTouch(this) || map->IsUnsafeForCurrentThreadToTouch(vehicleBase))
+        {
+            ObjectGuid passengerGuid = GetGUID();
+            ObjectGuid vehicleBaseGuid = vehicleBase->GetGUID();
+            Optional<Position> capturedExitPosition;
+            if (exitPosition)
+                capturedExitPosition = *exitPosition;
+            map->AddFarSpellCallback([passengerGuid, vehicleBaseGuid, capturedExitPosition](Map* map)
+            {
+                Unit* passenger = ObjectAccessor::GetUnit(map, passengerGuid);
+                if (!passenger || !passenger->IsInWorld())
+                    return;
+
+                // Re-check the passenger is still mounted in the SAME vehicle - state may have
+                // changed (e.g. already exited via some other path) during the deferral window.
+                if (!passenger->GetVehicle() || passenger->GetVehicle()->GetBase()->GetGUID() != vehicleBaseGuid)
+                    return;
+
+                Unit* vehicleBase = ObjectAccessor::GetUnit(map, vehicleBaseGuid);
+                if (!vehicleBase || !vehicleBase->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(passenger, vehicleBase);
+
+                passenger->_ExitVehicle(capturedExitPosition ? &*capturedExitPosition : nullptr, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
 
     // This should be done before dismiss, because there may be some aura removal
     VehicleSeatAddon const* seatAddon = m_vehicle->GetSeatAddonForSeatOfPassenger(this);
@@ -13006,8 +13765,38 @@ int32 Unit::RewardRage(uint32 baseRage, bool attacker)
     return ModifyPower(POWER_RAGE, uint32(addRage * 10), false);
 }
 
-void Unit::StopAttackFaction(uint32 faction_id)
+void Unit::StopAttackFaction(uint32 faction_id, bool bypassPartitionGuard /*= false*/)
 {
+    // Cross-partition guard (code-review deep-dive, round 8, ARGUSCORE_FIXES.md) - reads `this`
+    // unit's own m_attackers (via getAttackers()) and m_combatManager's own _pveRefs container
+    // directly, plus each foreign attacker's/combat partner's GetFactionTemplateEntry() unguarded,
+    // before ever reaching the (individually-guarded) AttackStop()/EndCombat() calls below - the
+    // same class of gap round 7 closed for SetImmuneToPC/SetImmuneToNPC's own hand-rolled filter
+    // loop, just missed here because it's a separate function with its own copy of the same shape.
+    // Reachable on a foreign unit from AuraEffect::HandleForceReaction (SpellAuraEffects.cpp),
+    // which calls `player->StopAttackFaction(factionId)` where `player` is the forced-reaction
+    // aura's target - not necessarily the same thread/shard as whatever applied/removed the aura.
+    // The recursive `minion->StopAttackFaction(faction_id)` call at the bottom needs no special
+    // handling here - each recursive call independently re-checks IsUnsafeForCurrentThreadToTouch
+    // against ITS OWN `this` (the minion), which is exactly what's needed since a minion isn't
+    // guaranteed to share its owner's shard.
+    if (!bypassPartitionGuard)
+    {
+        if (Map* map = GetMap(); map->IsUnsafeForCurrentThreadToTouch(this))
+        {
+            ObjectGuid thisGuid = GetGUID();
+            map->AddFarSpellCallback([thisGuid, faction_id](Map* map)
+            {
+                Unit* self = ObjectAccessor::GetUnit(map, thisGuid);
+                if (!self || !self->IsInWorld())
+                    return;
+
+                self->StopAttackFaction(faction_id, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
     if (Unit* victim = GetVictim())
     {
         if (victim->GetFactionTemplateEntry()->Faction == faction_id)
@@ -14519,6 +15308,46 @@ void Unit::ClearWorldEffects()
 
 void Unit::SetVignette(uint32 vignetteId)
 {
+    // Phase 3 redesign, Stage 3 fix (ARGUSCORE_FIXES.md, review finding) - Vignettes::Remove()
+    // below can defer Map::RemoveInfiniteAOIVignette to the barrier (raw VignetteData* capture),
+    // but this function unconditionally resets m_vignette right after on the SAME (calling)
+    // thread - freeing the VignetteData synchronously while the deferred callback still holds a
+    // pointer to it, a real use-after-free (e.g. AuraEffect::HandleSetVignette on aura
+    // apply/remove, or death's SetVignette(0), firing while this object's shard is mid fan-out).
+    // Defer the WHOLE reassignment instead, so remove+null+create always happens atomically,
+    // never interleaved with the deferred Map-level calls it triggers.
+    if (Map* map = GetMap())
+    {
+        // Review finding (code-review deep-dive fix, ARGUSCORE_FIXES.md) - was
+        // map->CurrentFanOutShardForThisMap() (defers whenever ANY fan-out is active on this Map
+        // at all), not IsUnsafeForCurrentThreadToTouch(this) (defers only when `this` specifically
+        // belongs to a DIFFERENT shard than whatever's actually executing right now). SetVignette
+        // only ever touches `this`'s own m_vignette - the Map-wide Vignettes::Remove/Create calls
+        // it triggers already carry their own correct fan-out-active guards
+        // (AddInfiniteAOIVignette/RemoveInfiniteAOIVignette) independently. Since this function
+        // normally runs on `this`'s own thread (aura apply/remove, death's SetVignette(0)), the
+        // old check needlessly deferred every same-shard, already-safe call on any tick where the
+        // map had fanned out at all - exactly the tick this whole feature is supposed to be doing
+        // its job, making it the worst possible tick to add spurious one-tick latency to vignette
+        // updates.
+        if (map->IsUnsafeForCurrentThreadToTouch(this))
+        {
+            ObjectGuid guid = GetGUID();
+            map->AddFarSpellCallback([guid, vignetteId](Map* map)
+            {
+                // Review finding (code-review deep-dive fix, ARGUSCORE_FIXES.md) - missing
+                // !IsInWorld() check, unlike every sibling deferred-replay callback in this
+                // pattern. ObjectAccessor::GetUnit can return a unit that's still present in the
+                // map's object store but mid-removal (IsInWorld() already false, between
+                // RemoveFromWorld and final deletion) - unsafe to touch by this whole pattern's
+                // own convention.
+                if (Unit* unit = ObjectAccessor::GetUnit(map, guid); unit && unit->IsInWorld())
+                    unit->SetVignette(vignetteId);
+            });
+            return;
+        }
+    }
+
     if (m_vignette)
     {
         if (m_vignette->Data->ID == vignetteId)

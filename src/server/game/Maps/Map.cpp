@@ -22,6 +22,8 @@
 #include "BattlegroundScript.h"
 #include "CellImpl.h"
 #include "Conversation.h"
+#include "CreatureGroups.h"
+#include "ZoneScript.h"
 #include "DB2Stores.h"
 #include "DatabaseEnv.h"
 #include "DynamicTree.h"
@@ -36,6 +38,7 @@
 #include "InstanceScript.h"
 #include "Log.h"
 #include "MapManager.h"
+#include "MapPartitioning.h"
 #include "MapUtils.h"
 #include "Metric.h"
 #include "MiscPackets.h"
@@ -87,6 +90,10 @@ struct RespawnInfoWithHandle : RespawnInfo
     RespawnListContainer::handle_type handle;
 };
 
+// Phase 3 redesign (ARGUSCORE_FIXES.md) - out-of-line definition for the static thread_local
+// declared in Map.h; see that member's own comment.
+thread_local Optional<Map::FanOutContext> Map::t_currentFanOutContext;
+
 Map::~Map()
 {
     // Delete all waiting spawns, else there will be a memory leak
@@ -105,7 +112,7 @@ Map::~Map()
     if (!m_scriptSchedule.empty())
         sMapMgr->DecreaseScheduledScriptCount(m_scriptSchedule.size());
 
-    m_terrain->UnloadMMapInstance(GetId(), GetInstanceId());
+    m_terrain->UnloadMMapInstance(GetId(), GetInstanceId(), GetShardCount());
 }
 
 void Map::LoadAllCells()
@@ -138,8 +145,64 @@ m_unloadTimer(0), m_VisibleDistance(DEFAULT_VISIBILITY_DISTANCE), m_mapRefIter(m
 m_VisibilityNotifyPeriod(DEFAULT_VISIBILITY_NOTIFY_PERIOD),
 m_activeNonPlayersIter(m_activeNonPlayers.end()), _transportsUpdateIter(_transports.end()),
 i_gridExpiry(expiry), m_terrain(sTerrainMgr.LoadTerrain(id)), m_forceEnabledNavMeshFilterFlags(0), m_forceDisabledNavMeshFilterFlags(0),
-i_scriptLock(false), _respawnTimes(std::make_unique<RespawnListContainer>()), _respawnCheckTimer(0), _vignetteUpdateTimer(5200, 5200)
+i_scriptLock(false), _respawnCheckTimer(0), _vignetteUpdateTimer(5200, 5200)
 {
+    // Respawn/by-spawnId/objects-store shard count (Map Partitioning design - see
+    // ARGUSCORE_FIXES.md): 1 shard for an unpartitioned map (the common case, byte-for-byte
+    // equivalent to the single flat containers this replaces), or the opted-in mapId's
+    // configured partition count otherwise. Computed once here at construction, per Decision 2
+    // (static layout, never re-drawn at runtime) - _cachedPartitionLayout takes its own
+    // independent copy right here, and every later partition-index lookup for this Map's
+    // lifetime reads that copy, never sMapPartitionMgr again - see _cachedPartitionLayout's own
+    // comment for why a live re-query would be unsafe (a later config reload can both dangle a
+    // raw layout pointer and desync already-sized shard vectors from a changed partition count).
+    uint32 shardCount = 1;
+    if (MapPartitionLayout const* layout = sMapPartitionMgr->GetLayout(id))
+    {
+        _cachedPartitionLayout.emplace(*layout);
+        shardCount = std::max<uint32>(1, layout->GetPartitionCount());
+    }
+
+    // Phase 6 (ARGUSCORE_FIXES.md) - cached alongside _cachedPartitionLayout above, for the same
+    // "frozen at construction" reasoning, not just when this Map is actually partitioned - see
+    // _cachedHaloWidth's own comment (Map.h).
+    _cachedHaloWidth = sMapPartitionMgr->GetHaloWidth();
+
+    // Phase 3 redesign (ARGUSCORE_FIXES.md) - see _cachedClassificationProbeWidth's own comment
+    // (Map.h) for why this is MAX_VISIBILITY_DISTANCE plus a margin, not GetGridActivationRange().
+    _cachedClassificationProbeWidth = MAX_VISIBILITY_DISTANCE + 1.0f;
+
+    // Phase 3 redesign (ARGUSCORE_FIXES.md) - see _cachedMinPopulationForFanout's own comment (Map.h).
+    _cachedMinPopulationForFanout = sMapPartitionMgr->GetMinPopulationForFanout();
+
+    _respawnTimes.reserve(shardCount);
+    for (uint32 i = 0; i < shardCount; ++i)
+        _respawnTimes.push_back(std::make_unique<RespawnListContainer>());
+    _creatureRespawnTimesBySpawnId.resize(shardCount);
+    _gameObjectRespawnTimesBySpawnId.resize(shardCount);
+    _creatureBySpawnIdStore.resize(shardCount);
+    _gameobjectBySpawnIdStore.resize(shardCount);
+    _areaTriggerBySpawnIdStore.resize(shardCount);
+    _objectsStore.resize(shardCount); // Phase 2 - see ARGUSCORE_FIXES.md
+
+    // Phase 3 (ARGUSCORE_FIXES.md) - shardCount interior slots plus one trailing sentinel slot
+    // (index shardCount itself) for the serial boundary pass - see _markedCellsByShard's own
+    // comment (Map.h).
+    _markedCellsByShard.resize(shardCount + 1);
+
+    // Phase 3 redesign, Stage 2 (ARGUSCORE_FIXES.md) - sized to shardCount (not shardCount+1 -
+    // these buffers are only ever pushed to from an interior fan-out task, which always passes
+    // its own real shard index; the boundary pass and DelayedUpdate write their containers
+    // directly, with no fan-out context set, so no sentinel slot is needed here).
+    _updateObjectsBuffer.Init(shardCount);
+    _creaturesToMoveBuffer.Init(shardCount);
+    _gameObjectsToMoveBuffer.Init(shardCount);
+    _dynamicObjectsToMoveBuffer.Init(shardCount);
+    _areaTriggersToMoveBuffer.Init(shardCount);
+    _objectsToSwitchBuffer.Init(shardCount);
+    _worldObjectsBuffer.Init(shardCount);
+    _objectsToRemoveBuffer.Init(shardCount);
+
     for (uint32 x = 0; x < MAX_NUMBER_OF_GRIDS; ++x)
     {
         for (uint32 y = 0; y < MAX_NUMBER_OF_GRIDS; ++y)
@@ -162,7 +225,7 @@ i_scriptLock(false), _respawnTimes(std::make_unique<RespawnListContainer>()), _r
 
     sTransportMgr->CreateTransportsForMap(this);
 
-    m_terrain->LoadMMapInstance(GetId(), GetInstanceId());
+    m_terrain->LoadMMapInstance(GetId(), GetInstanceId(), GetShardCount());
 
     _worldStateValues = sWorldStateMgr->GetInitialWorldStatesForMap(this);
 }
@@ -434,6 +497,8 @@ void Map::UpdatePersonalPhasesForPlayer(Player const* player)
 
 int32 Map::GetWorldStateValue(int32 worldStateId) const
 {
+    // Phase 3 redesign, Stage 4 (ARGUSCORE_FIXES.md) - see _worldStateValuesLock's own comment.
+    std::shared_lock<std::shared_mutex> lock(_worldStateValuesLock);
     if (int32 const* value = Trinity::Containers::MapGetValuePtr(_worldStateValues, worldStateId))
         return *value;
 
@@ -442,12 +507,31 @@ int32 Map::GetWorldStateValue(int32 worldStateId) const
 
 void Map::SetWorldStateValue(int32 worldStateId, int32 value, bool hidden)
 {
-    auto [itr, inserted] = _worldStateValues.try_emplace(worldStateId, 0);
-    int32 oldValue = itr->second;
-    if (oldValue == value && !inserted)
-        return;
+    // Phase 3 redesign, Stage 4 fix (ARGUSCORE_FIXES.md, review finding) - _worldStateBroadcastLock
+    // serializes this whole function (RMW + script callback + broadcast) map-wide, closing a real
+    // ordering race the original split-scope version had: releasing _worldStateValuesLock before
+    // the broadcast let two threads' writes and broadcasts interleave out of order (e.g. thread A
+    // writes 1 then thread B writes 2, but B's broadcast reaches players before A's, leaving
+    // clients showing 1 - the stale value - after the server's authoritative value is 2).
+    // recursive_mutex, not plain mutex: sScriptMgr->OnWorldStateValueChange below is arbitrary
+    // script code that can legitimately call SetWorldStateValue again (for the same or a
+    // different world state) on this same thread. _worldStateValuesLock itself stays a separate
+    // shared_mutex so GetWorldStateValue/GetWorldStateValues keep concurrent shared-read access;
+    // only the write side is additionally serialized by this lock.
+    std::lock_guard<std::recursive_mutex> broadcastLock(_worldStateBroadcastLock);
 
-    itr->second = value;
+    int32 oldValue;
+    bool changed;
+    {
+        std::unique_lock<std::shared_mutex> lock(_worldStateValuesLock);
+        auto [itr, inserted] = _worldStateValues.try_emplace(worldStateId, 0);
+        oldValue = itr->second;
+        changed = !(oldValue == value && !inserted);
+        if (changed)
+            itr->second = value;
+    }
+    if (!changed)
+        return;
 
     WorldStateTemplate const* worldStateTemplate = sWorldStateMgr->GetWorldStateTemplate(worldStateId);
     if (worldStateTemplate)
@@ -476,6 +560,20 @@ void Map::SetWorldStateValue(int32 worldStateId, int32 value, bool hidden)
 
 void Map::AddInfiniteAOIVignette(Vignettes::VignetteData* vignette)
 {
+    // Phase 3 redesign, Stage 3 (ARGUSCORE_FIXES.md) - _infiniteAOIVignettes is Map-wide and
+    // unguarded, and this also sends packets to every visible player - both need the
+    // single-threaded barrier, not just the container push. Raw vignette capture is safe: the
+    // owning Unit/GameObject's m_vignette is assigned synchronously by Vignettes::Create() before
+    // control returns to anything that could destroy the owner this tick, and actual deletion of
+    // a torn-down owner only happens in RemoveAllObjectsInRemoveList, which runs strictly AFTER
+    // the far-spell-callback drain in DelayedUpdate (same ordering Stage 1's AddToMap replay and
+    // AddToActive's replay above both rely on) - so vignette is never freed before this replays.
+    if (CurrentFanOutShardForThisMap())
+    {
+        AddFarSpellCallback([vignette](Map* map) { map->AddInfiniteAOIVignette(vignette); });
+        return;
+    }
+
     _infiniteAOIVignettes.push_back(vignette);
 
     WorldPackets::Vignette::VignetteUpdate vignetteUpdate;
@@ -489,6 +587,16 @@ void Map::AddInfiniteAOIVignette(Vignettes::VignetteData* vignette)
 
 void Map::RemoveInfiniteAOIVignette(Vignettes::VignetteData* vignette)
 {
+    // Phase 3 redesign, Stage 3 (ARGUSCORE_FIXES.md) - see AddInfiniteAOIVignette's own comment;
+    // same reasoning applies symmetrically. If the vignette was already removed by the time this
+    // replays (e.g. queued add+remove in one tick), std::erase below is a correct no-op - nothing
+    // downstream distinguishes "never added" from "added then removed".
+    if (CurrentFanOutShardForThisMap())
+    {
+        AddFarSpellCallback([vignette](Map* map) { map->RemoveInfiniteAOIVignette(vignette); });
+        return;
+    }
+
     if (!std::erase(_infiniteAOIVignettes, vignette))
         return;
 
@@ -543,6 +651,68 @@ bool Map::AddToMap(T* obj)
         return false; //Should delete object
     }
 
+    // Phase 3 redesign (ARGUSCORE_FIXES.md, "§0(b) - defer foreign-shard/not-yet-created-grid
+    // creation") - if this is running on a PartitionWorkerPool worker thread currently fanning
+    // out for THIS Map (t_currentFanOutContext set AND its OwningMap == this - see that member's
+    // own comment for why the Map identity check matters, not just the shard index), defer the
+    // whole call to the barrier instead of proceeding synchronously when EITHER:
+    //  (a) the new object's position belongs to a DIFFERENT shard's grid territory than the one
+    //      currently executing - creating it here would touch a grid index that shard doesn't
+    //      own while that grid's true owning shard may be concurrently touching it; or
+    //  (b) the destination grid does not exist yet AT ALL (Cell(cellCoord)'s grid has no NGrid),
+    //      even if it belongs to THIS shard's own territory - EnsureGridCreated's create-and-load
+    //      branch (Map.cpp) doesn't just touch terrain locking (that hazard is now closed
+    //      separately - see PathGenerator::WithNavMeshLock's own comment for why per-call, not
+    //      per-function, locking is what actually fixes the TerrainInfo::_loadMutex/
+    //      MMapData::NavMeshLock ordering, a hazard that existed on any map with mmaps, not just
+    //      partitioned ones). It ALSO links the new NGrid into Map::buildNGridLinkage's Map-WIDE
+    //      intrusive grid list, and any GameObject creation on that grid calls
+    //      InsertGameObjectModel into the Map-wide (unsharded) _dynamicTree - both unsynchronized,
+    //      both genuinely raced if two shards' worker threads could create grids at the same time.
+    //      Deferring grid creation itself to the barrier keeps this simple (one thread touches
+    //      these Map-wide structures at a time) rather than adding yet more fine-grained locking
+    //      on top of what Stage 4 already plans for _dynamicTree's OTHER access patterns.
+    // Both cases are rare in practice (a summon almost always lands near its creator, in an
+    // already-loaded grid within its own shard's territory) so this essentially never fires away
+    // from a partition edge or a just-entered zone. A deferred object isn't IsInWorld() until the
+    // barrier replays this same call - a documented, accepted one-tick-late behavior for this
+    // rare case only.
+    if (GetShardCount() > 1)
+    {
+        if (Optional<uint32> currentShardOpt = CurrentFanOutShardForThisMap())
+        {
+            uint32 currentShard = *currentShardOpt;
+            Cell cell(cellCoord);
+            uint32 destShard = GetPartitionIndexForGrid(cell.GridX(), cell.GridY());
+            bool gridNotYetCreated = !getNGrid(cell.GridX(), cell.GridY());
+            if (destShard != currentShard || gridNotYetCreated)
+            {
+                TC_LOG_DEBUG("maps", "Map::AddToMap: Object {} created on shard {} (destination shard {}, grid already created: {}) - deferring to barrier.",
+                    obj->GetGUID().ToString(), currentShard, destShard, !gridNotYetCreated);
+                // Phase 3 redesign (ARGUSCORE_FIXES.md) - guards against replaying AddToMap on an
+                // object that was already torn down between being deferred and the barrier
+                // replaying it (e.g. TempSummon::UnSummon(0) -> AddObjectToRemoveList runs
+                // CleanupsBeforeDelete + SetDestroyedObject(true) synchronously, before the actual
+                // delete, which only happens later in the same barrier phase) - an independent
+                // review found this window is real, even though the ordering already prevents a
+                // literal use-after-free (the _farSpellCallbacks drain runs strictly before
+                // RemoveAllObjectsInRemoveList's actual deletes).
+                AddFarSpellCallback([obj](Map* map)
+                {
+                    if (obj->IsDestroyedObject())
+                        return;
+                    map->AddToMap(obj);
+                });
+                // Deliberately NOT symmetric with the Transport* overload below, which returns
+                // FALSE on defer - see that overload's own comment. Every caller of THIS overload
+                // treats a false return as "delete obj" (an independent review flagged this as a
+                // trap for anyone copying between the two overloads without checking); returning
+                // true here on defer is what keeps every existing caller correct.
+                return true;
+            }
+        }
+    }
+
     if (IsAlwaysActive())
         obj->setActive(true);
 
@@ -577,6 +747,32 @@ bool Map::AddToMap(Transport* obj)
     //TODO: Needs clean up. An object should not be added to map twice.
     if (obj->IsInWorld())
         return true;
+
+    // Phase 3 redesign, Stage 3 fix (ARGUSCORE_FIXES.md, review finding) - reachable from a
+    // fan-out worker thread (TransportMgr::CreateTransport called from boss AI, e.g. ICC Gunship
+    // Battle's Saurfang/Muradin UpdateAI on independently shard-classified ships) with an
+    // entirely unguarded _transports.insert() into a plain std::set - concurrent insert from two
+    // shards is real tree corruption, the same class of bug Stage 2 already fixed for
+    // i_objectsToRemove. Defer the whole call (it also broadcasts real creation packets to every
+    // player, not just a container push). TransportMgr::CreateTransport ignores this function's
+    // return value (returns the already-constructed Transport* unconditionally), so returning
+    // false here when deferred is safe - nothing deletes obj based on it.
+    //
+    // Deliberately NOT symmetric with the template AddToMap<T> overload above, which returns TRUE
+    // on defer (its own callers DO delete obj on a false return - flagged by an independent
+    // review as a latent trap for a future caller who assumes the two overloads share one
+    // convention). Each overload's return value on defer matches what its OWN real caller actually
+    // does with it - correct for both as they stand today, just not something to copy blindly from
+    // one onto the other.
+    if (CurrentFanOutShardForThisMap())
+    {
+        AddFarSpellCallback([obj](Map* map)
+        {
+            if (!obj->IsDestroyedObject())
+                map->AddToMap(obj);
+        });
+        return false;
+    }
 
     CellCoord cellCoord = Trinity::ComputeCellCoord(obj->GetPositionX(), obj->GetPositionY());
     if (!cellCoord.IsCoordValid())
@@ -614,14 +810,49 @@ bool Map::IsGridLoaded(GridCoord const& p) const
     return (getNGrid(p.x_coord, p.y_coord) && isGridObjectDataLoaded(p.x_coord, p.y_coord));
 }
 
-void Map::VisitNearbyCellsOf(WorldObject* obj, TypeContainerVisitor<Trinity::ObjectUpdater, GridTypeMapContainer> &gridVisitor, TypeContainerVisitor<Trinity::ObjectUpdater, WorldTypeMapContainer> &worldVisitor)
+void Map::VisitNearbyCellsOf(WorldObject* obj, TypeContainerVisitor<Trinity::ObjectUpdater, GridTypeMapContainer> &gridVisitor, TypeContainerVisitor<Trinity::ObjectUpdater, WorldTypeMapContainer> &worldVisitor, uint32 shard)
 {
     // Check for valid position
     if (!obj->IsPositionValid())
         return;
 
     // Update mobs/objects in ALL visible cells around object!
-    CellArea area = Cell::CalculateCellArea(obj->GetPositionX(), obj->GetPositionY(), obj->GetGridActivationRange());
+    // Stage 7 recheck fix (ARGUSCORE_FIXES.md) - clamped to _cachedClassificationProbeWidth, not
+    // obj->GetGridActivationRange() unclamped. ClassifyForFanOut's "interior" classification (see
+    // its own comment, this file) proves an interior object's CellArea can't reach outside its own
+    // shard's grid range ONLY if that CellArea's radius never exceeds the same
+    // _cachedClassificationProbeWidth the classification probe used - the two calls used to use two
+    // DIFFERENT radii (this one used the object's own, unbounded GetGridActivationRange()). For a
+    // non-active creature, that range is Creature::m_SightDistance, sourced from the
+    // Creature.MonsterSight config (which historically had no declared Max) or set directly by
+    // scripts - if it ever exceeded the fixed probe width, an interior-classified creature's real
+    // visited-cell radius could reach past where classification assumed it would stop, letting two
+    // shards concurrently Visit() the same cells and Update() the same object.
+    //
+    // CORRECTED in a Stage 9 independent review: the clamp below is gated on GetShardCount() > 1,
+    // NOT unconditional as this comment previously (wrongly) claimed. The classification proof
+    // this clamp exists to preserve is meaningless on an unpartitioned map (GetShardCount() == 1 -
+    // there's only one shard, no other shard's territory to reach into), and "harmless on any
+    // sanely-configured map" was disproven by a real counter-example: Creature::m_SightDistance
+    // can be set directly by scripts to a value with no such ceiling (e.g.
+    // src/server/game/AI/CoreAI/CombatAI.cpp's CasterAI::UpdateAI sets it to
+    // spellInfo->GetMaxRange(false), a spell's max range - normally well under
+    // MAX_VISIBILITY_DISTANCE, but not provably bounded by it). Clamping unconditionally would
+    // have silently shrunk that creature's real visited-cell radius on EVERY map, including
+    // completely unpartitioned ones where this whole feature should have zero observable effect -
+    // a real behavior regression outside this redesign's intended scope, not just a partitioning
+    // correctness nicety.
+    CellArea area = Cell::CalculateCellArea(obj->GetPositionX(), obj->GetPositionY(),
+        GetShardCount() > 1 ? std::min(obj->GetGridActivationRange(), _cachedClassificationProbeWidth) : obj->GetGridActivationRange());
+
+    // Phase 3 (ARGUSCORE_FIXES.md) - shard==GetShardCount() is the sentinel boundary-pass slot:
+    // that pass runs strictly after every interior fan-out task has joined (Map::Update), so
+    // reading every shard's bits here is safe (no concurrent writers left) and is what makes the
+    // boundary pass correctly skip a cell an interior task already covered. Any other shard value
+    // only ever reads/writes its own slot - interior classification guarantees it can never
+    // legitimately need to see another shard's bits, and during the parallel phase reading another
+    // shard's bitset while it may still be being written would itself be a race.
+    bool boundaryPass = (shard == GetShardCount());
 
     for (uint32 x = area.low_bound.x_coord; x <= area.high_bound.x_coord; ++x)
     {
@@ -630,10 +861,10 @@ void Map::VisitNearbyCellsOf(WorldObject* obj, TypeContainerVisitor<Trinity::Obj
             // marked cells are those that have been visited
             // don't visit the same cell twice
             uint32 cell_id = (y * TOTAL_NUMBER_OF_CELLS_PER_MAP) + x;
-            if (isCellMarked(cell_id))
+            if (boundaryPass ? isCellMarkedAnyShard(cell_id) : isCellMarkedInShard(shard, cell_id))
                 continue;
 
-            markCell(cell_id);
+            markCellInShard(shard, cell_id);
             CellCoord pair(x, y);
             Cell cell(pair);
             cell.SetNoCreate();
@@ -641,6 +872,117 @@ void Map::VisitNearbyCellsOf(WorldObject* obj, TypeContainerVisitor<Trinity::Obj
             Visit(cell, worldVisitor);
         }
     }
+}
+
+void Map::ClassifyForFanOut(WorldObject* obj, std::vector<std::vector<WorldObject*>>& interiorBuckets, std::vector<WorldObject*>& boundaryBucket)
+{
+    if (!obj || !obj->IsInWorld())
+        return;
+
+    // Phase 3 redesign (ARGUSCORE_FIXES.md) - if a prior combat/threat/damage/aura pin left this
+    // object's bookkeeping shard (ShardOf, only refreshed when a deferred transfer drains at the
+    // barrier) disagreeing with its live position's shard, its dispatch can't be trusted to agree
+    // with whatever partner it was pinned against - force it through the serial boundary pass
+    // rather than trusting either shard's classification alone. Rare (only objects mid-pin or
+    // freshly transferred); O(1) (ShardOf is a hash lookup already computed elsewhere this same
+    // tick by the guard checks this exists to keep sound). NOTE, corrected in a Stage 7 recheck:
+    // this check alone does NOT establish that CombatReference::Refresh (or any other unguarded
+    // already-pinned-pair fast path) is safe - it only forces a bookkeeping-mismatched object's
+    // OWN cell-area visit into the serial pass, which doesn't prevent some OTHER already-interior
+    // anchor from having covered the same cell in parallel first (VisitNearbyCellsOf's boundary
+    // pass skips cells an interior shard already marked). See CombatReference::Refresh's own
+    // comment (CombatManager.cpp) for what actually protects it - a separate visibility-range
+    // margin, not this check.
+    if (ShardOf(obj) != GetPartitionIndexForObject(obj))
+    {
+        boundaryBucket.push_back(obj);
+        _tickDispatchShard[obj] = GetShardCount(); // Stage 8 follow-up fix - see its own comment, Map.h
+        return;
+    }
+
+    // Deliberately _cachedClassificationProbeWidth (MAX_VISIBILITY_DISTANCE + margin), not
+    // obj->GetGridActivationRange() - see that member's own comment (Map.h) for why the smaller,
+    // original probe was unsound, and for the precise (not over-broad) statement of what this
+    // proves: an "interior"-classified object's own CellArea can never reach outside its own
+    // shard's grid range, so it's never Update()-dispatched by two shards at once. It does NOT by
+    // itself bound every read reachable from that object's Update() - see Map.h for the full
+    // reasoning and why Phase 5's guards/Phase 6's halo snapshots still carry the residual
+    // cross-shard read exposure, not this probe.
+    //
+    // Stage 7 recheck fix, CORRECTED in a Stage 8 independent review (ARGUSCORE_FIXES.md) - the
+    // classification decision below must use the SAME _tickForceDisabled snapshot shouldFanOut
+    // already used to decide whether to dispatch at all this tick, not IsNearPartitionBoundary's
+    // own live sMapPartitionMgr->IsForceDisabled() read. The Stage 7 version of this fix added a
+    // `!_tickForceDisabled &&` short-circuit in FRONT of an unchanged IsNearPartitionBoundary(...)
+    // call, reasoning (in its own now-corrected comment) that because ClassifyForFanOut is only
+    // ever reached with _tickForceDisabled already false, the short-circuit was "defense in depth"
+    // - which is exactly backwards: since IsNearPartitionBoundary() ITSELF re-reads the live
+    // switch internally, that inner read - not the outer, always-true `!_tickForceDisabled` guard
+    // - was the one actually deciding the outcome, so the "fix" changed nothing. If the kill-switch
+    // flips mid-tick, AFTER shouldFanOut already latched "fan out" as this tick's decision but
+    // WHILE this classification loop is still iterating, IsNearPartitionBoundary's inner live read
+    // starts unconditionally returning false for the remaining objects - silently reclassifying
+    // genuinely boundary-straddling objects as "interior" and parallel-dispatching them, defeating
+    // the one check that guarantees two shards never visit overlapping cells. Actually fixed this
+    // time by bypassing IsNearPartitionBoundary's own internal kill-switch read entirely and
+    // calling `_cachedPartitionLayout->IsNearBoundary(...)` directly - the frozen `_tickForceDisabled`
+    // check above is now the ONLY kill-switch read this decision depends on, for real.
+    // `_cachedPartitionLayout` is guaranteed non-null here (GetShardCount()>1, required for this
+    // method to ever be reached, only holds if the constructor's layout branch already ran, which
+    // always populates it in the same block - see IsNearPartitionBoundary's own comment, Map.h,
+    // for the identical invariant), but still re-checked rather than trusted, matching this
+    // codebase's established defensive style for every other _cachedPartitionLayout consumer.
+    // IsNearPartitionBoundary's OWN live read stays completely correct and unchanged for its other
+    // callers (PublishHaloSnapshots, EnqueueCrossPartitionTransferIfNeeded, etc. - see
+    // _tickForceDisabled's own comment, Map.h, for why those want maximum responsiveness to a live
+    // toggle); only this one call site needed to stop going through it.
+    if (!_tickForceDisabled && _cachedPartitionLayout && _cachedPartitionLayout->IsNearBoundary(obj->GetPositionX(), obj->GetPositionY(), _cachedClassificationProbeWidth))
+    {
+        boundaryBucket.push_back(obj);
+        _tickDispatchShard[obj] = GetShardCount(); // Stage 8 follow-up fix - see its own comment, Map.h
+    }
+    else
+    {
+        uint32 shard = GetPartitionIndexForObject(obj);
+        interiorBuckets[shard].push_back(obj);
+        _tickDispatchShard[obj] = shard; // Stage 8 follow-up fix - see its own comment, Map.h
+    }
+}
+
+// Phase 3 redesign, Stage 2 (ARGUSCORE_FIXES.md) - merges every PerShardDeferredBuffer filled
+// during the parallel phase into its real container. Each DrainInto call replays entries via the
+// SAME logic the synchronous (non-fan-out) path already uses for that container, so correctness
+// never depends on two independently-maintained code paths agreeing - see each buffer's own
+// declaration comment (Map.h) for why buffering that specific container is safe.
+void Map::DrainDeferredBuffers()
+{
+    _updateObjectsBuffer.DrainInto([this](std::pair<Object*, bool>& entry)
+    {
+        if (entry.second)
+            _updateObjects.insert(entry.first);
+        else
+            _updateObjects.erase(entry.first);
+    });
+
+    _creaturesToMoveBuffer.DrainInto([this](Creature*& c) { _creaturesToMove.push_back(c); });
+    _gameObjectsToMoveBuffer.DrainInto([this](GameObject*& go) { _gameObjectsToMove.push_back(go); });
+    _dynamicObjectsToMoveBuffer.DrainInto([this](DynamicObject*& dynObj) { _dynamicObjectsToMove.push_back(dynObj); });
+    _areaTriggersToMoveBuffer.DrainInto([this](AreaTrigger*& at) { _areaTriggersToMove.push_back(at); });
+
+    _objectsToSwitchBuffer.DrainInto([this](std::pair<WorldObject*, bool>& entry)
+    {
+        ApplyObjectToSwitchList(entry.first, entry.second);
+    });
+
+    _worldObjectsBuffer.DrainInto([this](std::pair<WorldObject*, bool>& entry)
+    {
+        if (entry.second)
+            i_worldObjects.insert(entry.first);
+        else
+            i_worldObjects.erase(entry.first);
+    });
+
+    _objectsToRemoveBuffer.DrainInto([this](WorldObject*& obj) { i_objectsToRemove.insert(obj); });
 }
 
 void Map::UpdatePlayerZoneStats(uint32 oldZone, uint32 newZone)
@@ -662,11 +1004,25 @@ void Map::Update(uint32 t_diff)
 {
     char const* const mapTypeName = GetMapTypeName();
 
+    // Phase 3 redesign (ARGUSCORE_FIXES.md) - latch the kill-switch's value for this whole tick
+    // before anything below can reach a PartitionWorkerPool worker thread - see _tickForceDisabled's
+    // own comment (Map.h) for why Map::IsCrossPartition reads this instead of a live check.
+    _tickForceDisabled = sMapPartitionMgr->IsForceDisabled(GetId());
+
+    // Stage 8 follow-up fix (ARGUSCORE_FIXES.md) - see _tickDispatchShard's own comment (Map.h).
+    // Cleared unconditionally (not just on the fan-out branch) so a map that fans out on one tick
+    // and doesn't on the next never leaves stale entries an unrelated later IsCrossPartition read
+    // could misinterpret.
+    _tickDispatchShard.clear();
+
     {
         TC_METRIC_TIMER("map_update_dynamic_tree_ms",
             TC_METRIC_TAG("map_id", std::to_string(GetId())),
             TC_METRIC_TAG("map_instanceid", std::to_string(GetInstanceId())),
             TC_METRIC_TAG("map_type", mapTypeName));
+        // Phase 3 redesign, Stage 4 (ARGUSCORE_FIXES.md) - no _dynamicTreeLock needed here: this
+        // runs before this tick's PartitionWorkerPool::Submit, so no worker thread can be
+        // concurrently reading/writing _dynamicTree yet.
         _dynamicTree.update(t_diff);
     }
 
@@ -714,84 +1070,249 @@ void Map::Update(uint32 t_diff)
     // for pets
     TypeContainerVisitor<Trinity::ObjectUpdater, WorldTypeMapContainer > world_object_update(updater);
 
-    // the player iterator is stored in the map object
-    // to make sure calls to Map::Remove don't invalidate it
+    // Phase 3 (ARGUSCORE_FIXES.md, "real concurrent fan-out") - single map-level gate, checked
+    // once per tick rather than woven into the hot common-case loop below, so an unpartitioned or
+    // below-threshold map takes the exact byte-identical path it always has (zero added cost, not
+    // just a cheap one - matches every other guard this feature has added). _tickForceDisabled is
+    // re-latched every tick (just above) independent of whether _partitionWorkerPool was already
+    // constructed - the Phase 7 kill-switch stays live even after fan-out has started for a map,
+    // it just can no longer flip mid-tick underneath already-dispatched work (see that member's
+    // own comment). _cachedMinPopulationForFanout is frozen at construction (Phase 3 redesign,
+    // ARGUSCORE_FIXES.md) rather than read live here, matching _cachedHaloWidth's precedent - see
+    // that member's own comment.
+    bool shouldFanOut = GetShardCount() > 1
+        && !_tickForceDisabled
+        && m_mapRefManager.size() >= _cachedMinPopulationForFanout;
+
+    if (!shouldFanOut)
     {
-        TC_METRIC_TIMER("map_update_player_grid_ms",
-            TC_METRIC_TAG("map_id", std::to_string(GetId())),
-            TC_METRIC_TAG("map_instanceid", std::to_string(GetInstanceId())),
-            TC_METRIC_TAG("map_type", mapTypeName));
-        for (m_mapRefIter = m_mapRefManager.begin(); m_mapRefIter != m_mapRefManager.end(); ++m_mapRefIter)
+        // the player iterator is stored in the map object
+        // to make sure calls to Map::Remove don't invalidate it
         {
-            Player* player = m_mapRefIter->GetSource();
-
-            if (!player || !player->IsInWorld())
-                continue;
-
-            // update players at tick
-            player->Update(t_diff);
-
-            VisitNearbyCellsOf(player, grid_object_update, world_object_update);
-
-            // If player is using far sight or mind vision, visit that object too
-            if (WorldObject* viewPoint = player->GetViewpoint())
-                VisitNearbyCellsOf(viewPoint, grid_object_update, world_object_update);
-
-            // Handle updates for creatures in combat with player and are more than 60 yards away
-            if (player->IsInCombat())
+            TC_METRIC_TIMER("map_update_player_grid_ms",
+                TC_METRIC_TAG("map_id", std::to_string(GetId())),
+                TC_METRIC_TAG("map_instanceid", std::to_string(GetInstanceId())),
+                TC_METRIC_TAG("map_type", mapTypeName));
+            for (m_mapRefIter = m_mapRefManager.begin(); m_mapRefIter != m_mapRefManager.end(); ++m_mapRefIter)
             {
-                std::vector<Unit*> toVisit;
-                for (auto const& pair : player->GetCombatManager().GetPvECombatRefs())
-                    if (Creature* unit = pair.second->GetOther(player)->ToCreature())
-                        if (unit->GetMapId() == player->GetMapId() && !unit->IsWithinDistInMap(player, GetVisibilityRange(), false))
-                            toVisit.push_back(unit);
-                for (Unit* unit : toVisit)
-                    VisitNearbyCellsOf(unit, grid_object_update, world_object_update);
-            }
+                Player* player = m_mapRefIter->GetSource();
 
-            { // Update any creatures that own auras the player has applications of
-                std::unordered_set<Unit*> toVisit;
-                for (std::pair<uint32, AuraApplication*> pair : player->GetAppliedAuras())
+                if (!player || !player->IsInWorld())
+                    continue;
+
+                // update players at tick
+                player->Update(t_diff);
+
+                VisitNearbyCellsOf(player, grid_object_update, world_object_update, 0);
+
+                // If player is using far sight or mind vision, visit that object too
+                if (WorldObject* viewPoint = player->GetViewpoint())
+                    VisitNearbyCellsOf(viewPoint, grid_object_update, world_object_update, 0);
+
+                // Handle updates for creatures in combat with player and are more than 60 yards away
+                if (player->IsInCombat())
                 {
-                    if (Unit* caster = pair.second->GetBase()->GetCaster())
-                        if (caster->GetTypeId() != TYPEID_PLAYER && !caster->IsWithinDistInMap(player, GetVisibilityRange(), false))
-                            toVisit.insert(caster);
-                }
-                for (Unit* unit : toVisit)
-                    VisitNearbyCellsOf(unit, grid_object_update, world_object_update);
-            }
-
-            { // Update player's summons
-                std::vector<Unit*> toVisit;
-
-                // Totems
-                for (ObjectGuid const& summonGuid : player->m_SummonSlot)
-                    if (!summonGuid.IsEmpty())
-                        if (Creature* unit = GetCreature(summonGuid))
+                    std::vector<Unit*> toVisit;
+                    for (auto const& pair : player->GetCombatManager().GetPvECombatRefs())
+                        if (Creature* unit = pair.second->GetOther(player)->ToCreature())
                             if (unit->GetMapId() == player->GetMapId() && !unit->IsWithinDistInMap(player, GetVisibilityRange(), false))
                                 toVisit.push_back(unit);
+                    for (Unit* unit : toVisit)
+                        VisitNearbyCellsOf(unit, grid_object_update, world_object_update, 0);
+                }
 
-                for (Unit* unit : toVisit)
-                    VisitNearbyCellsOf(unit, grid_object_update, world_object_update);
+                { // Update any creatures that own auras the player has applications of
+                    std::unordered_set<Unit*> toVisit;
+                    for (std::pair<uint32, AuraApplication*> pair : player->GetAppliedAuras())
+                    {
+                        if (Unit* caster = pair.second->GetBase()->GetCaster())
+                            if (caster->GetTypeId() != TYPEID_PLAYER && !caster->IsWithinDistInMap(player, GetVisibilityRange(), false))
+                                toVisit.insert(caster);
+                    }
+                    for (Unit* unit : toVisit)
+                        VisitNearbyCellsOf(unit, grid_object_update, world_object_update, 0);
+                }
+
+                { // Update player's summons
+                    std::vector<Unit*> toVisit;
+
+                    // Totems
+                    for (ObjectGuid const& summonGuid : player->m_SummonSlot)
+                        if (!summonGuid.IsEmpty())
+                            if (Creature* unit = GetCreature(summonGuid))
+                                if (unit->GetMapId() == player->GetMapId() && !unit->IsWithinDistInMap(player, GetVisibilityRange(), false))
+                                    toVisit.push_back(unit);
+
+                    for (Unit* unit : toVisit)
+                        VisitNearbyCellsOf(unit, grid_object_update, world_object_update, 0);
+                }
+            }
+        }
+
+        // non-player active objects, increasing iterator in the loop in case of object removal
+        {
+            TC_METRIC_TIMER("map_update_active_objects_ms",
+                TC_METRIC_TAG("map_id", std::to_string(GetId())),
+                TC_METRIC_TAG("map_instanceid", std::to_string(GetInstanceId())),
+                TC_METRIC_TAG("map_type", mapTypeName));
+            for (m_activeNonPlayersIter = m_activeNonPlayers.begin(); m_activeNonPlayersIter != m_activeNonPlayers.end();)
+            {
+                WorldObject* obj = *m_activeNonPlayersIter;
+                ++m_activeNonPlayersIter;
+
+                if (!obj || !obj->IsInWorld())
+                    continue;
+
+                VisitNearbyCellsOf(obj, grid_object_update, world_object_update, 0);
             }
         }
     }
-
-    // non-player active objects, increasing iterator in the loop in case of object removal
+    else
     {
-        TC_METRIC_TIMER("map_update_active_objects_ms",
-            TC_METRIC_TAG("map_id", std::to_string(GetId())),
-            TC_METRIC_TAG("map_instanceid", std::to_string(GetInstanceId())),
-            TC_METRIC_TAG("map_type", mapTypeName));
-        for (m_activeNonPlayersIter = m_activeNonPlayers.begin(); m_activeNonPlayersIter != m_activeNonPlayers.end();)
+        // Phase 3 fan-out. See ARGUSCORE_FIXES.md for the full design rationale, in particular
+        // why dispatch is based on cell/grid ownership (ClassifyForFanOut, Map.cpp) rather than
+        // merely grouping players by their own shard - the latter was an earlier draft that an
+        // independent review caught as a real data race (two players near a boundary can have
+        // overlapping CellAreas, which would let two threads call Update() on the same physical
+        // creature concurrently).
+        std::vector<std::vector<WorldObject*>> interiorBuckets(GetShardCount());
+        std::vector<WorldObject*> boundaryBucket;
+
         {
-            WorldObject* obj = *m_activeNonPlayersIter;
-            ++m_activeNonPlayersIter;
+            // Phase 3 (ARGUSCORE_FIXES.md) - deliberately NOT "map_update_player_grid_ms" (the
+            // non-fan-out branch's name for this timer): on this branch the real cell-visiting
+            // cost moves into map_update_fanout_dispatch_ms below, so reusing the old name here
+            // would make an operator watching that metric across the fan-out threshold see a
+            // misleading drop that's just relabeled work, not less work done - an independent
+            // review flagged this as worth a distinct name so dashboards/alerting aren't misled.
+            TC_METRIC_TIMER("map_update_player_classify_ms",
+                TC_METRIC_TAG("map_id", std::to_string(GetId())),
+                TC_METRIC_TAG("map_instanceid", std::to_string(GetInstanceId())),
+                TC_METRIC_TAG("map_type", mapTypeName));
+            for (m_mapRefIter = m_mapRefManager.begin(); m_mapRefIter != m_mapRefManager.end(); ++m_mapRefIter)
+            {
+                Player* player = m_mapRefIter->GetSource();
 
-            if (!obj || !obj->IsInWorld())
-                continue;
+                if (!player || !player->IsInWorld())
+                    continue;
 
-            VisitNearbyCellsOf(obj, grid_object_update, world_object_update);
+                // update players at tick - stays serial, main thread, m_mapRefManager order,
+                // exactly as on the non-fan-out path (Decision 4 - players themselves are never
+                // partitioned). Only the nearby-object visit/update work below is fanned out.
+                player->Update(t_diff);
+
+                ClassifyForFanOut(player, interiorBuckets, boundaryBucket);
+
+                // If player is using far sight or mind vision, visit that object too
+                if (WorldObject* viewPoint = player->GetViewpoint())
+                    ClassifyForFanOut(viewPoint, interiorBuckets, boundaryBucket);
+
+                // Handle updates for creatures in combat with player and are more than 60 yards away
+                if (player->IsInCombat())
+                {
+                    for (auto const& pair : player->GetCombatManager().GetPvECombatRefs())
+                        if (Creature* unit = pair.second->GetOther(player)->ToCreature())
+                            if (unit->GetMapId() == player->GetMapId() && !unit->IsWithinDistInMap(player, GetVisibilityRange(), false))
+                                ClassifyForFanOut(unit, interiorBuckets, boundaryBucket);
+                }
+
+                { // Update any creatures that own auras the player has applications of
+                    std::unordered_set<Unit*> toVisit;
+                    for (std::pair<uint32, AuraApplication*> pair : player->GetAppliedAuras())
+                    {
+                        if (Unit* caster = pair.second->GetBase()->GetCaster())
+                            if (caster->GetTypeId() != TYPEID_PLAYER && !caster->IsWithinDistInMap(player, GetVisibilityRange(), false))
+                                toVisit.insert(caster);
+                    }
+                    for (Unit* unit : toVisit)
+                        ClassifyForFanOut(unit, interiorBuckets, boundaryBucket);
+                }
+
+                { // Update player's summons
+                    // Totems
+                    for (ObjectGuid const& summonGuid : player->m_SummonSlot)
+                        if (!summonGuid.IsEmpty())
+                            if (Creature* unit = GetCreature(summonGuid))
+                                if (unit->GetMapId() == player->GetMapId() && !unit->IsWithinDistInMap(player, GetVisibilityRange(), false))
+                                    ClassifyForFanOut(unit, interiorBuckets, boundaryBucket);
+                }
+            }
+        }
+
+        // non-player active objects - classified individually right alongside player-driven
+        // candidates (real parallelism benefit for the interior-classified ones), while
+        // m_activeNonPlayers itself deliberately stays the flat, unsharded container it is today
+        // (see ARGUSCORE_FIXES.md - ActiveObjectsNearGrid's separate grid-unload-eligibility use
+        // of this same set isn't part of this phase's scope).
+        {
+            // See the map_update_player_classify_ms comment above - same reasoning, distinct name
+            // from the non-fan-out branch's "map_update_active_objects_ms" since the real visiting
+            // cost for these objects also moves into map_update_fanout_dispatch_ms below.
+            TC_METRIC_TIMER("map_update_active_objects_classify_ms",
+                TC_METRIC_TAG("map_id", std::to_string(GetId())),
+                TC_METRIC_TAG("map_instanceid", std::to_string(GetInstanceId())),
+                TC_METRIC_TAG("map_type", mapTypeName));
+            for (m_activeNonPlayersIter = m_activeNonPlayers.begin(); m_activeNonPlayersIter != m_activeNonPlayers.end();)
+            {
+                WorldObject* obj = *m_activeNonPlayersIter;
+                ++m_activeNonPlayersIter;
+                ClassifyForFanOut(obj, interiorBuckets, boundaryBucket);
+            }
+        }
+
+        {
+            TC_METRIC_TIMER("map_update_fanout_dispatch_ms",
+                TC_METRIC_TAG("map_id", std::to_string(GetId())),
+                TC_METRIC_TAG("map_instanceid", std::to_string(GetInstanceId())),
+                TC_METRIC_TAG("map_type", mapTypeName));
+
+            if (!_partitionWorkerPool)
+                _partitionWorkerPool = std::make_unique<PartitionWorkerPool>(GetShardCount());
+
+            for (uint32 shard = 0; shard < GetShardCount(); ++shard)
+            {
+                if (interiorBuckets[shard].empty())
+                    continue;
+
+                _partitionWorkerPool->Submit([this, shard, objects = std::move(interiorBuckets[shard]), &grid_object_update, &world_object_update]()
+                {
+                    // Phase 3 redesign (ARGUSCORE_FIXES.md) - establishes t_currentFanOutShard for
+                    // the duration of this task, so Map::AddToMap<T> (and anything else that reads
+                    // it) knows which shard's work is executing on this thread - see
+                    // t_currentFanOutShard's own comment (Map.h). RAII, inside the try, so it's
+                    // cleared even if the task throws.
+                    try
+                    {
+                        FanOutShardScope fanOutShardScope(this, shard);
+                        for (WorldObject* obj : objects)
+                            VisitNearbyCellsOf(obj, grid_object_update, world_object_update, shard);
+                    }
+                    catch (std::exception const& e)
+                    {
+                        TC_LOG_ERROR("misc", "Map {} instance {} shard {} fan-out task threw: {}", GetId(), GetInstanceId(), shard, e.what());
+                    }
+                    catch (...)
+                    {
+                        TC_LOG_ERROR("misc", "Map {} instance {} shard {} fan-out task threw a non-standard exception", GetId(), GetInstanceId(), shard);
+                    }
+                });
+            }
+            _partitionWorkerPool->WaitAll();
+
+            // Phase 3 redesign, Stage 2 (ARGUSCORE_FIXES.md) - merges every PerShardDeferredBuffer
+            // filled during the parallel phase into its real container, strictly after every
+            // interior task has joined and strictly BEFORE the boundary pass below, so the
+            // boundary pass (which runs with no fan-out context set, hence writes its own
+            // containers directly) sees a fully-consistent Map rather than racing these merges.
+            DrainDeferredBuffers();
+
+            // Boundary-classified objects (near a partition edge - their CellArea legitimately
+            // reaches into more than one shard's grid range) are processed serially here, strictly
+            // after every interior task has joined - never concurrently with the parallel phase.
+            // VisitNearbyCellsOf's sentinel shard (GetShardCount()) dedups against every interior
+            // shard's bits too, so a cell an interior task already covered is correctly skipped.
+            for (WorldObject* obj : boundaryBucket)
+                VisitNearbyCellsOf(obj, grid_object_update, world_object_update, GetShardCount());
         }
     }
 
@@ -870,13 +1391,34 @@ void Map::Update(uint32 t_diff)
 
     sScriptMgr->OnMapUpdate(this, t_diff);
 
-    TC_METRIC_VALUE("map_creatures", uint64(GetObjectsStore().Size<Creature>()),
+    TC_METRIC_VALUE("map_creatures", uint64(GetObjectsStoreSize<Creature>()),
         TC_METRIC_TAG("map_id", std::to_string(GetId())),
         TC_METRIC_TAG("map_instanceid", std::to_string(GetInstanceId())));
 
-    TC_METRIC_VALUE("map_gameobjects", uint64(GetObjectsStore().Size<GameObject>()),
+    TC_METRIC_VALUE("map_gameobjects", uint64(GetObjectsStoreSize<GameObject>()),
         TC_METRIC_TAG("map_id", std::to_string(GetId())),
         TC_METRIC_TAG("map_instanceid", std::to_string(GetInstanceId())));
+
+    // Phase 7 (ARGUSCORE_FIXES.md, "Observability + kill-switch") - per-shard population
+    // breakdown, gated on GetShardCount()>1 so an unpartitioned map (the common case) pays zero
+    // added cost, not just a cheap one. Genuinely useful today, unlike a per-partition TICK-TIME
+    // metric would be (deferred until Phase 3's actual fan-out exists to measure) - lets an
+    // operator verify a configured Map.Partitioning.MapIds split actually balances population
+    // before ever risking Phase 3. Reuses the existing Phase 2 per-shard accessors
+    // (GetObjectsStoreShardCount/GetObjectsStoreShard(i).Size<T>()) - no new iteration mechanism.
+    if (GetShardCount() > 1)
+    {
+        for (uint32 shard = 0; shard < GetObjectsStoreShardCount(); ++shard)
+        {
+            TC_METRIC_VALUE("map_partition_creatures", uint64(GetObjectsStoreShard(shard).Size<Creature>()),
+                TC_METRIC_TAG("map_id", std::to_string(GetId())),
+                TC_METRIC_TAG("partition", std::to_string(shard)));
+
+            TC_METRIC_VALUE("map_partition_gameobjects", uint64(GetObjectsStoreShard(shard).Size<GameObject>()),
+                TC_METRIC_TAG("map_id", std::to_string(GetId())),
+                TC_METRIC_TAG("partition", std::to_string(shard)));
+        }
+    }
 }
 
 struct ResetNotifier
@@ -914,7 +1456,7 @@ void Map::ProcessRelocationNotifies(const uint32 diff)
             for (uint32 y = cell_min.y_coord; y < cell_max.y_coord; ++y)
             {
                 uint32 cell_id = (y * TOTAL_NUMBER_OF_CELLS_PER_MAP) + x;
-                if (!isCellMarked(cell_id))
+                if (!isCellMarkedAnyShard(cell_id))
                     continue;
 
                 CellCoord pair(x, y);
@@ -955,7 +1497,7 @@ void Map::ProcessRelocationNotifies(const uint32 diff)
             for (uint32 y = cell_min.y_coord; y < cell_max.y_coord; ++y)
             {
                 uint32 cell_id = (y * TOTAL_NUMBER_OF_CELLS_PER_MAP) + x;
-                if (!isCellMarked(cell_id))
+                if (!isCellMarkedAnyShard(cell_id))
                     continue;
 
                 CellCoord pair(x, y);
@@ -1008,7 +1550,31 @@ void Map::RemoveFromMap(T *obj, bool remove)
     if (!inWorld) // if was in world, RemoveFromWorld() called DestroyForNearbyPlayers()
         obj->UpdateObjectVisibilityOnDestroy();
 
-    obj->RemoveFromGrid();
+    // Phase 3 redesign (ARGUSCORE_FIXES.md) - IsInGrid() guard, not unconditional. An independent
+    // review found a real path to this being false: Map::AddToMap can defer an object's creation
+    // to the barrier (see AddToMap's own comment) and return before ever calling AddToGrid; if
+    // that same object is despawned by AI/script before the barrier replay runs, the replay's own
+    // IsDestroyedObject() guard correctly skips replaying AddToMap (so the object is never added
+    // to a grid at all), but RemoveAllObjectsInRemoveList still processes the pending removal and
+    // reaches here - RemoveFromGrid()'s own ASSERT(IsInGrid()) would abort a release build (the
+    // assert is live outside PERFORMANCE_PROFILING) on an invariant this new deferred-creation
+    // path can legitimately violate.
+    // Stage 9 follow-up note (ARGUSCORE_FIXES.md, independent review finding) - this guard is
+    // necessarily broader than the one specific scenario documented above (deferred AddToMap
+    // replay skipped via IsDestroyedObject): it silently no-ops for ANY object that reaches here
+    // without being in a grid, not just that one case, so it also masks a genuine double-removal
+    // bug (calling RemoveFromMap twice on the same object) that used to hard-abort via
+    // RemoveFromGrid()'s own ASSERT(IsInGrid()) even in release builds. No cheap way to
+    // distinguish "never entered a grid due to deferred creation" from "already removed" without
+    // new state tracking dedicated to this one diagnostic - not worth adding given the guard
+    // itself is still correct and necessary. Debug-only log instead, so an investigation at least
+    // has a trace of every skip, legitimate or not.
+    if (obj->IsInGrid())
+        obj->RemoveFromGrid();
+#ifdef TRINITY_DEBUG
+    else
+        TC_LOG_DEBUG("maps", "Map::RemoveFromMap: object {} was not in a grid - skipped RemoveFromGrid (see this call site's own comment for why this is not necessarily a bug).", obj->GetGUID().ToString());
+#endif
 
     obj->ResetMap();
 
@@ -1087,6 +1653,31 @@ void Map::PlayerRelocation(Player* player, float x, float y, float z, float orie
     player->Relocate(x, y, z, orientation);
     if (player->IsVehicle())
         player->GetVehicleKit()->RelocatePassengers();
+
+    // Player-vehicle cross-partition hook (Phase 4, ARGUSCORE_FIXES.md) - PlayerRelocation never
+    // reaches MapObjectCellRelocation's boundary-crossing hook at all (Player isn't tracked in
+    // _objectsStore, and this function does its own grid move directly, below). A player-driven
+    // vehicle's PASSENGERS may still have real bookkeeping to transfer even though the player
+    // itself doesn't - gated on an actual grid change (a same-grid cell move can never cross a
+    // partition) and on the two grids actually belonging to different partitions (not every grid
+    // change crosses one - partitions are unions of whole grids), and on the player being a
+    // vehicle base at all. RelocatePassengers() above already recursed into any passengers, so by
+    // this point every current passenger has whatever position it's going to have this tick.
+    // Phase 7 kill-switch (ARGUSCORE_FIXES.md) - see Map::IsCrossPartition's own comment for why
+    // GetShardCount() itself stays untouched.
+    if (old_cell.DiffGrid(new_cell) && GetShardCount() > 1 && !sMapPartitionMgr->IsForceDisabled(GetId()) && player->IsVehicle())
+    {
+        uint32 targetShard = GetPartitionIndexForGrid(new_cell.GridX(), new_cell.GridY());
+        if (targetShard != GetPartitionIndexForGrid(old_cell.GridX(), old_cell.GridY()))
+        {
+            ObjectGuid guid = player->GetGUID();
+            AddFarSpellCallback([guid, targetShard](Map* map)
+            {
+                if (Player* p = map->GetPlayer(guid))
+                    map->HandleCrossPartitionTransfer(p, targetShard);
+            });
+        }
+    }
 
     if (old_cell.DiffGrid(new_cell) || old_cell.DiffCell(new_cell))
     {
@@ -1230,8 +1821,16 @@ void Map::AddCreatureToMoveList(Creature* c, float x, float y, float z, float an
     if (_creatureToMoveLock) //can this happen?
         return;
 
+    // Phase 3 redesign, Stage 2 (ARGUSCORE_FIXES.md) - c->_moveState is per-object, already safe
+    // (only the owning shard's thread ever touches this object); only the shared vector's
+    // push_back is buffered when called from a fan-out worker thread.
     if (c->_moveState == MAP_OBJECT_CELL_MOVE_NONE)
-        _creaturesToMove.push_back(c);
+    {
+        if (Optional<uint32> shard = CurrentFanOutShardForThisMap())
+            _creaturesToMoveBuffer.Push(*shard, c);
+        else
+            _creaturesToMove.push_back(c);
+    }
     c->SetNewCellPosition(x, y, z, ang);
 }
 
@@ -1249,8 +1848,14 @@ void Map::AddGameObjectToMoveList(GameObject* go, float x, float y, float z, flo
     if (_gameObjectsToMoveLock) //can this happen?
         return;
 
+    // Phase 3 redesign, Stage 2 (ARGUSCORE_FIXES.md) - see AddCreatureToMoveList's own comment.
     if (go->_moveState == MAP_OBJECT_CELL_MOVE_NONE)
-        _gameObjectsToMove.push_back(go);
+    {
+        if (Optional<uint32> shard = CurrentFanOutShardForThisMap())
+            _gameObjectsToMoveBuffer.Push(*shard, go);
+        else
+            _gameObjectsToMove.push_back(go);
+    }
     go->SetNewCellPosition(x, y, z, ang);
 }
 
@@ -1268,8 +1873,14 @@ void Map::AddDynamicObjectToMoveList(DynamicObject* dynObj, float x, float y, fl
     if (_dynamicObjectsToMoveLock) //can this happen?
         return;
 
+    // Phase 3 redesign, Stage 2 (ARGUSCORE_FIXES.md) - see AddCreatureToMoveList's own comment.
     if (dynObj->_moveState == MAP_OBJECT_CELL_MOVE_NONE)
-        _dynamicObjectsToMove.push_back(dynObj);
+    {
+        if (Optional<uint32> shard = CurrentFanOutShardForThisMap())
+            _dynamicObjectsToMoveBuffer.Push(*shard, dynObj);
+        else
+            _dynamicObjectsToMove.push_back(dynObj);
+    }
     dynObj->SetNewCellPosition(x, y, z, ang);
 }
 
@@ -1287,8 +1898,14 @@ void Map::AddAreaTriggerToMoveList(AreaTrigger* at, float x, float y, float z, f
     if (_areaTriggersToMoveLock) //can this happen?
         return;
 
+    // Phase 3 redesign, Stage 2 (ARGUSCORE_FIXES.md) - see AddCreatureToMoveList's own comment.
     if (at->_moveState == MAP_OBJECT_CELL_MOVE_NONE)
-        _areaTriggersToMove.push_back(at);
+    {
+        if (Optional<uint32> shard = CurrentFanOutShardForThisMap())
+            _areaTriggersToMoveBuffer.Push(*shard, at);
+        else
+            _areaTriggersToMove.push_back(at);
+    }
     at->SetNewCellPosition(x, y, z, ang);
 }
 
@@ -1481,6 +2098,29 @@ void Map::MoveAllAreaTriggersInMoveList()
 }
 
 template <typename T>
+void Map::EnqueueCrossPartitionTransferIfNeeded(T* object, Cell const& new_cell)
+{
+    // Phase 7 kill-switch (ARGUSCORE_FIXES.md) - see Map::IsCrossPartition's own comment for why
+    // GetShardCount() itself stays untouched.
+    if (GetShardCount() <= 1 || sMapPartitionMgr->IsForceDisabled(GetId()))
+        return;
+
+    uint32 targetShard = GetPartitionIndexForGrid(new_cell.GridX(), new_cell.GridY());
+    if (targetShard == ShardOf(object))
+        return;
+
+    ObjectGuid guid = object->GetGUID();
+    AddFarSpellCallback([guid, targetShard](Map* map)
+    {
+        WorldObject* obj = ObjectAccessor::GetWorldObject(map, guid);
+        if (!obj || !obj->IsInWorld())
+            return;
+
+        map->HandleCrossPartitionTransfer(obj, targetShard);
+    });
+}
+
+template <typename T>
 bool Map::MapObjectCellRelocation(T* object, Cell new_cell, [[maybe_unused]] char const* objType)
 {
     Cell const& old_cell = object->GetCurrentCell();
@@ -1518,6 +2158,7 @@ bool Map::MapObjectCellRelocation(T* object, Cell new_cell, [[maybe_unused]] cha
         object->RemoveFromGrid();
         AddToGrid(object, new_cell);
 
+        EnqueueCrossPartitionTransferIfNeeded(object, new_cell);
         return true;
     }
 
@@ -1536,6 +2177,7 @@ bool Map::MapObjectCellRelocation(T* object, Cell new_cell, [[maybe_unused]] cha
         EnsureGridCreated(GridCoord(new_cell.GridX(), new_cell.GridY()));
         AddToGrid(object, new_cell);
 
+        EnqueueCrossPartitionTransferIfNeeded(object, new_cell);
         return true;
     }
 
@@ -1811,9 +2453,13 @@ bool Map::isInLineOfSight(PhaseShift const& phaseShift, float x1, float y1, floa
     if ((checks & LINEOFSIGHT_CHECK_VMAP)
       && !VMAP::VMapFactory::createOrGetVMapManager()->isInLineOfSight(PhasingHandler::GetTerrainMapId(phaseShift, GetId(), m_terrain.get(), x1, y1), x1, y1, z1, x2, y2, z2, ignoreFlags))
         return false;
-    if (sWorld->getBoolConfig(CONFIG_CHECK_GOBJECT_LOS) && (checks & LINEOFSIGHT_CHECK_GOBJECT)
-      && !_dynamicTree.isInLineOfSight({ x1, y1, z1 }, { x2, y2, z2 }, phaseShift))
-        return false;
+    if (sWorld->getBoolConfig(CONFIG_CHECK_GOBJECT_LOS) && (checks & LINEOFSIGHT_CHECK_GOBJECT))
+    {
+        // Phase 3 redesign, Stage 4 (ARGUSCORE_FIXES.md) - see _dynamicTreeLock's own comment.
+        std::shared_lock<std::shared_mutex> lock(_dynamicTreeLock);
+        if (!_dynamicTree.isInLineOfSight({ x1, y1, z1 }, { x2, y2, z2 }, phaseShift))
+            return false;
+    }
     return true;
 }
 
@@ -1823,7 +2469,12 @@ bool Map::getObjectHitPos(PhaseShift const& phaseShift, float x1, float y1, floa
     G3D::Vector3 dstPos(x2, y2, z2);
 
     G3D::Vector3 resultPos;
-    bool result = _dynamicTree.getObjectHitPos(startPos, dstPos, resultPos, modifyDist, phaseShift);
+    // Phase 3 redesign, Stage 4 (ARGUSCORE_FIXES.md) - see _dynamicTreeLock's own comment.
+    bool result;
+    {
+        std::shared_lock<std::shared_mutex> lock(_dynamicTreeLock);
+        result = _dynamicTree.getObjectHitPos(startPos, dstPos, resultPos, modifyDist, phaseShift);
+    }
 
     rx = resultPos.x;
     ry = resultPos.y;
@@ -2044,10 +2695,8 @@ bool Map::CheckRespawn(RespawnInfo* info)
             // escort check for creatures only (if the world config boolean is set)
             bool const isEscort = (sWorld->getBoolConfig(CONFIG_RESPAWN_DYNAMIC_ESCORTNPC) && data->spawnGroupData->flags & SPAWNGROUP_FLAG_ESCORTQUESTNPC);
 
-            auto range = _creatureBySpawnIdStore.equal_range(info->spawnId);
-            for (auto it = range.first; it != range.second; ++it)
+            for (Creature* creature : GetCreaturesBySpawnId(info->spawnId))
             {
-                Creature* creature = it->second;
                 if (!creature->IsAlive())
                     continue;
                 // escort NPCs are allowed to respawn as long as all other instances are already escorting
@@ -2060,7 +2709,7 @@ bool Map::CheckRespawn(RespawnInfo* info)
         }
         case SPAWN_TYPE_GAMEOBJECT:
             // gameobject check is simpler - they cannot be dead or escorting
-            if (_gameobjectBySpawnIdStore.find(info->spawnId) != _gameobjectBySpawnIdStore.end())
+            if (!GetGameObjectsBySpawnId(info->spawnId).empty())
                 alreadyExists = true;
             break;
         default:
@@ -2096,10 +2745,28 @@ bool Map::CheckRespawn(RespawnInfo* info)
 
 void Map::Respawn(RespawnInfo* info, CharacterDatabaseTransaction dbTrans)
 {
+    // Stage 9 follow-up fix (ARGUSCORE_FIXES.md, independent review finding) - mutates the
+    // per-shard _respawnTimes[shard] boost heap directly (::increase) with no defer guard at all,
+    // unlike its siblings AddRespawnInfo/DeleteRespawnInfo/UnloadAllRespawnInfos, which all have
+    // one - reachable from ordinary Creature::Respawn()/GameObject::Respawn() AI/script code.
+    // Raw RespawnInfo* is NOT safe to capture across a defer (same dangling-pointer class
+    // DeleteRespawnInfo's own Stage 8 fix closed - UnloadAllRespawnInfos could free it in the
+    // meantime), so this reuses the existing Respawn(SpawnObjectType, ObjectGuid::LowType, ...)
+    // overload (Map.h) as the replay target instead of hand-rolling another re-lookup: it already
+    // does a fresh GetRespawnInfo(type, spawnId) call and no-ops if nothing comes back, exactly
+    // the "look up current state, don't trust a stale decision" idiom this whole pattern uses.
+    if (CurrentFanOutShardForThisMap())
+    {
+        SpawnObjectType type = info->type;
+        ObjectGuid::LowType spawnId = info->spawnId;
+        AddFarSpellCallback([type, spawnId, dbTrans](Map* map) { map->Respawn(type, spawnId, dbTrans); });
+        return;
+    }
+
     if (info->respawnTime <= GameTime::GetGameTime())
         return;
     info->respawnTime = GameTime::GetGameTime();
-    _respawnTimes->increase(static_cast<RespawnInfoWithHandle*>(info)->handle);
+    _respawnTimes[GetPartitionIndexForSpawnId(info->type, info->spawnId)]->increase(static_cast<RespawnInfoWithHandle*>(info)->handle);
     SaveRespawnInfoDB(*info, dbTrans);
 }
 
@@ -2109,12 +2776,12 @@ size_t Map::DespawnAll(SpawnObjectType type, ObjectGuid::LowType spawnId)
     switch (type)
     {
         case SPAWN_TYPE_CREATURE:
-            for (auto const& pair : Trinity::Containers::MapEqualRange(GetCreatureBySpawnIdStore(), spawnId))
-                toUnload.push_back(pair.second);
+            for (Creature* creature : GetCreaturesBySpawnId(spawnId))
+                toUnload.push_back(creature);
             break;
         case SPAWN_TYPE_GAMEOBJECT:
-            for (auto const& pair : Trinity::Containers::MapEqualRange(GetGameObjectBySpawnIdStore(), spawnId))
-                toUnload.push_back(pair.second);
+            for (GameObject* go : GetGameObjectsBySpawnId(spawnId))
+                toUnload.push_back(go);
             break;
         default:
             break;
@@ -2128,13 +2795,28 @@ size_t Map::DespawnAll(SpawnObjectType type, ObjectGuid::LowType spawnId)
 
 bool Map::AddRespawnInfo(RespawnInfo const& info)
 {
+    // Phase 3 redesign, Stage 3 (ARGUSCORE_FIXES.md) - real heap-handle allocation (boost heap
+    // push via _respawnTimes[shard]) plus a conditional recursive DeleteRespawnInfo call, not a
+    // plain container push - defer the whole call. RespawnInfo is a small plain-data struct,
+    // cheap to capture by value; the bool return (and the "existing" conflict-resolution this
+    // performs) become meaningless synchronously once deferred - same documented, accepted shape
+    // as Stage 1's AddToMap defer. Every reachable fan-out caller (Creature::SaveRespawnTime /
+    // GameObject::SaveRespawnTime -> Map::SaveRespawnTime, both AI/Update()-reachable) already
+    // ignores this return value.
+    if (CurrentFanOutShardForThisMap())
+    {
+        AddFarSpellCallback([info](Map* map) { map->AddRespawnInfo(info); });
+        return false;
+    }
+
     if (!info.spawnId)
     {
         TC_LOG_ERROR("maps", "Attempt to insert respawn info for zero spawn id (type {})", uint32(info.type));
         return false;
     }
 
-    RespawnInfoMap* bySpawnIdMap = GetRespawnMapForType(info.type);
+    uint32 shard = GetPartitionIndexForSpawnId(info.type, info.spawnId);
+    RespawnInfoMap* bySpawnIdMap = GetRespawnMapForType(info.type, shard);
     if (!bySpawnIdMap)
         return false;
 
@@ -2156,7 +2838,7 @@ bool Map::AddRespawnInfo(RespawnInfo const& info)
         ABORT_MSG("Invalid respawn info for spawn id (%u," UI64FMTD ") being inserted", uint32(info.type), info.spawnId);
 
     RespawnInfoWithHandle* ri = new RespawnInfoWithHandle(info);
-    ri->handle = _respawnTimes->push(ri);
+    ri->handle = _respawnTimes[shard]->push(ri);
     bySpawnIdMap->emplace(ri->spawnId, ri);
     return true;
 }
@@ -2170,15 +2852,20 @@ static void PushRespawnInfoFrom(std::vector<RespawnInfo const*>& data, RespawnIn
 
 void Map::GetRespawnInfo(std::vector<RespawnInfo const*>& respawnData, SpawnObjectTypeMask types) const
 {
+    // Sharded (Phase 1 - see ARGUSCORE_FIXES.md) - a bulk "give me everything" dump has no
+    // single spawnId to key off, so it iterates every shard; GetShardCount()==1 for an
+    // unpartitioned map makes this identical to iterating the single flat map it replaces.
     if (types & SPAWN_TYPEMASK_CREATURE)
-        PushRespawnInfoFrom(respawnData, _creatureRespawnTimesBySpawnId);
+        for (RespawnInfoMap const& shard : _creatureRespawnTimesBySpawnId)
+            PushRespawnInfoFrom(respawnData, shard);
     if (types & SPAWN_TYPEMASK_GAMEOBJECT)
-        PushRespawnInfoFrom(respawnData, _gameObjectRespawnTimesBySpawnId);
+        for (RespawnInfoMap const& shard : _gameObjectRespawnTimesBySpawnId)
+            PushRespawnInfoFrom(respawnData, shard);
 }
 
 RespawnInfo* Map::GetRespawnInfo(SpawnObjectType type, ObjectGuid::LowType spawnId) const
 {
-    RespawnInfoMap const* map = GetRespawnMapForType(type);
+    RespawnInfoMap const* map = GetRespawnMapForType(type, GetPartitionIndexForSpawnId(type, spawnId));
     if (!map)
         return nullptr;
     auto it = map->find(spawnId);
@@ -2189,11 +2876,32 @@ RespawnInfo* Map::GetRespawnInfo(SpawnObjectType type, ObjectGuid::LowType spawn
 
 void Map::UnloadAllRespawnInfos() // delete everything from memory
 {
-    for (RespawnInfo* info : *_respawnTimes)
-        delete info;
-    _respawnTimes->clear();
-    _creatureRespawnTimesBySpawnId.clear();
-    _gameObjectRespawnTimesBySpawnId.clear();
+    // Phase 3 redesign, Stage 3 fix (ARGUSCORE_FIXES.md, review finding) - unconditionally
+    // iterates/deletes/clears every shard's _respawnTimes/_creatureRespawnTimesBySpawnId/
+    // _gameObjectRespawnTimesBySpawnId with no fan-out guard at all. Reachable via
+    // Map::DeleteRespawnTimes() <- InstanceScript::SetData-driven boss/event AI (fan-out
+    // reachable, e.g. a forced encounter reset) - races against every other shard's concurrent
+    // GetRespawnInfo/GetRespawnTime reads and any in-flight AddRespawnInfo/DeleteRespawnInfo
+    // deferred replay for this same Map. Defer the whole call. DeleteRespawnTimesInDB()
+    // (DeleteRespawnTimes()'s other half) is left running synchronously - it only issues a DB
+    // statement, no Map-wide in-memory state. The destructor's own call to this (~Map, before any
+    // fan-out could possibly be active) takes the synchronous path unchanged.
+    if (CurrentFanOutShardForThisMap())
+    {
+        AddFarSpellCallback([](Map* map) { map->UnloadAllRespawnInfos(); });
+        return;
+    }
+
+    for (std::unique_ptr<RespawnListContainer> const& shard : _respawnTimes)
+    {
+        for (RespawnInfo* info : *shard)
+            delete info;
+        shard->clear();
+    }
+    for (RespawnInfoMap& shard : _creatureRespawnTimesBySpawnId)
+        shard.clear();
+    for (RespawnInfoMap& shard : _gameObjectRespawnTimesBySpawnId)
+        shard.clear();
 }
 
 void Map::DeleteRespawnInfo(RespawnInfo* info, CharacterDatabaseTransaction dbTrans)
@@ -2201,8 +2909,51 @@ void Map::DeleteRespawnInfo(RespawnInfo* info, CharacterDatabaseTransaction dbTr
     // Delete from all relevant containers to ensure consistency
     ASSERT(info);
 
+    // Phase 3 redesign, Stage 3 (ARGUSCORE_FIXES.md) - erases from two more Map-wide respawn
+    // containers plus a DB write, not a plain container push - defer the whole call. Raw info
+    // capture claim CORRECTED in a Stage 7 recheck, and the resulting gap FIXED in a Stage 8
+    // follow-up: this function is NOT the only place a RespawnInfo gets deleted -
+    // Map::UnloadAllRespawnInfos() also deletes every RespawnInfo for this Map, and is itself
+    // deferred onto this SAME _farSpellCallbacks queue when reachable from a fan-out thread (see
+    // its own comment above), so a queued DeleteRespawnInfo replay could in principle run after an
+    // earlier-queued UnloadAllRespawnInfos replay already freed the raw `info` pointer -
+    // dereferencing freed memory. Fixed by capturing {type, spawnId} instead of the raw pointer and
+    // re-looking it up (via GetRespawnMapForType/find) at replay time, exactly as this comment used
+    // to suggest as the fix: if UnloadAllRespawnInfos already ran first, the lookup simply finds
+    // nothing and no-ops - the same "look up current state, don't trust a stale decision" idiom
+    // used throughout this pattern - rather than dereferencing freed memory. GetRespawnMapForType's
+    // backing containers (`_creatureRespawnTimesBySpawnId`/`_gameObjectRespawnTimesBySpawnId`) are
+    // plain `std::unordered_map<ObjectGuid::LowType, RespawnInfo*>` (unique keys per spawnId), so
+    // there's no ambiguity a raw-pointer match was ever needed to resolve. dbTrans is captured too;
+    // confirmed every reachable fan-out caller (Creature::SaveRespawnTime/GameObject::SaveRespawnTime
+    // -> Map::SaveRespawnTime's RemoveRespawnTime call) always passes nullptr here, so there is no
+    // caller synchronously committing a transaction this deferred replay would still be appending
+    // to - the one code path that DOES pass a real transaction (Creature::DeleteFromDB/
+    // GameObject::DeleteFromDB) is a static GM/admin operation via sMapMgr->DoForAllMapsWithMapId,
+    // never reachable from Map::Update().
+    if (CurrentFanOutShardForThisMap())
+    {
+        SpawnObjectType type = info->type;
+        ObjectGuid::LowType spawnId = info->spawnId;
+        AddFarSpellCallback([type, spawnId, dbTrans](Map* map)
+        {
+            RespawnInfoMap* spawnMap = map->GetRespawnMapForType(type, map->GetPartitionIndexForSpawnId(type, spawnId));
+            if (!spawnMap)
+                return;
+
+            auto it = spawnMap->find(spawnId);
+            if (it == spawnMap->end())
+                return; // already deleted (e.g. by an intervening UnloadAllRespawnInfos) - safe no-op
+
+            map->DeleteRespawnInfo(it->second, dbTrans);
+        });
+        return;
+    }
+
+    uint32 shard = GetPartitionIndexForSpawnId(info->type, info->spawnId);
+
     // spawnid store
-    auto spawnMap = GetRespawnMapForType(info->type);
+    auto spawnMap = GetRespawnMapForType(info->type, shard);
     if (!spawnMap)
         return;
 
@@ -2212,7 +2963,7 @@ void Map::DeleteRespawnInfo(RespawnInfo* info, CharacterDatabaseTransaction dbTr
     spawnMap->erase(it);
 
     // respawn heap
-    _respawnTimes->erase(static_cast<RespawnInfoWithHandle*>(info)->handle);
+    _respawnTimes[shard]->erase(static_cast<RespawnInfoWithHandle*>(info)->handle);
 
     // database
     DeleteRespawnInfoFromDB(info->type, info->spawnId, dbTrans);
@@ -2262,51 +3013,61 @@ void Map::DoRespawn(SpawnObjectType type, ObjectGuid::LowType spawnId, uint32 gr
 
 void Map::ProcessRespawns()
 {
+    // Sharded (Phase 1 - see ARGUSCORE_FIXES.md): each shard's heap is processed independently
+    // with the exact same due-time early-break logic as before - GetShardCount()==1 for an
+    // unpartitioned map makes this identical to the single loop it replaces. Still entirely
+    // single-threaded here (Decision 4 - respawn processing itself is never fanned out to
+    // partition threads, only the underlying storage is shard-owned), so processing shards one
+    // after another in a plain outer loop is correct and sufficient for this phase.
     time_t now = GameTime::GetGameTime();
-    while (!_respawnTimes->empty())
+    for (uint32 shard = 0; shard < GetShardCount(); ++shard)
     {
-        RespawnInfoWithHandle* next = _respawnTimes->top();
-        if (now < next->respawnTime) // done for this tick
-            break;
+        RespawnListContainer& respawnTimes = *_respawnTimes[shard];
+        while (!respawnTimes.empty())
+        {
+            RespawnInfoWithHandle* next = respawnTimes.top();
+            if (now < next->respawnTime) // done for this tick
+                break;
 
-        if (uint32 poolId = sPoolMgr->IsPartOfAPool(next->type, next->spawnId)) // is this part of a pool?
-        { // if yes, respawn will be handled by (external) pooling logic, just delete the respawn time
-            // step 1: remove entry from maps to avoid it being reachable by outside logic
-            _respawnTimes->pop();
-            ASSERT_NOTNULL(GetRespawnMapForType(next->type))->erase(next->spawnId);
+            if (uint32 poolId = sPoolMgr->IsPartOfAPool(next->type, next->spawnId)) // is this part of a pool?
+            { // if yes, respawn will be handled by (external) pooling logic, just delete the respawn time
+                // step 1: remove entry from maps to avoid it being reachable by outside logic
+                respawnTimes.pop();
+                ASSERT_NOTNULL(GetRespawnMapForType(next->type, shard))->erase(next->spawnId);
 
-            // step 2: tell pooling logic to do its thing
-            sPoolMgr->UpdatePool(GetPoolData(), poolId, next->type, next->spawnId);
+                // step 2: tell pooling logic to do its thing
+                sPoolMgr->UpdatePool(GetPoolData(), poolId, next->type, next->spawnId);
 
-            // step 3: get rid of the actual entry
-            RemoveRespawnTime(next->type, next->spawnId, nullptr, true);
-            delete next;
-        }
-        else if (CheckRespawn(next)) // see if we're allowed to respawn
-        { // ok, respawn
-            // step 1: remove entry from maps to avoid it being reachable by outside logic
-            _respawnTimes->pop();
-            ASSERT_NOTNULL(GetRespawnMapForType(next->type))->erase(next->spawnId);
+                // step 3: get rid of the actual entry
+                RemoveRespawnTime(next->type, next->spawnId, nullptr, true);
+                delete next;
+            }
+            else if (CheckRespawn(next)) // see if we're allowed to respawn
+            { // ok, respawn
+                // step 1: remove entry from maps to avoid it being reachable by outside logic
+                respawnTimes.pop();
+                ASSERT_NOTNULL(GetRespawnMapForType(next->type, shard))->erase(next->spawnId);
 
-            // step 2: do the respawn, which involves external logic
-            DoRespawn(next->type, next->spawnId, next->gridId);
+                // step 2: do the respawn, which involves external logic
+                DoRespawn(next->type, next->spawnId, next->gridId);
 
-            // step 3: get rid of the actual entry
-            RemoveRespawnTime(next->type, next->spawnId, nullptr, true);
-            delete next;
-        }
-        else if (!next->respawnTime)
-        { // just remove this respawn entry without rescheduling
-            _respawnTimes->pop();
-            ASSERT_NOTNULL(GetRespawnMapForType(next->type))->erase(next->spawnId);
-            RemoveRespawnTime(next->type, next->spawnId, nullptr, true);
-            delete next;
-        }
-        else
-        { // new respawn time, update heap position
-            ASSERT(now < next->respawnTime); // infinite loop guard
-            _respawnTimes->decrease(next->handle);
-            SaveRespawnInfoDB(*next);
+                // step 3: get rid of the actual entry
+                RemoveRespawnTime(next->type, next->spawnId, nullptr, true);
+                delete next;
+            }
+            else if (!next->respawnTime)
+            { // just remove this respawn entry without rescheduling
+                respawnTimes.pop();
+                ASSERT_NOTNULL(GetRespawnMapForType(next->type, shard))->erase(next->spawnId);
+                RemoveRespawnTime(next->type, next->spawnId, nullptr, true);
+                delete next;
+            }
+            else
+            { // new respawn time, update heap position
+                ASSERT(now < next->respawnTime); // infinite loop guard
+                respawnTimes.decrease(next->handle);
+                SaveRespawnInfoDB(*next);
+            }
         }
     }
 }
@@ -2386,6 +3147,26 @@ SpawnGroupTemplateData const* Map::GetSpawnGroupData(uint32 groupId) const
 
 bool Map::SpawnGroupSpawn(uint32 groupId, bool ignoreRespawn, bool force, std::vector<WorldObject*>* spawnedObjects)
 {
+    // Phase 3 redesign, Stage 3 (ARGUSCORE_FIXES.md) - touches multiple Map-wide unguarded
+    // containers (_toggledSpawnGroupIds via SetSpawnGroupActive, respawn stores via
+    // RemoveRespawnTime, spawn-id stores via GetWorldObjectBySpawnId) and creates real objects via
+    // LoadFromDB - defer the whole call, not just a container push. No object identity to
+    // re-resolve (groupId/ignoreRespawn/force are plain values). spawnedObjects is a caller-owned
+    // out-param that can't be filled synchronously once deferred, so it's deliberately left
+    // untouched and this returns false - same documented, accepted one-tick-late shape as Stage
+    // 1's AddToMap defer. Confirmed: callers that read the return value/spawnedObjects
+    // synchronously (GM commands via cs_npc.cpp) are never fan-out-reachable (packet-handler
+    // thread, not Map::Update()); the one AI/script caller that IS fan-out-reachable and reads
+    // spawnedObjects synchronously (zone_sholazar_basin.cpp's quest spell scripts) degrades
+    // gracefully if this fires mid fan-out - the spawned flames simply miss their 20s forced
+    // despawn that tick, not a crash or a leak.
+    if (CurrentFanOutShardForThisMap())
+    {
+        TC_LOG_DEBUG("maps", "Map::SpawnGroupSpawn: group {} spawn requested from a fan-out worker thread on map {} - deferring to barrier.", groupId, GetId());
+        AddFarSpellCallback([groupId, ignoreRespawn, force](Map* map) { map->SpawnGroupSpawn(groupId, ignoreRespawn, force); });
+        return false;
+    }
+
     SpawnGroupTemplateData const* groupData = GetSpawnGroupData(groupId);
     if (!groupData || groupData->flags & SPAWNGROUP_FLAG_SYSTEM)
     {
@@ -2401,7 +3182,7 @@ bool Map::SpawnGroupSpawn(uint32 groupId, bool ignoreRespawn, bool force, std::v
         SpawnMetadata const* data = pair.second;
         ASSERT(groupData->mapId == data->mapId);
 
-        auto respawnMap = GetRespawnMapForType(data->type);
+        auto respawnMap = GetRespawnMapForType(data->type, GetPartitionIndexForSpawnId(data->type, data->spawnId));
         if (!respawnMap)
             continue;
 
@@ -2475,6 +3256,15 @@ bool Map::SpawnGroupSpawn(uint32 groupId, bool ignoreRespawn, bool force, std::v
 
 bool Map::SpawnGroupDespawn(uint32 groupId, bool deleteRespawnTimes, size_t* count)
 {
+    // Phase 3 redesign, Stage 3 (ARGUSCORE_FIXES.md) - see SpawnGroupSpawn's own comment; same
+    // reasoning applies symmetrically. `count` is left untouched, same documented shape.
+    if (CurrentFanOutShardForThisMap())
+    {
+        TC_LOG_DEBUG("maps", "Map::SpawnGroupDespawn: group {} despawn requested from a fan-out worker thread on map {} - deferring to barrier.", groupId, GetId());
+        AddFarSpellCallback([groupId, deleteRespawnTimes](Map* map) { map->SpawnGroupDespawn(groupId, deleteRespawnTimes); });
+        return false;
+    }
+
     SpawnGroupTemplateData const* groupData = GetSpawnGroupData(groupId);
     if (!groupData || groupData->flags & SPAWNGROUP_FLAG_SYSTEM)
     {
@@ -2576,6 +3366,16 @@ void Map::UpdateSpawnGroupConditions()
 
 ObjectGuidGenerator& Map::GetGuidSequenceGenerator(HighGuid high)
 {
+    // Phase 3 redesign, Stage 4 (ARGUSCORE_FIXES.md) - see _guidGeneratorsLock's own comment
+    // (Map.h) for why this needs a lock and why returning a reference out of it is still safe.
+    {
+        std::shared_lock<std::shared_mutex> lock(_guidGeneratorsLock);
+        auto it = _guidGenerators.find(high);
+        if (it != _guidGenerators.end())
+            return it->second;
+    }
+
+    std::unique_lock<std::shared_mutex> lock(_guidGeneratorsLock);
     return _guidGenerators.try_emplace(high, high).first->second;
 }
 
@@ -2594,6 +3394,16 @@ void Map::DelayedUpdate(uint32 t_diff)
             delete callback;
         }
     }
+
+    // Phase 6 (ARGUSCORE_FIXES.md, "Double-buffered halo snapshots") - deliberately placed here,
+    // not at the top of DelayedUpdate like Phase 4/5's own barrier-phase hooks: this needs to run
+    // AFTER everything in this tick that could still write an object's position, and the
+    // _farSpellCallbacks drain just above is itself one such writer (real producers already exist
+    // - Phase 4/5's own cross-partition transfer/combat-pin callbacks, deferred spell/aura effects
+    // - confirmed nothing after this point in DelayedUpdate touches position:
+    // RemoveAllObjectsInRemoveList destroys objects queued for removal, and the grid-state loop
+    // below is load/unload bookkeeping only).
+    PublishHaloSnapshots();
 
     RemoveAllObjectsInRemoveList();
 
@@ -2619,7 +3429,18 @@ void Map::AddObjectToRemoveList(WorldObject* obj)
     obj->SetDestroyedObject(true);
     obj->CleanupsBeforeDelete(false);                            // remove or simplify at least cross referenced links
 
-    i_objectsToRemove.insert(obj);
+    // Phase 3 redesign, Stage 2 fix (ARGUSCORE_FIXES.md, review finding) - this is reachable from
+    // fan-out worker threads (e.g. every TempSummon::UnSummon), and i_objectsToRemove is a plain
+    // std::set: concurrent insert() from two shards is real red-black-tree corruption, not a
+    // theoretical risk. Buffer only the final push - CleanupsBeforeDelete above stays exactly
+    // where it already ran (synchronously, on the calling shard's thread), unchanged by this fix.
+    // CleanupsBeforeDelete's own cross-object reach (aura/combat/threat teardown) is the same
+    // already-inventoried §B surface Stage 5 closes for every other aura-removal entry point;
+    // this fix does not claim to close that, only the concrete container-corruption bug.
+    if (Optional<uint32> shard = CurrentFanOutShardForThisMap())
+        _objectsToRemoveBuffer.Push(*shard, obj);
+    else
+        i_objectsToRemove.insert(obj);
 }
 
 void Map::AddObjectToSwitchList(WorldObject* obj, bool on)
@@ -2630,6 +3451,29 @@ void Map::AddObjectToSwitchList(WorldObject* obj, bool on)
     if (obj->GetTypeId() != TYPEID_UNIT)
         return;
 
+    // Phase 3 redesign, Stage 2 (ARGUSCORE_FIXES.md) - buffered per-shard, merged serially at the
+    // barrier via the same ApplyObjectToSwitchList logic below.
+    //
+    // PerShardDeferredBuffer::DrainInto replays shard-major, not in global chronological order.
+    // That's sound here specifically because a given UNIT's AddObjectToSwitchList calls all
+    // originate from that unit's own Update()-reachable call chain (AddPlayerToVision /
+    // RemovePlayerFromVision <- Player::SetSeer, always called with `this` as the target), which
+    // interior classification dispatches to exactly one shard for the whole tick - so they always
+    // land in the SAME shard's slot, where push order is chronological order. This does NOT hold
+    // in general for a caller that toggled one object's switch membership from two different
+    // shards in the same tick; no such caller exists today (verified by review of every call
+    // site), and if one is ever added it needs its own fix here, not a silent reorder.
+    if (Optional<uint32> shard = CurrentFanOutShardForThisMap())
+    {
+        _objectsToSwitchBuffer.Push(*shard, { obj, on });
+        return;
+    }
+
+    ApplyObjectToSwitchList(obj, on);
+}
+
+void Map::ApplyObjectToSwitchList(WorldObject* obj, bool on)
+{
     std::map<WorldObject*, bool>::iterator itr = i_objectsToSwitch.find(obj);
     if (itr == i_objectsToSwitch.end())
         i_objectsToSwitch.insert(itr, std::make_pair(obj, on));
@@ -2767,16 +3611,113 @@ bool Map::ActiveObjectsNearGrid(NGridType const& ngrid) const
 
 void Map::AddWorldObject(WorldObject* obj)
 {
-    i_worldObjects.insert(obj);
+    // Phase 3 redesign, Stage 2 (ARGUSCORE_FIXES.md) - buffered per-shard, one shared buffer for
+    // add and remove (see AddUpdateObject's own comment for why one buffer, not two).
+    if (Optional<uint32> shard = CurrentFanOutShardForThisMap())
+        _worldObjectsBuffer.Push(*shard, { obj, true });
+    else
+        i_worldObjects.insert(obj);
 }
 
 void Map::RemoveWorldObject(WorldObject* obj)
 {
-    i_worldObjects.erase(obj);
+    if (Optional<uint32> shard = CurrentFanOutShardForThisMap())
+        _worldObjectsBuffer.Push(*shard, { obj, false });
+    else
+        i_worldObjects.erase(obj);
+}
+
+CreatureGroup* Map::AddCreatureToFormation(ObjectGuid::LowType leaderSpawnId, Creature* creature)
+{
+    // Phase 3 redesign, Stage 4 fix (ARGUSCORE_FIXES.md, review finding) - see this method's own
+    // declaration comment (Map.h) for why the whole find-or-create+add sequence, not just the
+    // holder lookup, needs to be under one lock.
+    std::lock_guard<std::recursive_mutex> lock(_creatureGroupHolderLock);
+
+    auto [itr, isNew] = _creatureGroupHolder.try_emplace(leaderSpawnId, nullptr);
+    CreatureGroup* group;
+    if (!isNew)
+    {
+        group = itr->second;
+
+        //Add member to an existing group
+        TC_LOG_DEBUG("entities.unit", "Group found: {}, inserting creature {}, Group InstanceID {}", leaderSpawnId, creature->GetGUID(), creature->GetInstanceId());
+
+        // With dynamic spawn the creature may have just respawned
+        // we need to find previous instance of creature and delete it from the formation, as it'll be invalidated
+        for (Creature* other : GetCreaturesBySpawnId(creature->GetSpawnId()))
+        {
+            if (other == creature)
+                continue;
+
+            if (group->HasMember(other))
+                group->RemoveMember(other);
+        }
+    }
+    else
+    {
+        //Create new group
+        TC_LOG_DEBUG("entities.unit", "Group not found: {}. Creating new group.", leaderSpawnId);
+        group = new CreatureGroup(leaderSpawnId);
+        itr->second = group;
+    }
+
+    group->AddMember(creature);
+    return group;
+}
+
+void Map::RemoveCreatureFromFormation(CreatureGroup* group, Creature* member)
+{
+    // Phase 3 redesign, Stage 4 fix (ARGUSCORE_FIXES.md, review finding) - see
+    // AddCreatureToFormation's own comment; same atomicity requirement symmetrically. Held across
+    // the ZoneScript::OnCreatureGroupDepleted callback too - see _creatureGroupHolderLock's own
+    // comment (Map.h) for why the lock must be recursive because of that.
+    std::lock_guard<std::recursive_mutex> lock(_creatureGroupHolderLock);
+
+    ObjectGuid::LowType leaderSpawnId = group->GetLeaderSpawnId();
+
+    TC_LOG_DEBUG("entities.unit", "Deleting member pointer to GUID: {} from group {}", leaderSpawnId, member->GetSpawnId());
+    group->RemoveMember(member);
+
+    // If removed member was alive we need to check if we have any other alive members
+    // if not - fire OnCreatureGroupDepleted
+    if (ZoneScript* script = member->GetZoneScript())
+        if (member->IsAlive() && !group->HasAliveMembers())
+            script->OnCreatureGroupDepleted(group);
+
+    if (group->IsEmpty())
+    {
+        if (leaderSpawnId)
+        {
+            TC_LOG_DEBUG("entities.unit", "Deleting group with InstanceID {}", GetInstanceId());
+            std::size_t erased = _creatureGroupHolder.erase(leaderSpawnId);
+            ASSERT(erased, "Not registered group " UI64FMTD " in map %u", leaderSpawnId, GetId());
+        }
+
+        delete group;
+    }
 }
 
 void Map::AddToActive(WorldObject* obj)
 {
+    // Phase 3 redesign, Stage 3 (ARGUSCORE_FIXES.md) - m_activeNonPlayers is Map-wide and
+    // unguarded, and the respawn-grid active-lock counter below can target a grid outside the
+    // calling shard's own territory. Defer the whole call rather than special-casing which part
+    // is unsafe. Raw obj capture matches Stage 1's AddToMap precedent: the far-spell-callback
+    // drain (DelayedUpdate) runs strictly before RemoveAllObjectsInRemoveList's actual deletes,
+    // so obj is never freed before replay; the IsDestroyedObject() guard makes replay a correct
+    // no-op for an object torn down in the meantime (setActive/grid-load toggling this on an
+    // about-to-be-deleted object has nothing useful left to do).
+    if (CurrentFanOutShardForThisMap())
+    {
+        AddFarSpellCallback([obj](Map* map)
+        {
+            if (!obj->IsDestroyedObject())
+                map->AddToActive(obj);
+        });
+        return;
+    }
+
     m_activeNonPlayers.insert(obj);
 
     Optional<Position> respawnLocation;
@@ -2816,6 +3757,31 @@ void Map::AddToActive(WorldObject* obj)
 
 void Map::RemoveFromActive(WorldObject* obj)
 {
+    // Phase 3 redesign, Stage 3 (ARGUSCORE_FIXES.md) - see AddToActive's own comment for the
+    // general shape; the IsDestroyedObject() skip does NOT apply symmetrically here, unlike that
+    // comment used to claim.
+    //
+    // Stage 7 recheck fix (ARGUSCORE_FIXES.md) - a real, demonstrated use-after-free: this is the
+    // ONLY place m_activeNonPlayers ever loses an entry (WorldObject::setActive(false) calls this
+    // synchronously pre-partitioning; RemoveFromMap's own cleanup trusts that already happened and
+    // does not re-check/re-remove). If a creature's setActive(false) defers here from a fan-out
+    // thread, and the SAME tick also marks it destroyed (AddObjectToRemoveList -> SetDestroyedObject
+    // -> real deletion follows later THIS SAME serial phase, in RemoveAllObjectsInRemoveList, well
+    // after this replay runs - the object is still valid memory at replay time regardless of the
+    // destroyed flag, so it's always safe to read from here), the old skip-on-destroyed guard left
+    // the entry in m_activeNonPlayers forever - deleted out from under it moments later, then
+    // dereferenced by the next tick's classification loop. AddToActive's own destroyed-skip stays
+    // correct (a pure optimization there: no point setting up bookkeeping for an object about to be
+    // deleted anyway) - only the remove side must always run.
+    if (CurrentFanOutShardForThisMap())
+    {
+        AddFarSpellCallback([obj](Map* map)
+        {
+            map->RemoveFromActive(obj);
+        });
+        return;
+    }
+
     // Map::Update for active object in proccess
     if (m_activeNonPlayersIter != m_activeNonPlayers.end())
     {
@@ -3558,17 +4524,17 @@ void BattlegroundMap::Update(uint32 diff)
 
 AreaTrigger* Map::GetAreaTrigger(ObjectGuid const& guid)
 {
-    return _objectsStore.Find<AreaTrigger>(guid);
+    return GetWorldObjectInObjectsStore<AreaTrigger>(guid);
 }
 
 SceneObject* Map::GetSceneObject(ObjectGuid const& guid)
 {
-    return _objectsStore.Find<SceneObject>(guid);
+    return GetWorldObjectInObjectsStore<SceneObject>(guid);
 }
 
 Conversation* Map::GetConversation(ObjectGuid const& guid)
 {
-    return _objectsStore.Find<Conversation>(guid);
+    return GetWorldObjectInObjectsStore<Conversation>(guid);
 }
 
 Player* Map::GetPlayer(ObjectGuid const& guid)
@@ -3578,27 +4544,27 @@ Player* Map::GetPlayer(ObjectGuid const& guid)
 
 Corpse* Map::GetCorpse(ObjectGuid const& guid)
 {
-    return _objectsStore.Find<Corpse>(guid);
+    return GetWorldObjectInObjectsStore<Corpse>(guid);
 }
 
 Creature* Map::GetCreature(ObjectGuid const& guid)
 {
-    return _objectsStore.Find<Creature>(guid);
+    return GetWorldObjectInObjectsStore<Creature>(guid);
 }
 
 DynamicObject* Map::GetDynamicObject(ObjectGuid const& guid)
 {
-    return _objectsStore.Find<DynamicObject>(guid);
+    return GetWorldObjectInObjectsStore<DynamicObject>(guid);
 }
 
 GameObject* Map::GetGameObject(ObjectGuid const& guid)
 {
-    return _objectsStore.Find<GameObject>(guid);
+    return GetWorldObjectInObjectsStore<GameObject>(guid);
 }
 
 Pet* Map::GetPet(ObjectGuid const& guid)
 {
-    return _objectsStore.Find<Pet>(guid);
+    return GetWorldObjectInObjectsStore<Pet>(guid);
 }
 
 Transport* Map::GetTransport(ObjectGuid const& guid)
@@ -3610,37 +4576,460 @@ Transport* Map::GetTransport(ObjectGuid const& guid)
     return go ? go->ToTransport() : nullptr;
 }
 
+// Which shard a given spawnId's respawn/by-spawnId-store data lives in - derived purely from
+// that spawn's static home position (sObjectMgr spawn data), never from a live instance's
+// current position, so insert/remove/lookup for the same spawnId always agree on the same
+// shard regardless of how far a live instance may have since moved. See ARGUSCORE_FIXES.md,
+// "MAJOR FEATURE PROPOSAL - Continent Map Spatial Partitioning", Phase 1.
+uint32 Map::GetPartitionIndexForPosition(float x, float y) const
+{
+    // Fast-path null check kept here too (duplicated in GetPartitionIndexForGrid below) rather
+    // than only in the callee, so an unpartitioned map skips the grid-coord computation itself,
+    // not just the layout lookup - matches this method's own "0 immediately... without even a
+    // grid-coord computation" documented fast path (Map.h).
+    if (!_cachedPartitionLayout)
+        return 0;
+
+    GridCoord gridCoord = Trinity::ComputeGridCoord(x, y);
+    return GetPartitionIndexForGrid(gridCoord.x_coord, gridCoord.y_coord);
+}
+
+// Grid-coordinate-based partition lookup, factored out of GetPartitionIndexForPosition (Phase 4,
+// ARGUSCORE_FIXES.md) - the cross-partition transfer hook already has a destination Cell's grid
+// coordinates on hand (from MapObjectCellRelocation's new_cell) before the object's own Relocate()
+// has even run, so it can call this directly rather than round-tripping through a float position
+// that isn't authoritative yet.
+uint32 Map::GetPartitionIndexForGrid(uint32 gridX, uint32 gridY) const
+{
+    // _cachedPartitionLayout, not a live sMapPartitionMgr->GetLayout(GetId()) query - see that
+    // member's own comment for why (a live query can both dangle across a config reload and
+    // desync from this Map's already-fixed-size shard vectors).
+    if (!_cachedPartitionLayout)
+        return 0;
+
+    return _cachedPartitionLayout->GetPartitionIndex(gridX, gridY).value_or(0);
+}
+
+uint32 Map::GetPartitionIndexForObject(WorldObject const* obj) const
+{
+    return GetPartitionIndexForPosition(obj->GetPositionX(), obj->GetPositionY());
+}
+
+uint32 Map::ShardOf(WorldObject const* obj) const
+{
+    // Phase 3 redesign (ARGUSCORE_FIXES.md) - see _objectShardIndexLock's own comment (Map.h).
+    std::shared_lock<std::shared_mutex> lock(_objectShardIndexLock);
+    auto it = _objectShardIndex.find(obj->GetGUID());
+    if (it != _objectShardIndex.end())
+        return it->second;
+    lock.unlock();
+    return GetPartitionIndexForObject(obj);
+}
+
+bool Map::IsCrossPartition(WorldObject const* a, WorldObject const* b) const
+{
+    // Phase 7 kill-switch (ARGUSCORE_FIXES.md) - additive to the GetShardCount() fast path below,
+    // not a replacement for it: GetShardCount() itself is deliberately left alone (it drives real
+    // container sizing/iteration elsewhere - see MapPartitionMgr::SetForceDisabled's own comment
+    // for why redefining it would be far worse than what this switch prevents).
+    //
+    // Phase 3 redesign (ARGUSCORE_FIXES.md) - reads _tickForceDisabled (latched once at the top
+    // of Map::Update(), see that member's own comment), NOT a live sMapPartitionMgr->IsForceDisabled
+    // call. This function is reachable from every PartitionWorkerPool worker thread during the
+    // parallel phase (via the combat/threat/damage/aura guards) - a live read here meant toggling
+    // the kill-switch mid-tick, while a fan-out was already in flight, made every guard on every
+    // worker thread immediately go inert for the rest of that tick's already-running work (an
+    // independent review's finding: the emergency switch made the tick it was pressed on LESS
+    // safe, not safer). Latching means a mid-tick toggle can't affect the tick already in flight -
+    // it still takes effect starting the very next tick, via shouldFanOut's own live read, which
+    // is unchanged and correct as-is.
+    if (GetShardCount() == 1 || _tickForceDisabled)
+        return false;
+    if (a == b)
+        return false;
+
+    // Phase 3 (ARGUSCORE_FIXES.md, "real concurrent fan-out") - ShardOf() alone is not a sound
+    // proxy for "are these two objects being processed by different worker threads THIS tick"
+    // now that a fan-out dispatch actually exists. ShardOf's bookkeeping (_objectShardIndex, for
+    // the 8 _objectsStore-tracked types) is only refreshed when a deferred cross-partition
+    // transfer drains in DelayedUpdate, so it can briefly lag an object's real position, while
+    // Map::ClassifyForFanOut computes THIS tick's actual dispatch shard fresh, every tick, from
+    // live position (Map::GetPartitionIndexForObject). If those two ever disagree, a
+    // ShardOf-only check could let a cross-thread combat/threat/damage/aura interaction proceed
+    // synchronously while the two sides are concurrently being ticked on different
+    // PartitionWorkerPool threads - a real data race, not a bookkeeping nicety (an independent
+    // review caught this gap between the two existing shard concepts). Checking both - either
+    // mismatching forces a defer - can only make this function MORE conservative than before,
+    // never less, so it cannot regress a previously-safe synchronous path.
+    //
+    // FIXED in a Stage 8 follow-up (was: "Known, NOT-yet-fixed gap", Stage 7 recheck finding,
+    // ARGUSCORE_FIXES.md, left unfixed after an attempted fix broke the build and was reverted
+    // rather than rushed). Neither ShardOf() nor GetPartitionIndexForObject() alone actually
+    // answers "which worker thread is CURRENTLY processing each side THIS tick" - that's fixed
+    // once per tick by ClassifyForFanOut's dispatch decision, made from each object's GRID CELL
+    // membership (stable throughout the parallel phase), not raw position (which a unit's own
+    // movement simulation can update mid-Update() on its own thread). A pin
+    // (Map::ResolveCrossPartitionPair/HandleCrossPartitionTransfer) updates ShardOf (bookkeeping)
+    // immediately; if the pinned object's raw position ALSO happens to already agree with the new
+    // bookkeeping, ShardOf()/GetPartitionIndexForObject() alone could agree "same partition" while
+    // the object is STILL being ticked by its OLD shard's worker thread for the rest of this tick
+    // - dispatch was already fixed at classification time, before the pin happened. The originally
+    // proposed fix (compare each side's actual grid cell partition via
+    // WorldObject::GetCurrentCell()) didn't work as a drop-in addition - GetCurrentCell() is
+    // declared on MapObject, which Player doesn't inherit, and this function is routinely called
+    // with Player. Fixed instead by consulting Map::_tickDispatchShard (see its own comment, Map.h)
+    // - THIS tick's actual ClassifyForFanOut verdict for each object, recorded once at
+    // classification time and frozen for the rest of the tick, exactly answering "which worker
+    // thread is this object's Update() actually running on right now" without needing any
+    // per-type dispatch machinery at all (it's populated for every WorldObject type
+    // ClassifyForFanOut is ever called with, Player included). A GetShardCount() sentinel entry
+    // (boundary-classified - processed serially, strictly after every interior worker task has
+    // joined via WaitAll(), so provably not concurrent with anything right now) always answers
+    // "cross-partition" against anything, including another boundary object - matching this
+    // function's own "checking both - either mismatching forces a defer - can only make this
+    // function MORE conservative than before, never less" principle rather than assuming two
+    // not-yet-processed boundary objects are safe to touch from a worker thread that isn't
+    // provably either one's own anchor. Falls through to the pre-existing ShardOf/live-position
+    // checks only when one or both sides weren't classified this tick (e.g. an object spawned
+    // after this tick's classification loop already ran) - a rare edge case with no better answer
+    // available, but strictly no worse than before this fix.
+    if (auto itA = _tickDispatchShard.find(a), itB = _tickDispatchShard.find(b);
+        itA != _tickDispatchShard.end() && itB != _tickDispatchShard.end())
+    {
+        if (itA->second == GetShardCount() || itB->second == GetShardCount())
+            return true;
+        return itA->second != itB->second;
+    }
+
+    if (ShardOf(a) != ShardOf(b))
+        return true;
+    return GetPartitionIndexForObject(a) != GetPartitionIndexForObject(b);
+}
+
+bool Map::IsUnsafeForCurrentThreadToTouch(WorldObject const* obj) const
+{
+    // See this function's own declaration comment (Map.h) for the general shape/reasoning -
+    // this is IsCrossPartition's sibling for guards with no clean second "anchor" object to
+    // compare against.
+    if (GetShardCount() == 1 || _tickForceDisabled)
+        return false;
+
+    Optional<uint32> currentShard = CurrentFanOutShardForThisMap();
+    if (!currentShard)
+        return false; // nothing fanning out on this thread right now - single-threaded, safe regardless of obj
+
+    if (auto it = _tickDispatchShard.find(obj); it != _tickDispatchShard.end())
+        return it->second != *currentShard || it->second == GetShardCount();
+
+    return ShardOf(obj) != *currentShard;
+}
+
+namespace
+{
+    // Phase 6 (ARGUSCORE_FIXES.md, "Double-buffered halo snapshots") - a single templated Visit
+    // handles all 8 _objectsStore-tracked types identically (publish if near a boundary), unlike
+    // e.g. cs_debug.cpp's CreatureCountWorker which needs a Creature-specific overload plus a
+    // no-op catch-all - there's nothing type-specific to do here.
+    struct HaloSnapshotPublishWorker
+    {
+        Map* MapPtr;
+        float HaloWidth;
+
+        template <typename ObjectType>
+        void Visit(std::unordered_map<ObjectGuid, ObjectType*> const& objects)
+        {
+            for (auto const& [guid, obj] : objects)
+                if (MapPtr->IsNearPartitionBoundary(obj->GetPositionX(), obj->GetPositionY(), HaloWidth))
+                    obj->PublishHaloSnapshot();
+        }
+    };
+}
+
+void Map::PublishHaloSnapshots()
+{
+    // Phase 7 kill-switch (ARGUSCORE_FIXES.md) - see Map::IsCrossPartition's own comment for why
+    // GetShardCount() itself stays untouched.
+    if (GetShardCount() <= 1 || sMapPartitionMgr->IsForceDisabled(GetId()))
+        return;
+
+    float haloWidth = _cachedHaloWidth;
+
+    HaloSnapshotPublishWorker worker{ this, haloWidth };
+    TypeContainerVisitor<HaloSnapshotPublishWorker, MapStoredObjectTypesContainer> visitor(worker);
+    for (uint32 shard = 0; shard < GetObjectsStoreShardCount(); ++shard)
+        visitor.Visit(GetObjectsStoreShard(shard));
+
+    // Player is not tracked in _objectsStore (see ShardOf's own comment) but is exactly the kind
+    // of object a geometrically-neighboring partition's future AI/visibility logic would need a
+    // safe read of near a boundary - reached separately via the existing DoOnPlayers, matching
+    // Decision 4's "Players stay unpartitioned/main-thread-only" treatment.
+    DoOnPlayers([this, haloWidth](Player* player)
+    {
+        if (IsNearPartitionBoundary(player->GetPositionX(), player->GetPositionY(), haloWidth))
+            player->PublishHaloSnapshot();
+    });
+}
+
+uint32 Map::GetPartitionIndexForSpawnId(SpawnObjectType type, ObjectGuid::LowType spawnId) const
+{
+    if (!_cachedPartitionLayout)
+        return 0;
+
+    std::unordered_map<ObjectGuid::LowType, uint32>* cache = nullptr;
+    std::shared_mutex* cacheLock = nullptr;
+    switch (type)
+    {
+        case SPAWN_TYPE_CREATURE:    cache = &_creatureSpawnIdShardCache;    cacheLock = &_creatureSpawnIdShardCacheLock;    break;
+        case SPAWN_TYPE_GAMEOBJECT:  cache = &_gameObjectSpawnIdShardCache;  cacheLock = &_gameObjectSpawnIdShardCacheLock;  break;
+        case SPAWN_TYPE_AREATRIGGER: cache = &_areaTriggerSpawnIdShardCache; cacheLock = &_areaTriggerSpawnIdShardCacheLock; break;
+        default:                     return 0;
+    }
+
+    // Cached rather than recomputed on every call - see this method's own declaration comment
+    // (Map.h) for why: Creature::DeleteFromDB/GameObject::DeleteFromDB delete the spawn's
+    // sObjectMgr entry before the actual instance removal runs, so a recompute at remove time
+    // could silently fall back to shard 0 and erase from the wrong shard.
+    //
+    // Phase 3 redesign, Stage 4 (ARGUSCORE_FIXES.md) - see the cache members' own comment (Map.h)
+    // for why this is locked rather than pre-populated. Returns the shard by value while still
+    // under the lock in both branches - unordered_map gives no reference stability across a
+    // rehash, so nothing from `cache` may escape the lock.
+    {
+        std::shared_lock<std::shared_mutex> lock(*cacheLock);
+        auto it = cache->find(spawnId);
+        if (it != cache->end())
+            return it->second;
+    }
+
+    SpawnData const* data = sObjectMgr->GetSpawnData(type, spawnId);
+    if (!data)
+        return 0; // nothing to cache - matches the pre-existing defensive fallback
+
+    uint32 shard = GetPartitionIndexForPosition(data->spawnPoint.GetPositionX(), data->spawnPoint.GetPositionY());
+
+    std::unique_lock<std::shared_mutex> lock(*cacheLock);
+    cache->emplace(spawnId, shard);
+    return shard;
+}
+
+void Map::AddCreatureToSpawnIdStore(ObjectGuid::LowType spawnId, Creature* creature)
+{
+    // Stage 9 follow-up fix (ARGUSCORE_FIXES.md) - see _creatureBySpawnIdStoreLock's own comment,
+    // Map.h.
+    std::unique_lock<std::shared_mutex> lock(_creatureBySpawnIdStoreLock);
+    _creatureBySpawnIdStore[GetPartitionIndexForSpawnId(SPAWN_TYPE_CREATURE, spawnId)].insert(std::make_pair(spawnId, creature));
+}
+
+void Map::RemoveCreatureFromSpawnIdStore(ObjectGuid::LowType spawnId, Creature* creature)
+{
+    std::unique_lock<std::shared_mutex> lock(_creatureBySpawnIdStoreLock);
+    Trinity::Containers::MultimapErasePair(_creatureBySpawnIdStore[GetPartitionIndexForSpawnId(SPAWN_TYPE_CREATURE, spawnId)], spawnId, creature);
+}
+
+Map::CreatureBySpawnIdResult Map::GetCreaturesBySpawnId(ObjectGuid::LowType spawnId) const
+{
+    CreatureBySpawnIdResult result;
+    std::shared_lock<std::shared_mutex> lock(_creatureBySpawnIdStoreLock);
+    auto bounds = _creatureBySpawnIdStore[GetPartitionIndexForSpawnId(SPAWN_TYPE_CREATURE, spawnId)].equal_range(spawnId);
+    for (auto itr = bounds.first; itr != bounds.second; ++itr)
+        result.push_back(itr->second);
+    return result;
+}
+
+void Map::AddAreaTriggerToSpawnIdStore(ObjectGuid::LowType spawnId, AreaTrigger* areaTrigger)
+{
+    std::unique_lock<std::shared_mutex> lock(_areaTriggerBySpawnIdStoreLock);
+    _areaTriggerBySpawnIdStore[GetPartitionIndexForSpawnId(SPAWN_TYPE_AREATRIGGER, spawnId)].insert(std::make_pair(spawnId, areaTrigger));
+}
+
+void Map::RemoveAreaTriggerFromSpawnIdStore(ObjectGuid::LowType spawnId, AreaTrigger* areaTrigger)
+{
+    std::unique_lock<std::shared_mutex> lock(_areaTriggerBySpawnIdStoreLock);
+    Trinity::Containers::MultimapErasePair(_areaTriggerBySpawnIdStore[GetPartitionIndexForSpawnId(SPAWN_TYPE_AREATRIGGER, spawnId)], spawnId, areaTrigger);
+}
+
+void Map::AddGameObjectToSpawnIdStore(ObjectGuid::LowType spawnId, GameObject* go)
+{
+    std::unique_lock<std::shared_mutex> lock(_gameobjectBySpawnIdStoreLock);
+    _gameobjectBySpawnIdStore[GetPartitionIndexForSpawnId(SPAWN_TYPE_GAMEOBJECT, spawnId)].insert(std::make_pair(spawnId, go));
+}
+
+void Map::RemoveGameObjectFromSpawnIdStore(ObjectGuid::LowType spawnId, GameObject* go)
+{
+    std::unique_lock<std::shared_mutex> lock(_gameobjectBySpawnIdStoreLock);
+    Trinity::Containers::MultimapErasePair(_gameobjectBySpawnIdStore[GetPartitionIndexForSpawnId(SPAWN_TYPE_GAMEOBJECT, spawnId)], spawnId, go);
+}
+
+Map::GameObjectBySpawnIdResult Map::GetGameObjectsBySpawnId(ObjectGuid::LowType spawnId) const
+{
+    GameObjectBySpawnIdResult result;
+    std::shared_lock<std::shared_mutex> lock(_gameobjectBySpawnIdStoreLock);
+    auto bounds = _gameobjectBySpawnIdStore[GetPartitionIndexForSpawnId(SPAWN_TYPE_GAMEOBJECT, spawnId)].equal_range(spawnId);
+    for (auto itr = bounds.first; itr != bounds.second; ++itr)
+        result.push_back(itr->second);
+    return result;
+}
+
 Creature* Map::GetCreatureBySpawnId(ObjectGuid::LowType spawnId) const
 {
-    auto const bounds = GetCreatureBySpawnIdStore().equal_range(spawnId);
-    if (bounds.first == bounds.second)
+    CreatureBySpawnIdResult creatures = GetCreaturesBySpawnId(spawnId);
+    if (creatures.empty())
         return nullptr;
 
-    std::unordered_multimap<ObjectGuid::LowType, Creature*>::const_iterator creatureItr = std::find_if(bounds.first, bounds.second, [](Map::CreatureBySpawnIdContainer::value_type const& pair)
-    {
-        return pair.second->IsAlive();
-    });
-
-    return creatureItr != bounds.second ? creatureItr->second : bounds.first->second;
+    auto creatureItr = std::find_if(creatures.begin(), creatures.end(), [](Creature* creature) { return creature->IsAlive(); });
+    return creatureItr != creatures.end() ? *creatureItr : creatures.front();
 }
 
 GameObject* Map::GetGameObjectBySpawnId(ObjectGuid::LowType spawnId) const
 {
-    auto const bounds = GetGameObjectBySpawnIdStore().equal_range(spawnId);
-    if (bounds.first == bounds.second)
+    GameObjectBySpawnIdResult gameObjects = GetGameObjectsBySpawnId(spawnId);
+    if (gameObjects.empty())
         return nullptr;
 
-    std::unordered_multimap<ObjectGuid::LowType, GameObject*>::const_iterator creatureItr = std::find_if(bounds.first, bounds.second, [](Map::GameObjectBySpawnIdContainer::value_type const& pair)
-    {
-        return pair.second->isSpawned();
-    });
+    auto gameObjectItr = std::find_if(gameObjects.begin(), gameObjects.end(), [](GameObject* go) { return go->isSpawned(); });
+    return gameObjectItr != gameObjects.end() ? *gameObjectItr : gameObjects.front();
+}
 
-    return creatureItr != bounds.second ? creatureItr->second : bounds.first->second;
+void Map::TransferWorldObjectToPartition(WorldObject* obj, uint32 targetShard)
+{
+    if (Unit* unit = obj->ToUnit())
+    {
+        if (Pet* pet = unit->ToPet())
+            TransferObjectToPartition<Pet>(pet, targetShard);
+        else if (Creature* creature = unit->ToCreature())
+            TransferObjectToPartition<Creature>(creature, targetShard);
+
+        // Atomic group pinning (Piece 4, ARGUSCORE_FIXES.md) - a pet/guardian's own follow-AI
+        // has no way to notice its owner's bookkeeping shard changed without the owner's
+        // position also changing, so every controlled unit has to be moved explicitly here
+        // rather than relying on it to catch up on its own. m_Controlled is the same container
+        // Unit::DealDamage already walks for its OwnerAttackedBy notify. Recurses through this
+        // same function (not a direct TransferObjectToPartition<Pet> call) specifically because
+        // m_Controlled holds every Minion the owner controls, not just true Pet-class instances -
+        // an independent review caught that the original Pet-only version silently dropped
+        // Guardian-type minions (Water Elemental/DK ghoul-style summons: Guardian derives from
+        // Minion but not from Pet, so ToPet() returns nullptr for them even though they're still
+        // real, transferable, _objectsStore-tracked Creatures), leaving their bookkeeping shard
+        // permanently mismatched from their controlling owner's - exactly the split this
+        // mechanism exists to prevent. Recursing also correctly picks up a controlled unit's own
+        // vehicle-passenger chain, if it ever has one, for free.
+        for (Unit* controlled : unit->m_Controlled)
+            TransferWorldObjectToPartition(controlled, targetShard);
+
+        // Vehicle+passenger atomicity (Phase 4, ARGUSCORE_FIXES.md) - Vehicle::RelocatePassengers
+        // relocates each seat independently with zero group atomicity today (confirmed by reading
+        // it in full - a real, pre-existing gap, not something this introduces). Rather than
+        // touching that core relocation logic, every current passenger is walked here and pinned
+        // to the same shard as its vehicle - symmetric to the m_Controlled pet-walk above, and
+        // naturally recursive for a vehicle-riding-a-vehicle passenger chain (TransferWorldObjectToPartition
+        // calling itself on that passenger's own Unit branch).
+        if (Vehicle* vehicle = unit->GetVehicleKit())
+            for (auto const& [seatId, seat] : vehicle->Seats)
+                if (Unit* passenger = ObjectAccessor::GetUnit(*unit, seat.Passenger.Guid))
+                    TransferWorldObjectToPartition(passenger, targetShard);
+
+        return;
+    }
+
+    if (GameObject* go = obj->ToGameObject())
+        TransferObjectToPartition<GameObject>(go, targetShard);
+    else if (AreaTrigger* areaTrigger = obj->ToAreaTrigger())
+        TransferObjectToPartition<AreaTrigger>(areaTrigger, targetShard);
+    else if (DynamicObject* dynObj = obj->ToDynObject())
+    {
+        // Review finding (code-review deep-dive fix, ARGUSCORE_FIXES.md) - this comment
+        // previously claimed "DynamicObject has no ToDynamicObject() convenience accessor on
+        // WorldObject/Object", which was simply wrong (Object::ToDynObject() has existed all
+        // along, Object.h) - the raw reinterpret_cast this branch used instead was an
+        // unnecessary, type-unsafe workaround for a mistaken premise, not a genuine gap. Using
+        // the real accessor here instead. This branch is presently unreachable in practice
+        // (Map::MoveAllDynamicObjectsInMoveList, the only caller of DynamicObjectCellRelocation,
+        // has zero call sites anywhere in src/ - a pre-existing, unrelated bug, see
+        // ARGUSCORE_FIXES.md), but is kept correct anyway so it isn't a silent landmine for
+        // whoever eventually fixes that: without it, a DynamicObject crossing a partition
+        // boundary would silently keep a permanently stale _objectShardIndex entry, the exact bug
+        // this branch prevents for AreaTrigger above.
+        TransferObjectToPartition<DynamicObject>(dynObj, targetShard);
+    }
+}
+
+void Map::HandleCrossPartitionTransfer(WorldObject* obj, uint32 targetShard)
+{
+    if (Unit* unit = obj->ToUnit())
+    {
+        // Piece 3 (ARGUSCORE_FIXES.md) - never let ordinary position-based transfer split a live
+        // combat/threat group. Refusing the move instead would leave the bookkeeping mismatch
+        // permanent (nothing re-evaluates it once combat ends unless the object crosses another
+        // grid), so drag every current reference partner onto the new shard instead, reusing the
+        // exact primitive Phase 5 already built. A Player reference partner is a no-op through
+        // TransferWorldObjectToPartition - the same already-accepted gap ResolveCrossPartitionPair
+        // documents, not a new one.
+        if (unit->GetCombatManager().HasCombat())
+        {
+            for (auto const& [guid, ref] : unit->GetCombatManager().GetPvECombatRefs())
+                if (Unit* other = ref->GetOther(unit))
+                    TransferWorldObjectToPartition(other, targetShard);
+            for (auto const& [guid, ref] : unit->GetCombatManager().GetPvPCombatRefs())
+                if (Unit* other = ref->GetOther(unit))
+                    TransferWorldObjectToPartition(other, targetShard);
+        }
+    }
+
+    TransferWorldObjectToPartition(obj, targetShard);
+}
+
+void Map::ResolveCrossPartitionPair(WorldObject* a, WorldObject* b)
+{
+    uint32 shardA = ShardOf(a);
+    uint32 shardB = ShardOf(b);
+    if (shardA == shardB)
+    {
+        // Phase 3 redesign (ARGUSCORE_FIXES.md) - IsCrossPartition can flag a pair whose
+        // bookkeeping shard (ShardOf) already agrees but whose LIVE position doesn't (see
+        // IsCrossPartition's own comment on why both are checked). This function can only move
+        // BOOKKEEPING - it cannot move either side's actual position - so when bookkeeping
+        // already agrees, there is nothing here that can make GetPartitionIndexForObject(a) equal
+        // GetPartitionIndexForObject(b) too; that only changes when one side's own ordinary
+        // cell-relocation processing (EnqueueCrossPartitionTransferIfNeeded) next updates its
+        // bookkeeping to match its own current position. An earlier version of this fix tried to
+        // "recompute from live position and transfer anyway" here - an independent review found
+        // that could silently no-op in one sub-case (transferring b to a shard ShardOf(b) already
+        // equals, since TransferObjectToPartition's own no-op check compares against ShardOf, the
+        // very thing this branch means already agrees) and oscillate bookkeeping back and forth
+        // forever in another. A genuine no-op is correct here: the pair keeps deferring through
+        // the barrier on every interaction until positions naturally reconverge, which is safe
+        // (every deferred replay still runs, just serially) if not maximally efficient - exactly
+        // the "boundary churn" scenario the original design record already gates behind a
+        // mandatory adversarial stress test, not a correctness gap to paper over with a transfer
+        // that cannot actually help.
+        return;
+    }
+
+    // Must stay in sync with TransferWorldObjectToPartition's actual dispatch (Unit->{Pet,
+    // Creature}, GameObject, AreaTrigger, DynamicObject) - this only matters in practice for
+    // Aura::UpdateTargetMap's guard (SpellAuras.cpp), whose owner side can be a DynamicObject
+    // for a DYNOBJ_AURA_TYPE aura; every other caller of this function only ever passes Units.
+    auto isTransferable = [](WorldObject const* obj)
+    {
+        if (Unit const* unit = obj->ToUnit())
+            return unit->ToPet() != nullptr || unit->ToCreature() != nullptr;
+        if (obj->ToGameObject() || obj->ToAreaTrigger())
+            return true;
+        return obj->GetTypeId() == TYPEID_DYNAMICOBJECT;
+    };
+
+    if (isTransferable(b))
+        TransferWorldObjectToPartition(b, shardA);
+    else if (isTransferable(a))
+        TransferWorldObjectToPartition(a, shardB);
 }
 
 AreaTrigger* Map::GetAreaTriggerBySpawnId(ObjectGuid::LowType spawnId) const
 {
-    auto const bounds = GetAreaTriggerBySpawnIdStore().equal_range(spawnId);
+    // Stage 9 follow-up fix (ARGUSCORE_FIXES.md) - see _areaTriggerBySpawnIdStoreLock's own
+    // comment, Map.h.
+    std::shared_lock<std::shared_mutex> lock(_areaTriggerBySpawnIdStoreLock);
+    auto const bounds = _areaTriggerBySpawnIdStore[GetPartitionIndexForSpawnId(SPAWN_TYPE_AREATRIGGER, spawnId)].equal_range(spawnId);
     if (bounds.first == bounds.second)
         return nullptr;
 
@@ -3985,6 +5374,18 @@ void Map::SendZoneWeather(ZoneDynamicInfo const& zoneDynamicInfo, Player* player
 
 void Map::SetZoneMusic(uint32 zoneId, uint32 musicId)
 {
+    // Phase 3 redesign, Stage 3 (ARGUSCORE_FIXES.md) - _zoneDynamicInfo is a Map-wide
+    // unordered_map with no lock; operator[] can rehash/insert concurrently from two shards.
+    // Reachable from a fan-out worker thread via SmartScript/boss AI (me->GetMap()->SetZoneMusic
+    // during CreatureAI::UpdateAI). No object identity involved (zoneId/musicId are plain
+    // values), so the deferred replay just re-invokes the same call - no GUID re-resolution
+    // needed.
+    if (CurrentFanOutShardForThisMap())
+    {
+        AddFarSpellCallback([zoneId, musicId](Map* map) { map->SetZoneMusic(zoneId, musicId); });
+        return;
+    }
+
     _zoneDynamicInfo[zoneId].MusicId = musicId;
 
     Map::PlayerList const& players = GetPlayers();
@@ -4034,6 +5435,14 @@ WeatherState Map::GetZoneWeather(uint32 zoneId) const
 
 void Map::SetZoneWeather(uint32 zoneId, WeatherState weatherId, float intensity)
 {
+    // Phase 3 redesign, Stage 3 (ARGUSCORE_FIXES.md) - see SetZoneMusic's own comment; same
+    // _zoneDynamicInfo race, same no-object-identity defer shape.
+    if (CurrentFanOutShardForThisMap())
+    {
+        AddFarSpellCallback([zoneId, weatherId, intensity](Map* map) { map->SetZoneWeather(zoneId, weatherId, intensity); });
+        return;
+    }
+
     ZoneDynamicInfo& info = _zoneDynamicInfo[zoneId];
     info.WeatherId = weatherId;
     info.Intensity = intensity;
@@ -4053,6 +5462,14 @@ void Map::SetZoneWeather(uint32 zoneId, WeatherState weatherId, float intensity)
 
 void Map::SetZoneOverrideLight(uint32 zoneId, uint32 areaLightId, uint32 overrideLightId, Milliseconds transitionTime)
 {
+    // Phase 3 redesign, Stage 3 (ARGUSCORE_FIXES.md) - see SetZoneMusic's own comment; same
+    // _zoneDynamicInfo race, same no-object-identity defer shape.
+    if (CurrentFanOutShardForThisMap())
+    {
+        AddFarSpellCallback([zoneId, areaLightId, overrideLightId, transitionTime](Map* map) { map->SetZoneOverrideLight(zoneId, areaLightId, overrideLightId, transitionTime); });
+        return;
+    }
+
     ZoneDynamicInfo& info = _zoneDynamicInfo[zoneId];
     // client can support only one override for each light (zone independent)
     info.LightOverrides.erase(std::remove_if(info.LightOverrides.begin(), info.LightOverrides.end(), [areaLightId](ZoneDynamicInfo::LightOverride const& lightOverride)

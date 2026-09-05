@@ -22,6 +22,7 @@
 #include "SpawnData.h"
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <unordered_map>
 #include <vector>
@@ -76,8 +77,29 @@ class TC_GAME_API SpawnedPoolData
 
         template<typename T>
         void RemoveSpawn(uint64 db_guid_or_pool_id, uint32 pool_id);
+
+        // Phase 3 redesign, Stage 4 fix (ARGUSCORE_FIXES.md, review finding) - each individual
+        // IsSpawnedObject/AddSpawn/RemoveSpawn call above is atomic on its own, but
+        // PoolGroup<T>::SpawnObject/DespawnObject (PoolMgr.cpp) each need a whole
+        // check-then-act sequence (read the spawned count, then add up to the computed limit) to
+        // be atomic as ONE unit - otherwise two threads can both read the same stale count and
+        // both spawn up to the pool's limit, over-spawning past it. Exposes the lock itself
+        // (rather than adding a new "do this whole compound op" method here) since the compound
+        // operations live in PoolGroup<T>, a different class. Backed by the same recursive_mutex
+        // as every individual accessor above, so PoolGroup<Pool>::Spawn1Object/Despawn1Object's
+        // recursive call back into sPoolMgr->SpawnPool/DespawnPool (pools of pools, same
+        // SpawnedPoolData&) re-locks safely on the same thread.
+        std::unique_lock<std::recursive_mutex> Lock() const { return std::unique_lock<std::recursive_mutex>(mLock); }
     private:
         Map* mOwner;
+        // Phase 3 redesign, Stage 4 (ARGUSCORE_FIXES.md) - reachable from a fan-out worker thread
+        // via Creature/GameObject's own death/despawn handling (sPoolMgr->UpdatePool<T>) with no
+        // prior synchronization; IsSpawnedObject is also read back synchronously in the same tick
+        // to gate other logic (e.g. Map::SpawnGroupSpawn), ruling out deferral. recursive_mutex
+        // because IsSpawnedObject(SpawnObjectType, ...) dispatches into the per-type
+        // IsSpawnedObject<T> specializations, which also lock - a plain mutex would self-deadlock
+        // on that path.
+        mutable std::recursive_mutex mLock;
         SpawnedPoolObjects mSpawnedCreatures;
         SpawnedPoolObjects mSpawnedGameobjects;
         SpawnedPoolPools   mSpawnedPools;

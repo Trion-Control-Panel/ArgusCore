@@ -2627,11 +2627,48 @@ TempSummon* Map::SummonCreature(uint32 entry, Position const& pos, SummonPropert
         return nullptr;
     }
 
-    summon->InitSummon(summoner);
+    // Stage 9 follow-up fix (ARGUSCORE_FIXES.md, independent review finding) - AddToMap can defer
+    // instead of placing the object synchronously (cross-shard/not-yet-created-grid case, see its
+    // own comment) and still return true - the "documented, accepted one-tick-late behavior" that
+    // comment describes for AddToMap itself, but InitSummon (fires AI()->JustSummoned/IsSummonedBy)
+    // and the AIRelocationNotifier visit below were firing unconditionally regardless, on a summon
+    // that isn't IsInWorld()/grid-resident yet in the deferred case - a boss script's JustSummoned
+    // calling SetData/CastSpell/Summons.Summon() on a not-really-there-yet creature can misbehave,
+    // and Cell::VisitAllObjects would be searching a cell the object was never actually linked
+    // into. Skip both here and, only in the deferred case, queue them as a follow-up
+    // AddFarSpellCallback - enqueued immediately after AddToMap's own deferred replay callback (in
+    // the same call, same thread, same queue), so it runs strictly after that replay has actually
+    // placed the object. Guid-only capture, re-resolved fresh at replay time, matching every other
+    // guard in this pattern rather than trusting captured raw pointers to still be valid.
+    if (summon->IsInWorld())
+    {
+        summon->InitSummon(summoner);
 
-    // call MoveInLineOfSight for nearby creatures
-    Trinity::AIRelocationNotifier notifier(*summon);
-    Cell::VisitAllObjects(summon, notifier, GetVisibilityRange());
+        // call MoveInLineOfSight for nearby creatures
+        Trinity::AIRelocationNotifier notifier(*summon);
+        Cell::VisitAllObjects(summon, notifier, GetVisibilityRange());
+    }
+    else
+    {
+        ObjectGuid summonGuid = summon->GetGUID();
+        ObjectGuid summonerGuid = summoner ? summoner->GetGUID() : ObjectGuid::Empty;
+        AddFarSpellCallback([summonGuid, summonerGuid](Map* map)
+        {
+            Creature* summonCreature = map->GetCreature(summonGuid);
+            if (!summonCreature || !summonCreature->IsInWorld())
+                return;
+
+            TempSummon* summon = summonCreature->ToTempSummon();
+            if (!summon)
+                return;
+
+            WorldObject* summoner = !summonerGuid.IsEmpty() ? ObjectAccessor::GetWorldObject(*summon, summonerGuid) : nullptr;
+            summon->InitSummon(summoner);
+
+            Trinity::AIRelocationNotifier notifier(*summon);
+            Cell::VisitAllObjects(summon, notifier, map->GetVisibilityRange());
+        });
+    }
 
     return summon;
 }

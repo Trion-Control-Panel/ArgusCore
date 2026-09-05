@@ -300,11 +300,7 @@ inline void Map::_ScriptProcessDoor(Object* source, Object* target, ScriptInfo c
 
 inline GameObject* Map::_FindGameObject(WorldObject* searchObject, ObjectGuid::LowType guid) const
 {
-    auto bounds = searchObject->GetMap()->GetGameObjectBySpawnIdStore().equal_range(guid);
-    if (bounds.first == bounds.second)
-        return nullptr;
-
-    return bounds.first->second;
+    return searchObject->GetMap()->GetGameObjectBySpawnId(guid);
 }
 
 /// Process queued scripts
@@ -814,18 +810,9 @@ void Map::ScriptsProcess()
                     break;
                 }
 
-                Creature* cTarget = nullptr;
-                auto creatureBounds = _creatureBySpawnIdStore.equal_range(step.script->CallScript.CreatureEntry);
-                if (creatureBounds.first != creatureBounds.second)
-                {
-                    // Prefer alive (last respawned) creature
-                    auto creatureItr = std::find_if(creatureBounds.first, creatureBounds.second, [](Map::CreatureBySpawnIdContainer::value_type const& pair)
-                    {
-                        return pair.second->IsAlive();
-                    });
-
-                    cTarget = creatureItr != creatureBounds.second ? creatureItr->second : creatureBounds.first->second;
-                }
+                // GetCreatureBySpawnId already implements "prefer alive (last respawned) creature,
+                // else first found" - see ARGUSCORE_FIXES.md Phase 1 (sharded by-spawnId store).
+                Creature* cTarget = GetCreatureBySpawnId(step.script->CallScript.CreatureEntry);
 
                 if (!cTarget)
                 {

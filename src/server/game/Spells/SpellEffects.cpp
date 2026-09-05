@@ -3981,7 +3981,26 @@ void Spell::EffectKnockBack()
     else //if (effectInfo->Effect == SPELL_EFFECT_KNOCK_BACK)
         origin = m_caster->GetPosition();
 
-    unitTarget->KnockbackFrom(origin, speedxy, speedz);
+    // Cross-partition guard (Stage 5c, ARGUSCORE_FIXES.md) - KnockbackFrom only touches
+    // unitTarget's own MotionMaster (no caster parameter at all, unlike DealDamage's shape), but
+    // this effect handler runs on m_caster's thread and unitTarget can be a different,
+    // cross-partition unit. Deferred as just this one call - origin/speedxy/speedz are all value
+    // types, trivially capturable.
+    if (Map* map = m_caster->GetMap(); map->IsUnsafeForCurrentThreadToTouch(m_caster) || map->IsUnsafeForCurrentThreadToTouch(unitTarget))
+    {
+        ObjectGuid targetGuid = unitTarget->GetGUID();
+        Position originCopy = origin;
+        map->AddFarSpellCallback([targetGuid, originCopy, speedxy, speedz](Map* map)
+        {
+            Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+            if (!target || !target->IsInWorld())
+                return;
+
+            target->KnockbackFrom(originCopy, speedxy, speedz);
+        });
+    }
+    else
+        unitTarget->KnockbackFrom(origin, speedxy, speedz);
 
     Unit::ProcSkillsAndAuras(GetUnitCasterForEffectHandlers(), unitTarget, PROC_FLAG_NONE, { PROC_FLAG_NONE, PROC_FLAG_2_KNOCKBACK },
         PROC_SPELL_TYPE_MASK_ALL, PROC_SPELL_PHASE_HIT, PROC_HIT_NONE, nullptr, nullptr, nullptr);
@@ -3998,7 +4017,24 @@ void Spell::EffectLeapBack()
     float speedxy = effectInfo->MiscValue / 10.f;
     float speedz = damage / 10.f;
     // Disengage
-    unitTarget->JumpTo(speedxy, speedz, effectInfo->PositionFacing);
+    // Cross-partition guard (Stage 5c, ARGUSCORE_FIXES.md) - same reasoning as EffectKnockBack's
+    // own guard above (JumpTo only touches unitTarget's own MotionMaster, runs on m_caster's
+    // thread, unitTarget usually == m_caster for Disengage but this is a generic effect handler).
+    if (Map* map = m_caster->GetMap(); map->IsUnsafeForCurrentThreadToTouch(m_caster) || map->IsUnsafeForCurrentThreadToTouch(unitTarget))
+    {
+        ObjectGuid targetGuid = unitTarget->GetGUID();
+        float facing = effectInfo->PositionFacing;
+        map->AddFarSpellCallback([targetGuid, speedxy, speedz, facing](Map* map)
+        {
+            Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+            if (!target || !target->IsInWorld())
+                return;
+
+            target->JumpTo(speedxy, speedz, facing);
+        });
+    }
+    else
+        unitTarget->JumpTo(speedxy, speedz, effectInfo->PositionFacing);
 
     // changes fall time
     if (m_caster->GetTypeId() == TYPEID_PLAYER)
@@ -4087,7 +4123,23 @@ void Spell::EffectPullTowards()
         return;
     }
 
-    unitTarget->JumpTo(speedXY, speedZ, 0.0f, pos);
+    // Cross-partition guard (Stage 5c, ARGUSCORE_FIXES.md) - same reasoning as EffectKnockBack's
+    // own guard (JumpTo only touches unitTarget's own MotionMaster, runs on m_caster's thread).
+    if (Map* map = m_caster->GetMap(); map->IsUnsafeForCurrentThreadToTouch(m_caster) || map->IsUnsafeForCurrentThreadToTouch(unitTarget))
+    {
+        ObjectGuid targetGuid = unitTarget->GetGUID();
+        Position posCopy = pos;
+        map->AddFarSpellCallback([targetGuid, speedXY, speedZ, posCopy](Map* map)
+        {
+            Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+            if (!target || !target->IsInWorld())
+                return;
+
+            target->JumpTo(speedXY, speedZ, 0.0f, posCopy);
+        });
+    }
+    else
+        unitTarget->JumpTo(speedXY, speedZ, 0.0f, pos);
 }
 
 void Spell::EffectPullTowardsDest()
@@ -4123,7 +4175,23 @@ void Spell::EffectPullTowardsDest()
         return;
     }
 
-    unitTarget->JumpTo(speedXY, speedZ, 0.0f, *pos);
+    // Cross-partition guard (Stage 5c, ARGUSCORE_FIXES.md) - same reasoning as EffectKnockBack's
+    // own guard (JumpTo only touches unitTarget's own MotionMaster, runs on m_caster's thread).
+    if (Map* map = m_caster->GetMap(); map->IsUnsafeForCurrentThreadToTouch(m_caster) || map->IsUnsafeForCurrentThreadToTouch(unitTarget))
+    {
+        ObjectGuid targetGuid = unitTarget->GetGUID();
+        Position posCopy = *pos;
+        map->AddFarSpellCallback([targetGuid, speedXY, speedZ, posCopy](Map* map)
+        {
+            Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+            if (!target || !target->IsInWorld())
+                return;
+
+            target->JumpTo(speedXY, speedZ, 0.0f, posCopy);
+        });
+    }
+    else
+        unitTarget->JumpTo(speedXY, speedZ, 0.0f, *pos);
 }
 
 void Spell::EffectChangeRaidMarker()

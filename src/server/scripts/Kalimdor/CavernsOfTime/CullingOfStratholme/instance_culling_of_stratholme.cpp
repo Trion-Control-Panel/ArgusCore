@@ -727,16 +727,25 @@ class instance_culling_of_stratholme : public InstanceMapScript
 
                     // Reset respawn time on all permanent spawns, despawn all temporary spawns
                     // @todo dynspawn, this won't work
+                    // Was: instance->GetObjectsStore().Data.Head - relied on Creature being
+                    // literally the first type in MapStoredObjectTypesContainer's template
+                    // list, and on there being exactly one (unsharded) container. Rewritten to
+                    // use TypeListContainer's own type-checked FindContainer<T>() instead of
+                    // reaching into .Data.Head directly, looped across every shard - see
+                    // ARGUSCORE_FIXES.md Phase 2.
                     std::vector<Creature*> toDespawn;
-                    std::unordered_map<ObjectGuid, Creature*> const& objects = instance->GetObjectsStore().Data.Head;
-                    for (std::unordered_map<ObjectGuid, Creature*>::const_iterator itr = objects.cbegin(); itr != objects.cend(); ++itr)
+                    for (uint32 shard = 0; shard < instance->GetObjectsStoreShardCount(); ++shard)
                     {
-                        if (itr->second && (itr->second->isDead() || !itr->second->GetSpawnId() || itr->second->GetOriginalEntry() != itr->second->GetEntry()))
+                        std::unordered_map<ObjectGuid, Creature*> const& objects = instance->GetObjectsStoreShard(shard).Data.FindContainer<Creature>();
+                        for (std::unordered_map<ObjectGuid, Creature*>::const_iterator itr = objects.cbegin(); itr != objects.cend(); ++itr)
                         {
-                            if (itr->second->getDeathState() == DEAD) // despawned, not corpse
-                                itr->second->SetRespawnTime(1);
-                            else
-                                toDespawn.push_back(itr->second);
+                            if (itr->second && (itr->second->isDead() || !itr->second->GetSpawnId() || itr->second->GetOriginalEntry() != itr->second->GetEntry()))
+                            {
+                                if (itr->second->getDeathState() == DEAD) // despawned, not corpse
+                                    itr->second->SetRespawnTime(1);
+                                else
+                                    toDespawn.push_back(itr->second);
+                            }
                         }
                     }
 

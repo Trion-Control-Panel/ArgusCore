@@ -619,7 +619,8 @@ class CreatureGameObjectAreaTriggerConversationScriptRegistrySwapHooks
             AIFunctionMapWorker<typename std::decay<decltype(evaluator)>::type> worker(std::move(evaluator));
             TypeContainerVisitor<decltype(worker), MapStoredObjectTypesContainer> containerVisitor(worker);
 
-            containerVisitor.Visit(map->GetObjectsStore());
+            for (uint32 shard = 0; shard < map->GetObjectsStoreShardCount(); ++shard)
+                containerVisitor.Visit(map->GetObjectsStoreShard(shard));
         };
     }
 
@@ -663,7 +664,8 @@ class CreatureGameObjectAreaTriggerConversationScriptRegistrySwapHooks
             AIFunctionMapWorker<typename std::decay<decltype(evaluator)>::type> worker(std::move(evaluator));
             TypeContainerVisitor<decltype(worker), MapStoredObjectTypesContainer> containerVisitor(worker);
 
-            containerVisitor.Visit(map->GetObjectsStore());
+            for (uint32 shard = 0; shard < map->GetObjectsStoreShardCount(); ++shard)
+                containerVisitor.Visit(map->GetObjectsStoreShard(shard));
         };
     }
 

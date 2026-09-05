@@ -39,6 +39,7 @@ SpawnedPoolData::~SpawnedPoolData() = default;
 // Method that tell amount spawned objects/subpools
 uint32 SpawnedPoolData::GetSpawnedObjects(uint32 pool_id) const
 {
+    std::lock_guard<std::recursive_mutex> lock(mLock);
     SpawnedPoolPools::const_iterator itr = mSpawnedPools.find(pool_id);
     return itr != mSpawnedPools.end() ? itr->second : 0;
 }
@@ -47,6 +48,7 @@ uint32 SpawnedPoolData::GetSpawnedObjects(uint32 pool_id) const
 template<>
 TC_GAME_API bool SpawnedPoolData::IsSpawnedObject<Creature>(uint64 db_guid) const
 {
+    std::lock_guard<std::recursive_mutex> lock(mLock);
     return mSpawnedCreatures.find(db_guid) != mSpawnedCreatures.end();
 }
 
@@ -54,6 +56,7 @@ TC_GAME_API bool SpawnedPoolData::IsSpawnedObject<Creature>(uint64 db_guid) cons
 template<>
 TC_GAME_API bool SpawnedPoolData::IsSpawnedObject<GameObject>(uint64 db_guid) const
 {
+    std::lock_guard<std::recursive_mutex> lock(mLock);
     return mSpawnedGameobjects.find(db_guid) != mSpawnedGameobjects.end();
 }
 
@@ -61,11 +64,16 @@ TC_GAME_API bool SpawnedPoolData::IsSpawnedObject<GameObject>(uint64 db_guid) co
 template<>
 TC_GAME_API bool SpawnedPoolData::IsSpawnedObject<Pool>(uint64 sub_pool_id) const
 {
+    std::lock_guard<std::recursive_mutex> lock(mLock);
     return mSpawnedPools.find(sub_pool_id) != mSpawnedPools.end();
 }
 
 bool SpawnedPoolData::IsSpawnedObject(SpawnObjectType type, uint64 db_guid_or_pool_id) const
 {
+    // Phase 3 redesign, Stage 4 (ARGUSCORE_FIXES.md) - no lock here; delegates to the
+    // per-type IsSpawnedObject<T> specializations above, which each take mLock themselves
+    // (recursive_mutex, so this would be safe to lock too, but there's nothing left to protect
+    // in this dispatcher itself).
     switch (type)
     {
         case SPAWN_TYPE_CREATURE:
@@ -80,6 +88,7 @@ bool SpawnedPoolData::IsSpawnedObject(SpawnObjectType type, uint64 db_guid_or_po
 template<>
 void SpawnedPoolData::AddSpawn<Creature>(uint64 db_guid, uint32 pool_id)
 {
+    std::lock_guard<std::recursive_mutex> lock(mLock);
     mSpawnedCreatures.insert(db_guid);
     ++mSpawnedPools[pool_id];
 }
@@ -87,6 +96,7 @@ void SpawnedPoolData::AddSpawn<Creature>(uint64 db_guid, uint32 pool_id)
 template<>
 void SpawnedPoolData::AddSpawn<GameObject>(uint64 db_guid, uint32 pool_id)
 {
+    std::lock_guard<std::recursive_mutex> lock(mLock);
     mSpawnedGameobjects.insert(db_guid);
     ++mSpawnedPools[pool_id];
 }
@@ -94,6 +104,7 @@ void SpawnedPoolData::AddSpawn<GameObject>(uint64 db_guid, uint32 pool_id)
 template<>
 void SpawnedPoolData::AddSpawn<Pool>(uint64 sub_pool_id, uint32 pool_id)
 {
+    std::lock_guard<std::recursive_mutex> lock(mLock);
     mSpawnedPools[sub_pool_id] = 0;
     ++mSpawnedPools[pool_id];
 }
@@ -101,6 +112,7 @@ void SpawnedPoolData::AddSpawn<Pool>(uint64 sub_pool_id, uint32 pool_id)
 template<>
 void SpawnedPoolData::RemoveSpawn<Creature>(uint64 db_guid, uint32 pool_id)
 {
+    std::lock_guard<std::recursive_mutex> lock(mLock);
     mSpawnedCreatures.erase(db_guid);
     uint32& val = mSpawnedPools[pool_id];
     if (val > 0)
@@ -110,6 +122,7 @@ void SpawnedPoolData::RemoveSpawn<Creature>(uint64 db_guid, uint32 pool_id)
 template<>
 void SpawnedPoolData::RemoveSpawn<GameObject>(uint64 db_guid, uint32 pool_id)
 {
+    std::lock_guard<std::recursive_mutex> lock(mLock);
     mSpawnedGameobjects.erase(db_guid);
     uint32& val = mSpawnedPools[pool_id];
     if (val > 0)
@@ -119,6 +132,7 @@ void SpawnedPoolData::RemoveSpawn<GameObject>(uint64 db_guid, uint32 pool_id)
 template<>
 void SpawnedPoolData::RemoveSpawn<Pool>(uint64 sub_pool_id, uint32 pool_id)
 {
+    std::lock_guard<std::recursive_mutex> lock(mLock);
     mSpawnedPools.erase(sub_pool_id);
     uint32& val = mSpawnedPools[pool_id];
     if (val > 0)
@@ -187,6 +201,11 @@ bool PoolGroup<T>::CheckPool() const
 template<class T>
 void PoolGroup<T>::DespawnObject(SpawnedPoolData& spawns, uint64 guid, bool alwaysDeleteRespawnTime)
 {
+    // Phase 3 redesign, Stage 4 fix (ARGUSCORE_FIXES.md, review finding) - see
+    // SpawnedPoolData::Lock's own comment (PoolMgr.h). This function's own IsSpawnedObject-then-
+    // RemoveSpawn sequence needs the same whole-operation atomicity as SpawnObject.
+    std::unique_lock<std::recursive_mutex> lock = spawns.Lock();
+
     for (size_t i=0; i < EqualChanced.size(); ++i)
     {
         // if spawned
@@ -222,11 +241,8 @@ void PoolGroup<T>::DespawnObject(SpawnedPoolData& spawns, uint64 guid, bool alwa
 template<>
 void PoolGroup<Creature>::Despawn1Object(SpawnedPoolData& spawns, uint64 guid, bool alwaysDeleteRespawnTime, bool saveRespawnTime)
 {
-    auto creatureBounds = spawns.GetMap()->GetCreatureBySpawnIdStore().equal_range(guid);
-    for (auto itr = creatureBounds.first; itr != creatureBounds.second;)
+    for (Creature* creature : spawns.GetMap()->GetCreaturesBySpawnId(guid))
     {
-        Creature* creature = itr->second;
-        ++itr;
         // For dynamic spawns, save respawn time here
         if (saveRespawnTime && !creature->GetRespawnCompatibilityMode())
             creature->SaveRespawnTime();
@@ -241,12 +257,8 @@ void PoolGroup<Creature>::Despawn1Object(SpawnedPoolData& spawns, uint64 guid, b
 template<>
 void PoolGroup<GameObject>::Despawn1Object(SpawnedPoolData& spawns, uint64 guid, bool alwaysDeleteRespawnTime, bool saveRespawnTime)
 {
-    auto gameobjectBounds = spawns.GetMap()->GetGameObjectBySpawnIdStore().equal_range(guid);
-    for (auto itr = gameobjectBounds.first; itr != gameobjectBounds.second;)
+    for (GameObject* go : spawns.GetMap()->GetGameObjectsBySpawnId(guid))
     {
-        GameObject* go = itr->second;
-        ++itr;
-
         // For dynamic spawns, save respawn time here
         if (saveRespawnTime && !go->GetRespawnCompatibilityMode())
             go->SaveRespawnTime();
@@ -289,6 +301,13 @@ void PoolGroup<Pool>::RemoveOneRelation(uint32 child_pool_id)
 template <class T>
 void PoolGroup<T>::SpawnObject(SpawnedPoolData& spawns, uint32 limit, uint64 triggerFrom)
 {
+    // Phase 3 redesign, Stage 4 fix (ARGUSCORE_FIXES.md, review finding) - see
+    // SpawnedPoolData::Lock's own comment (PoolMgr.h). Without this, two threads concurrently
+    // triggering the same pool (e.g. sPoolMgr->UpdatePool<Creature> from two different creatures'
+    // deaths on two different fan-out shards) could both read the same stale GetSpawnedObjects()
+    // count below and both spawn up to `limit`, over-spawning the pool.
+    std::unique_lock<std::recursive_mutex> lock = spawns.Lock();
+
     int count = limit - spawns.GetSpawnedObjects(poolId);
 
     // If triggered from some object respawn this object is still marked as spawned

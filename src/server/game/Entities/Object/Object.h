@@ -561,6 +561,37 @@ struct CanSeeOrDetectExtraArgs
     bool AlertCheck = false;
 };
 
+// Phase 6 (ARGUSCORE_FIXES.md, "Double-buffered halo snapshots") - a small, deliberately minimal
+// published copy of a WorldObject's position, refreshed only during Map::DelayedUpdate's barrier
+// phase (never mid-tick), so a future cross-partition reader never races a live, in-progress
+// Position::Relocate (which writes x/y/z/o as separate, non-atomic statements - a genuine torn
+// read otherwise). Position/orientation only - map/instance never differ across partitions of the
+// same Map, so they don't need publishing; phase/stealth are a separate, structurally identical
+// race, deliberately not addressed here (named follow-on for whichever future phase adds real
+// cross-partition visibility reads, see ARGUSCORE_FIXES.md).
+//
+// Naming note (independent review flagged this, worth being explicit about): this struct is a
+// single, plain, non-atomic block of fields - NOT a literal double-buffer (no second copy, no
+// atomic buffer-index swap). It's still safe under the name this design phase uses ("Double-
+// buffered halo snapshots", matching the design doc's original mechanism-1 description) ONLY
+// because of a different, currently-guaranteed invariant: every write to this struct
+// (PublishHaloSnapshot()) is confined to the single-threaded Map::DelayedUpdate barrier phase,
+// and nothing reads it concurrently with that phase today (no cross-partition consumer exists
+// yet - Phase 3's fan-out isn't wired in). That invariant, not a real double-buffer, is what
+// removes the torn-read race for now. If a future phase ever allows a reader to run concurrently
+// with PublishHaloSnapshot() itself (rather than strictly before/after it, as the barrier-phase
+// design requires), THIS type would need to become a genuine double-buffer (two instances +
+// an atomically-swapped active index) to keep the same safety guarantee - flagged here so nobody
+// assumes the name alone already provides that.
+struct WorldObjectHaloSnapshot
+{
+    float X = 0.0f;
+    float Y = 0.0f;
+    float Z = 0.0f;
+    float O = 0.0f;
+    bool Valid = false; // false until PublishHaloSnapshot() is called at least once
+};
+
 class TC_GAME_API WorldObject : public Object, public WorldLocation
 {
     protected:
@@ -681,6 +712,22 @@ class TC_GAME_API WorldObject : public Object, public WorldLocation
         float GetVisibilityRange() const;
         float GetSightRange(WorldObject const* target = nullptr) const;
         bool CanSeeOrDetect(WorldObject const* obj, CanSeeOrDetectExtraArgs const& args = { }) const;
+
+        // Phase 6 (ARGUSCORE_FIXES.md, "Double-buffered halo snapshots") - the cross-partition-safe
+        // way to read this object's position, once a future partitioning phase actually fans work
+        // out across threads. Unused by any production code today - Map's per-object update loop
+        // still runs single-threaded, so GetPositionX()/GetPosition() etc. remain correct and
+        // preferred for same-thread reads; this exists so that future code has a real, already-safe
+        // alternative to reach for instead of inventing one under time pressure once concurrency
+        // actually lands.
+        WorldObjectHaloSnapshot const& GetPublishedHaloSnapshot() const { return _haloSnapshot; }
+
+        // Copies this object's current live position into its published snapshot. ONLY safe to
+        // call during Map::DelayedUpdate's barrier phase (Map::PublishHaloSnapshots, the sole
+        // caller) - never mid-tick, never from a partition worker thread once those exist. See
+        // ARGUSCORE_FIXES.md for why that specific point in the tick is the correct one (the last
+        // place any object's position can still change).
+        void PublishHaloSnapshot() { _haloSnapshot = { GetPositionX(), GetPositionY(), GetPositionZ(), GetOrientation(), true }; }
 
         FlaggedValuesArray32<int32, uint32, StealthType, TOTAL_STEALTH_TYPES> m_stealth;
         FlaggedValuesArray32<int32, uint32, StealthType, TOTAL_STEALTH_TYPES> m_stealthDetect;
@@ -903,6 +950,8 @@ class TC_GAME_API WorldObject : public Object, public WorldLocation
         PhaseShift _phaseShift;
         PhaseShift _suppressedPhaseShift;                 // contains phases for current area but not applied due to conditions
         int32 _dbPhase;
+
+        WorldObjectHaloSnapshot _haloSnapshot;            // Phase 6 - see PublishHaloSnapshot()/GetPublishedHaloSnapshot()
 
         uint16 m_notifyflags;
 

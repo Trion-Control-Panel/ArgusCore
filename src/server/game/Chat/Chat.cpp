@@ -383,10 +383,7 @@ GameObject* ChatHandler::GetObjectFromPlayerMapByDbGuid(ObjectGuid::LowType lowg
 {
     if (!m_session)
         return nullptr;
-    auto bounds = m_session->GetPlayer()->GetMap()->GetGameObjectBySpawnIdStore().equal_range(lowguid);
-    if (bounds.first != bounds.second)
-        return bounds.first->second;
-    return nullptr;
+    return m_session->GetPlayer()->GetMap()->GetGameObjectBySpawnId(lowguid);
 }
 
 Creature* ChatHandler::GetCreatureFromPlayerMapByDbGuid(ObjectGuid::LowType lowguid)
@@ -394,15 +391,7 @@ Creature* ChatHandler::GetCreatureFromPlayerMapByDbGuid(ObjectGuid::LowType lowg
     if (!m_session)
         return nullptr;
     // Select the first alive creature or a dead one if not found
-    Creature* creature = nullptr;
-    auto bounds = m_session->GetPlayer()->GetMap()->GetCreatureBySpawnIdStore().equal_range(lowguid);
-    for (auto it = bounds.first; it != bounds.second; ++it)
-    {
-        creature = it->second;
-        if (it->second->IsAlive())
-            break;
-    }
-    return creature;
+    return m_session->GetPlayer()->GetMap()->GetCreatureBySpawnId(lowguid);
 }
 
 enum GuidLinkType

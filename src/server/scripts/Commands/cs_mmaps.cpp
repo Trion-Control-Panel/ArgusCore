@@ -36,6 +36,7 @@
 #include "PointMovementGenerator.h"
 #include "RBAC.h"
 #include "WorldSession.h"
+#include <shared_mutex>
 
 #if TRINITY_COMPILER == TRINITY_COMPILER_GNU
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
@@ -144,12 +145,21 @@ public:
         // calculate navmesh tile location
         uint32 terrainMapId = PhasingHandler::GetTerrainMapId(player->GetPhaseShift(), player->GetMapId(), player->GetMap()->GetTerrain(), x, y);
         dtNavMesh const* navmesh = MMAP::MMapFactory::createOrGetMMapManager()->GetNavMesh(terrainMapId);
-        dtNavMeshQuery const* navmeshquery = MMAP::MMapFactory::createOrGetMMapManager()->GetNavMeshQuery(terrainMapId, player->GetMapId(), player->GetInstanceId());
+        // Partition-scoped query (Map Partitioning design - see ARGUSCORE_FIXES.md, Phase 3) -
+        // matches whichever query the player's own pathfinding would actually use.
+        dtNavMeshQuery const* navmeshquery = MMAP::MMapFactory::createOrGetMMapManager()->GetNavMeshQuery(terrainMapId, player->GetMapId(), player->GetInstanceId(), player->GetMap()->GetPartitionIndexForObject(player));
         if (!navmesh || !navmeshquery)
         {
             handler->PSendSysMessage("NavMesh not loaded for current map.");
             return true;
         }
+
+        // Phase 3 redesign (ARGUSCORE_FIXES.md) - see MMapData::NavMeshLock's own comment
+        // (MMapManager.h) - this GM command reads the raw mesh the same way PathGenerator does,
+        // so it needs the same protection against a concurrent addTile/removeTile.
+        std::shared_lock<std::shared_mutex> navMeshLock;
+        if (std::shared_mutex* rawLock = MMAP::MMapFactory::createOrGetMMapManager()->GetNavMeshLock(terrainMapId))
+            navMeshLock = std::shared_lock<std::shared_mutex>(*rawLock);
 
         float const* min = navmesh->getParams()->orig;
         float location[VERTEX_SIZE] = { y, z, x };
@@ -195,12 +205,21 @@ public:
         Player* player = handler->GetSession()->GetPlayer();
         uint32 terrainMapId = PhasingHandler::GetTerrainMapId(player->GetPhaseShift(), player->GetMapId(), player->GetMap()->GetTerrain(), player->GetPositionX(), player->GetPositionY());
         dtNavMesh const* navmesh = MMAP::MMapFactory::createOrGetMMapManager()->GetNavMesh(terrainMapId);
-        dtNavMeshQuery const* navmeshquery = MMAP::MMapFactory::createOrGetMMapManager()->GetNavMeshQuery(terrainMapId, player->GetMapId(), player->GetInstanceId());
+        // Partition-scoped query (Map Partitioning design - see ARGUSCORE_FIXES.md, Phase 3) -
+        // matches whichever query the player's own pathfinding would actually use.
+        dtNavMeshQuery const* navmeshquery = MMAP::MMapFactory::createOrGetMMapManager()->GetNavMeshQuery(terrainMapId, player->GetMapId(), player->GetInstanceId(), player->GetMap()->GetPartitionIndexForObject(player));
         if (!navmesh || !navmeshquery)
         {
             handler->PSendSysMessage("NavMesh not loaded for current map.");
             return true;
         }
+
+        // Phase 3 redesign (ARGUSCORE_FIXES.md) - see MMapData::NavMeshLock's own comment
+        // (MMapManager.h) - this GM command reads the raw mesh the same way PathGenerator does,
+        // so it needs the same protection against a concurrent addTile/removeTile.
+        std::shared_lock<std::shared_mutex> navMeshLock;
+        if (std::shared_mutex* rawLock = MMAP::MMapFactory::createOrGetMMapManager()->GetNavMeshLock(terrainMapId))
+            navMeshLock = std::shared_lock<std::shared_mutex>(*rawLock);
 
         handler->PSendSysMessage("mmap loadedtiles:");
 
@@ -232,6 +251,13 @@ public:
             handler->PSendSysMessage("NavMesh not loaded for current map.");
             return true;
         }
+
+        // Phase 3 redesign (ARGUSCORE_FIXES.md) - see MMapData::NavMeshLock's own comment
+        // (MMapManager.h) - this GM command reads the raw mesh the same way PathGenerator does,
+        // so it needs the same protection against a concurrent addTile/removeTile.
+        std::shared_lock<std::shared_mutex> navMeshLock;
+        if (std::shared_mutex* rawLock = manager->GetNavMeshLock(terrainMapId))
+            navMeshLock = std::shared_lock<std::shared_mutex>(*rawLock);
 
         uint32 tileCount = 0;
         uint32 nodeCount = 0;

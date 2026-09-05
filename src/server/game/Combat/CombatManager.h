@@ -56,7 +56,11 @@ struct TC_GAME_API CombatReference
     bool const _isPvP;
     Unit* GetOther(Unit const* me) const { return (first == me) ? second : first; }
 
-    void EndCombat();
+    // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+    // callback the cross-partition guard itself schedules (CombatManager.cpp) - see
+    // CombatManager::SetInCombatWith's own comment for why this must never be passed true from
+    // any other caller.
+    void EndCombat(bool bypassPartitionGuard = false);
 
     // suppressed combat refs do not generate a combat state for one side of the relation
     // (used by: vanish, feign death and launched out of combat but not yet landed spell missiles)
@@ -115,7 +119,14 @@ class TC_GAME_API CombatManager
         Unit* GetAnyTarget() const;
 
         // return value is the same as calling IsInCombatWith immediately after this returns
-        bool SetInCombatWith(Unit* who, bool addSecondUnitSuppressed = false);
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (CombatManager.cpp) - guarantees a
+        // replay never re-defers even if Map::ResolveCrossPartitionPair failed to unify both
+        // sides onto one shard (both non-transferable, e.g. two Players), which would otherwise
+        // re-enqueue onto Map::_farSpellCallbacks from inside the very drain loop currently
+        // processing it and hang that Map's update thread forever. Never pass true from any
+        // other caller.
+        bool SetInCombatWith(Unit* who, bool addSecondUnitSuppressed = false, bool bypassPartitionGuard = false);
         bool IsInCombatWith(ObjectGuid const& who) const;
         bool IsInCombatWith(Unit const* who) const;
         void InheritCombatStatesFrom(Unit const* who);
@@ -123,11 +134,15 @@ class TC_GAME_API CombatManager
 
         using UnitFilter = bool(Unit const* otherUnit);
 
+        // bypassPartitionGuard (all four below): internal-use only, set true exclusively by the
+        // deferred replay callback each guard itself schedules (CombatManager.cpp). Never pass true
+        // from any other caller.
+        //
         // flags any pvp refs for suppression on owner's side - these refs will not generate combat until refreshed
-        void SuppressPvPCombat(UnitFilter* unitFilter = nullptr);
-        void EndAllPvECombat(UnitFilter* unitFilter = nullptr);
-        void RevalidateCombat();
-        void EndAllPvPCombat(UnitFilter* unitFilter = nullptr);
+        void SuppressPvPCombat(UnitFilter* unitFilter = nullptr, bool bypassPartitionGuard = false);
+        void EndAllPvECombat(UnitFilter* unitFilter = nullptr, bool bypassPartitionGuard = false);
+        void RevalidateCombat(bool bypassPartitionGuard = false);
+        void EndAllPvPCombat(UnitFilter* unitFilter = nullptr, bool bypassPartitionGuard = false);
         void EndAllCombat(UnitFilter* unitFilter = nullptr) { EndAllPvECombat(unitFilter); EndAllPvPCombat(unitFilter); }
 
         CombatManager(CombatManager const&) = delete;

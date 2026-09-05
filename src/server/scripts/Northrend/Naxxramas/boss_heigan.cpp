@@ -16,6 +16,7 @@
  */
 
 #include "ScriptMgr.h"
+#include "CrossPartitionGuard.h"
 #include "GameObject.h"
 #include "InstanceScript.h"
 #include "Map.h"
@@ -116,17 +117,13 @@ struct boss_heigan : public BossAI
         _safetyDance = true;
 
         // figure out the current GUIDs of our eruption tiles and which segment they belong in
-        std::unordered_multimap<ObjectGuid::LowType, GameObject*> const& mapGOs = me->GetMap()->GetGameObjectBySpawnIdStore();
         uint32 spawnId = firstEruptionDBGUID;
         for (uint8 section = 0; section < numSections; ++section)
         {
             _eruptTiles[section].clear();
             for (uint8 i = 0; i < numEruptions[section]; ++i)
-            {
-                auto tileIt = mapGOs.equal_range(spawnId++);
-                for (auto it = tileIt.first; it != tileIt.second; ++it)
-                    _eruptTiles[section].push_back(it->second->GetGUID());
-            }
+                for (GameObject* tile : me->GetMap()->GetGameObjectsBySpawnId(spawnId++))
+                    _eruptTiles[section].push_back(tile->GetGUID());
         }
     }
 
@@ -214,13 +211,38 @@ class spell_heigan_eruption : public SpellScript
     void HandleScript(SpellEffIndex /*eff*/)
     {
         Unit* caster = GetCaster();
-        if (!caster || !GetHitUnit())
+        Unit* hitUnit = GetHitUnit();
+        if (!caster || !hitUnit)
             return;
 
-        if (GetHitDamage() >= int32(GetHitUnit()->GetHealth()))
+        if (GetHitDamage() >= int32(hitUnit->GetHealth()))
             if (InstanceScript* instance = caster->GetInstanceScript())
                 if (Creature* Heigan = ObjectAccessor::GetCreature(*caster, instance->GetGuidData(DATA_HEIGAN)))
-                    Heigan->AI()->KilledUnit(GetHitUnit());
+                {
+                    // Cross-partition guard (CLAUDE.md's Map Partitioning script audit rule,
+                    // code-review finding) - this hook runs in the context of `hitUnit` taking
+                    // fatal damage, not necessarily on Heigan's own thread, but
+                    // AI()->KilledUnit() writes boss_heigan::_safetyDance, a non-static AI member
+                    // on a DIFFERENT object (Heigan) than the one this SpellScript is attached to
+                    // - exactly the class of cross-object script write the audit rule flags.
+                    // Deferred via the shared Trinity::MapPartitioning::GuardAndDeferCrossPartitionPair
+                    // helper (CrossPartitionGuard.h, Stage 10 code-review deep-dive follow-up)
+                    // when Heigan and hitUnit land on different shards this tick.
+                    Map* map = Heigan->GetMap();
+                    if (!Trinity::MapPartitioning::GuardAndDeferCrossPartitionPair(map, hitUnit, Heigan, false,
+                        [](WorldObject* hitUnitObj, WorldObject* heiganObj)
+                        {
+                            Creature* heigan = heiganObj->ToCreature();
+                            Unit* hitUnit = hitUnitObj->ToUnit();
+                            if (!heigan || !heigan->IsAIEnabled() || !hitUnit)
+                                return;
+
+                            heigan->AI()->KilledUnit(hitUnit);
+                        }))
+                    {
+                        Heigan->AI()->KilledUnit(hitUnit);
+                    }
+                }
     }
 
     void Register() override

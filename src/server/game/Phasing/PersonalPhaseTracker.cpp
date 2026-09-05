@@ -121,6 +121,9 @@ void MultiPersonalPhaseTracker::LoadGrid(PhaseShift const& phaseShift, NGridType
     if (!phaseShift.HasPersonalPhase())
         return;
 
+    // Phase 3 redesign, Stage 4 (ARGUSCORE_FIXES.md) - see _lock's own comment (header).
+    std::lock_guard<std::recursive_mutex> lock(_lock);
+
     PersonalPhaseGridLoader loader(grid, map, cell, phaseShift.GetPersonalGuid());
     PlayerPersonalPhasesTracker& playerTracker = _playerData[phaseShift.GetPersonalGuid()];
 
@@ -149,6 +152,7 @@ void MultiPersonalPhaseTracker::LoadGrid(PhaseShift const& phaseShift, NGridType
 
 void MultiPersonalPhaseTracker::UnloadGrid(NGridType& grid)
 {
+    std::lock_guard<std::recursive_mutex> lock(_lock);
     for (auto itr = _playerData.begin(); itr != _playerData.end(); )
     {
         itr->second.SetGridUnloaded(grid.GetGridId());
@@ -165,17 +169,22 @@ void MultiPersonalPhaseTracker::RegisterTrackedObject(uint32 phaseId, ObjectGuid
     ASSERT(!phaseOwner.IsEmpty());
     ASSERT(object);
 
+    std::lock_guard<std::recursive_mutex> lock(_lock);
     _playerData[phaseOwner].RegisterTrackedObject(phaseId, object);
 }
 
 void MultiPersonalPhaseTracker::UnregisterTrackedObject(WorldObject* object)
 {
+    std::lock_guard<std::recursive_mutex> lock(_lock);
     if (PlayerPersonalPhasesTracker* playerTracker = Trinity::Containers::MapGetValuePtr(_playerData, object->GetPhaseShift().GetPersonalGuid()))
         playerTracker->UnregisterTrackedObject(object);
 }
 
 void MultiPersonalPhaseTracker::OnOwnerPhaseChanged(WorldObject const* phaseOwner, NGridType* grid, Map* map, Cell const& cell)
 {
+    // Phase 3 redesign, Stage 4 (ARGUSCORE_FIXES.md) - LoadGrid below takes the same
+    // recursive_mutex; see _lock's own comment (header) for why it must be recursive.
+    std::lock_guard<std::recursive_mutex> lock(_lock);
     if (PlayerPersonalPhasesTracker* playerTracker = Trinity::Containers::MapGetValuePtr(_playerData, phaseOwner->GetGUID()))
         playerTracker->OnOwnerPhasesChanged(phaseOwner);
 
@@ -185,12 +194,14 @@ void MultiPersonalPhaseTracker::OnOwnerPhaseChanged(WorldObject const* phaseOwne
 
 void MultiPersonalPhaseTracker::MarkAllPhasesForDeletion(ObjectGuid const& phaseOwner)
 {
+    std::lock_guard<std::recursive_mutex> lock(_lock);
     if (PlayerPersonalPhasesTracker* playerTracker = Trinity::Containers::MapGetValuePtr(_playerData, phaseOwner))
         playerTracker->MarkAllPhasesForDeletion();
 }
 
 void MultiPersonalPhaseTracker::Update(Map* map, uint32 diff)
 {
+    std::lock_guard<std::recursive_mutex> lock(_lock);
     for (auto itr = _playerData.begin(); itr != _playerData.end(); )
     {
         itr->second.Update(map, diff);

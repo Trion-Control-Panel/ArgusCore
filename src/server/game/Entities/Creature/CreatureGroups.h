@@ -20,6 +20,7 @@
 
 #include "Define.h"
 #include "ObjectGuid.h"
+#include <mutex>
 #include <unordered_map>
 
 enum GroupAIFlags
@@ -73,6 +74,16 @@ class TC_GAME_API FormationMgr
 class TC_GAME_API CreatureGroup
 {
     private:
+        // Phase 3 redesign, Stage 4 (ARGUSCORE_FIXES.md) - a formation's members can straddle a
+        // partition boundary (nothing pins a formation to one shard), so two members' own
+        // fan-out-dispatched Update() calls can reach the SAME CreatureGroup's state
+        // (_members/_leader/_formed/_engaging) from two different worker threads at once -
+        // e.g. two members independently engaging combat. recursive_mutex, not plain mutex:
+        // MemberEngagingTarget's own pre-existing "_engaging" reentrancy guard means a nested
+        // same-thread call through combat engagement logic is an expected, normal path here, not
+        // a bug to rule out.
+        mutable std::recursive_mutex _lock;
+
         Creature* _leader;
 
         using MembersMap = std::unordered_map<Creature*, FormationInfo*>;
@@ -91,13 +102,15 @@ class TC_GAME_API CreatureGroup
         CreatureGroup& operator=(CreatureGroup&&) = delete;
         ~CreatureGroup();
 
-        Creature* GetLeader() const { return _leader; }
-        ObjectGuid::LowType GetLeaderSpawnId() const { return _leaderSpawnId; }
-        bool IsEmpty() const { return _members.empty(); }
-        bool IsFormed() const { return _formed; }
-        bool IsLeader(Creature const* creature) const { return _leader == creature; }
+        // Phase 3 redesign, Stage 4 (ARGUSCORE_FIXES.md) - see _lock's own comment above; these
+        // inline accessors read the same cross-shard-reachable state as the .cpp methods below.
+        Creature* GetLeader() const { std::lock_guard<std::recursive_mutex> lock(_lock); return _leader; }
+        ObjectGuid::LowType GetLeaderSpawnId() const { return _leaderSpawnId; } // set once at construction, never reassigned - no lock needed
+        bool IsEmpty() const { std::lock_guard<std::recursive_mutex> lock(_lock); return _members.empty(); }
+        bool IsFormed() const { std::lock_guard<std::recursive_mutex> lock(_lock); return _formed; }
+        bool IsLeader(Creature const* creature) const { std::lock_guard<std::recursive_mutex> lock(_lock); return _leader == creature; }
 
-        bool HasMember(Creature* member) const { return _members.contains(member); }
+        bool HasMember(Creature* member) const { std::lock_guard<std::recursive_mutex> lock(_lock); return _members.contains(member); }
         void AddMember(Creature* member);
         void RemoveMember(Creature* member);
         void FormationReset(bool dismiss);

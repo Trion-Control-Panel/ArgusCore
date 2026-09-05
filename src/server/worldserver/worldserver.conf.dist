@@ -4494,4 +4494,64 @@ Layer.ChangeCooldownSecs = 1800
 Layer.MergeIntervalSecs = 300
 
 #
+#    Map.Partitioning.Enabled
+#        Description: Splits opted-in continent maps into multiple concurrently-updated
+#                      spatial partitions to reduce Map::Update() bottleneck on busy,
+#                      spread-out population. See ARGUSCORE_FIXES.md, "MAJOR FEATURE
+#                      PROPOSAL - Continent Map Spatial Partitioning" for the full design.
+#                      Phase 0 infrastructure only as of this build - config parsing and the
+#                      supporting classes exist, but nothing is wired into Map::Update() yet
+#                      (that's Phase 3). Leaving this at 0 is a true zero-behavior-change
+#                      state, not just an empty map list below.
+#        Default:     0 - (Disabled)
+#                     1 - (Enabled)
+#
+#    Map.Partitioning.MapIds
+#        Description: Comma-separated "mapId:ColumnsxRows" entries, one per opted-in
+#                      continent (e.g. "0:2x2,1:2x2" splits Eastern Kingdoms and Kalimdor
+#                      into 4 partitions each, evenly). Only an even grid split is supported
+#                      by this phase - before ever adding a map with an embedded
+#                      high-density open-world zone (Wintergrasp being the clearest
+#                      example), its footprint MUST be checked against the resulting
+#                      partition boundaries first (see ARGUSCORE_FIXES.md re-check (j)).
+#                      Raids, dungeons, arenas, battlegrounds, Garrisons, and Order Halls
+#                      should never be added here - see re-check (i)/(k) for why. Any mapId
+#                      with an active OutdoorPvPMgr/BattlefieldMgr script (Wintergrasp, Tol
+#                      Barad, Ashran, etc.) must also never be added here - ZoneScript/
+#                      OutdoorPvP/Battlefield state is accepted, documented, checklist-gated
+#                      residual risk of the Stage 5/6 concurrency redesign (see
+#                      ARGUSCORE_FIXES.md, Map Partitioning Stage 6), not yet made safe for
+#                      concurrent fan-out. Wintergrasp is already excluded above for the
+#                      embedded-high-density-zone reason, but this applies independently of
+#                      that one. Malformed entries are logged and skipped individually.
+#        Default:     "" - (None)
+#
+#    Map.Partitioning.MinPopulationForFanout
+#        Description: Minimum current player population on an opted-in map before its
+#                      partitions actually dispatch to separate worker threads. Below this,
+#                      all of a partitioned map's work runs inline, sequentially, on the
+#                      calling thread - zero added threads/memory/scheduling cost for a
+#                      quiet map. See ARGUSCORE_FIXES.md re-check (f).
+#        Default:     50
+#
+#    Map.Partitioning.HaloWidth
+#        Description: How close (in yards) an object needs to be to a partition boundary
+#                      before it gets a per-tick cross-partition-safe published position
+#                      snapshot (Phase 6 - see ARGUSCORE_FIXES.md, "Double-buffered halo
+#                      snapshots"). Defaults to the GIGANTIC visibility-override distance,
+#                      not the true absolute visibility ceiling (the rarer Infinite/FarVisible
+#                      override reaches further, up to a full grid width, but is excluded for
+#                      Players and used only for a handful of large/world-boss-style
+#                      NPCs/GOs) - raise this if a partitioned map uses that content near a
+#                      configured boundary. Phase 0/6 infrastructure only as of this build -
+#                      like Map.Partitioning.Enabled above, nothing reads the published
+#                      snapshot in production yet (that's a future phase).
+#        Default:     400
+
+Map.Partitioning.Enabled = 0
+Map.Partitioning.MapIds = ""
+Map.Partitioning.MinPopulationForFanout = 50
+Map.Partitioning.HaloWidth = 400
+
+#
 ###################################################################################################

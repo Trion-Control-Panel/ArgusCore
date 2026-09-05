@@ -1253,7 +1253,7 @@ public:
         if (tileX && tileY)
         {
             handler->PSendSysMessage("Loading cell (mapId: %u tile: %u, %u). Current GameObjects " SZFMTD ", Creatures " SZFMTD,
-                map->GetId(), *tileX, *tileY, map->GetObjectsStore().Size<GameObject>(), map->GetObjectsStore().Size<Creature>());
+                map->GetId(), *tileX, *tileY, map->GetObjectsStoreSize<GameObject>(), map->GetObjectsStoreSize<Creature>());
 
             // Some unit convertions to go from TileXY to GridXY to WorldXY
             float x = ((float(64 - 1 - *tileX) - 0.5f - CENTER_GRID_ID) * SIZE_OF_GRIDS) + (CENTER_GRID_OFFSET * 2);
@@ -1261,15 +1261,15 @@ public:
             map->LoadGrid(x, y);
 
             handler->PSendSysMessage("Cell loaded (mapId: %u tile: %u, %u) After load - GameObject " SZFMTD ", Creatures " SZFMTD,
-                map->GetId(), *tileX, *tileY, map->GetObjectsStore().Size<GameObject>(), map->GetObjectsStore().Size<Creature>());
+                map->GetId(), *tileX, *tileY, map->GetObjectsStoreSize<GameObject>(), map->GetObjectsStoreSize<Creature>());
         }
         else
         {
-            handler->PSendSysMessage("Loading all cells (mapId: %u). Current GameObjects " SZFMTD ", Creatures " SZFMTD, map->GetId(), map->GetObjectsStore().Size<GameObject>(), map->GetObjectsStore().Size<Creature>());
+            handler->PSendSysMessage("Loading all cells (mapId: %u). Current GameObjects " SZFMTD ", Creatures " SZFMTD, map->GetId(), map->GetObjectsStoreSize<GameObject>(), map->GetObjectsStoreSize<Creature>());
 
             map->LoadAllCells();
 
-            handler->PSendSysMessage("Cells loaded (mapId: %u) After load - GameObject " SZFMTD ", Creatures " SZFMTD, map->GetId(), map->GetObjectsStore().Size<GameObject>(), map->GetObjectsStore().Size<Creature>());
+            handler->PSendSysMessage("Cells loaded (mapId: %u) After load - GameObject " SZFMTD ", Creatures " SZFMTD, map->GetId(), map->GetObjectsStoreSize<GameObject>(), map->GetObjectsStoreSize<Creature>());
         }
 
         return true;
@@ -1722,13 +1722,14 @@ public:
     {
         handler->PSendSysMessage("Map Id: %u Name: '%s' Instance Id: %u Creatures: " UI64FMTD " GameObjects: " UI64FMTD " SetActive Objects: " UI64FMTD,
             map->GetId(), map->GetMapName(), map->GetInstanceId(),
-            uint64(map->GetObjectsStore().Size<Creature>()),
-            uint64(map->GetObjectsStore().Size<GameObject>()),
+            uint64(map->GetObjectsStoreSize<Creature>()),
+            uint64(map->GetObjectsStoreSize<GameObject>()),
             uint64(map->GetActiveNonPlayersCount()));
 
         CreatureCountWorker worker;
         TypeContainerVisitor<CreatureCountWorker, MapStoredObjectTypesContainer> visitor(worker);
-        visitor.Visit(map->GetObjectsStore());
+        for (uint32 shard = 0; shard < map->GetObjectsStoreShardCount(); ++shard)
+            visitor.Visit(map->GetObjectsStoreShard(shard));
 
         handler->PSendSysMessage("Top Creatures count:");
 

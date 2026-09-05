@@ -23,6 +23,7 @@
 #include "DB2Stores.h"
 #include "EventProcessor.h"
 #include "Log.h"
+#include "Map.h"
 #include "MotionMaster.h"
 #include "MoveSplineInit.h"
 #include "ObjectAccessor.h"
@@ -501,6 +502,42 @@ Vehicle* Vehicle::RemovePassenger(WorldObject* passenger)
     if (unit->GetVehicle() != this)
         return nullptr;
 
+    // Cross-partition guard (Stage 7 recheck, ARGUSCORE_FIXES.md) - mutates both _me's own state
+    // (Seats entry, UsableSeatNum, NPC flags, charm state via RemoveCharmedBy) and unit's
+    // (SetDisableGravity, SetUninteractible, movementInfo.transport, SetVehicle) - same class of
+    // two-sided write as VehicleJoinEvent::Execute's boarding-side guard (see its comment).
+    // Reached here directly from AuraEffect::HandleAuraControlVehicle's seat-change branch
+    // (SpellAuraEffects.cpp), which discards the return value, so a plain "defer and return
+    // nullptr" is safe. The one caller that DOES need the real return value synchronously
+    // (Unit::_ExitVehicle, which keeps reading the vehicle base's state afterward) guards itself
+    // first, at its own true top, before ever reaching here (see its own Stage 7 comment) - by the
+    // time that caller's call (possibly already a replay) arrives, IsCrossPartition is already
+    // guaranteed false, so this guard is a no-op for it.
+    if (Map* map = _me->GetMap(); map->IsUnsafeForCurrentThreadToTouch(_me) || map->IsUnsafeForCurrentThreadToTouch(unit))
+    {
+        ObjectGuid meGuid = _me->GetGUID();
+        ObjectGuid unitGuid = unit->GetGUID();
+        map->AddFarSpellCallback([meGuid, unitGuid](Map* map)
+        {
+            Unit* meUnit = ObjectAccessor::GetUnit(map, meGuid);
+            Vehicle* vehicle = meUnit ? meUnit->GetVehicleKit() : nullptr;
+            if (!vehicle)
+                return;
+
+            Unit* unit = ObjectAccessor::GetUnit(map, unitGuid);
+            if (!unit || !unit->IsInWorld())
+                return;
+
+            if (unit->GetVehicle() != vehicle)
+                return;
+
+            map->ResolveCrossPartitionPair(meUnit, unit);
+
+            vehicle->RemovePassenger(unit);
+        });
+        return nullptr;
+    }
+
     SeatMap::iterator seat = GetSeatIteratorForPassenger(unit);
     ASSERT(seat != Seats.end());
 
@@ -799,6 +836,66 @@ void Vehicle::RemovePendingEventsForPassenger(Unit* passenger)
 
 bool VehicleJoinEvent::Execute(uint64, uint32)
 {
+    // Cross-partition guard (Stage 5b, ARGUSCORE_FIXES.md) - Execute() writes into BOTH
+    // Target->GetBase() (Seats map entry, UsableSeatNum, NPC flags, charm state via
+    // SetCharmedBy) and Passenger (SetVehicle, movement/motion state, aura removal) - a genuine
+    // funnel point spanning two possibly-cross-shard units, same shape as CombatReference::EndCombat/
+    // ThreatReference::UnregisterAndFree (see their comments, CombatManager.cpp/ThreatManager.cpp)
+    // including the CurrentFanOutShardForThisMap() gate. This event runs from Passenger's own
+    // m_Events queue (scheduled by Vehicle::AddVehiclePassenger, not Target's), so without this
+    // guard a cross-partition board attempt would mutate Target's state from Passenger's thread.
+    //
+    // Rather than replaying Execute()'s own body (which re-derives aurApp/itr from Target's LIVE
+    // aura state at the top - stale captured state would be wrong by replay time anyway), the
+    // deferred replay restarts the whole join attempt via Vehicle::AddVehiclePassenger, which
+    // re-derives seat selection and reschedules a fresh VehicleJoinEvent from scratch once both
+    // units are pinned to the same shard - simpler and more correct than trying to hand-replay this
+    // event's ASSERT-heavy preconditions.
+    //
+    // `this` must not be left dangling in Target->_pendingJoinEvents once EventProcessor deletes it
+    // (mirrors Abort()'s own RemovePendingEvent call) - but calling Target->RemovePendingEvent(this)
+    // HERE, synchronously, would itself be a cross-thread mutation of Target's own _pendingJoinEvents
+    // std::list from Passenger's thread (an earlier version of this fix did exactly that and an
+    // adversarial review caught it - the very race this whole guard exists to prevent). Instead,
+    // return false (EventProcessor's "don't delete me" signal) so `this` is neither deleted nor
+    // re-queued anywhere - `this` is a small, self-contained bookkeeping object with exactly one
+    // deletion path in the entire codebase (EventProcessor::Update's `delete event` after
+    // Execute()==true, verified - Vehicle.cpp never deletes a VehicleJoinEvent* itself, even in
+    // RemoveAllPassengers/the destructor path, which only ever ScheduleAbort()+pop it), so capturing
+    // the raw `this` pointer for the deferred replay is safe here unlike the Unit/Creature captures
+    // used everywhere else in this pattern: nothing else can free it before the replay explicitly
+    // does. The replay removes it from whichever vehicle's _pendingJoinEvents still holds it (a
+    // harmless no-op if some other legitimate operation on Target's own thread already did, e.g.
+    // RemovePendingEventsForSeat for a competing join attempt) and deletes it exactly once, safely,
+    // from the single-threaded serial barrier phase - before restarting the join attempt fresh.
+    if (Map* map = Passenger->GetMap(); map->IsUnsafeForCurrentThreadToTouch(Passenger) || map->IsUnsafeForCurrentThreadToTouch(Target->GetBase()))
+    {
+        ObjectGuid passengerGuid = Passenger->GetGUID();
+        ObjectGuid targetGuid = Target->GetBase()->GetGUID();
+        int8 seatId = Seat->first;
+        VehicleJoinEvent* self = this;
+        map->AddFarSpellCallback([passengerGuid, targetGuid, seatId, self](Map* map)
+        {
+            Unit* targetUnit = ObjectAccessor::GetUnit(map, targetGuid);
+            Vehicle* targetVehicle = targetUnit ? targetUnit->GetVehicleKit() : nullptr;
+            if (targetVehicle)
+                targetVehicle->RemovePendingEvent(self);
+            delete self;
+
+            Unit* passenger = ObjectAccessor::GetUnit(map, passengerGuid);
+            if (!passenger || !passenger->IsInWorld())
+                return;
+
+            if (!targetUnit || !targetUnit->IsInWorld() || !targetVehicle)
+                return;
+
+            map->ResolveCrossPartitionPair(passenger, targetUnit);
+
+            targetVehicle->AddVehiclePassenger(passenger, seatId);
+        });
+        return false;
+    }
+
     ASSERT(Passenger->IsInWorld());
     ASSERT(Target && Target->GetBase()->IsInWorld());
 

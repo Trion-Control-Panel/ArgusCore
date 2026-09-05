@@ -62,6 +62,7 @@ namespace ObjectAccessor
 {
     // these functions return objects only if in map of specified object
     TC_GAME_API WorldObject* GetWorldObject(WorldObject const&, ObjectGuid const&);
+    TC_GAME_API WorldObject* GetWorldObject(Map const*, ObjectGuid const&);
     TC_GAME_API Object* GetObjectByTypeMask(WorldObject const&, ObjectGuid const&, uint32 typemask);
     TC_GAME_API Corpse* GetCorpse(WorldObject const& u, ObjectGuid const& guid);
     TC_GAME_API GameObject* GetGameObject(WorldObject const& u, ObjectGuid const& guid);
@@ -71,6 +72,7 @@ namespace ObjectAccessor
     TC_GAME_API SceneObject* GetSceneObject(WorldObject const& u, ObjectGuid const& guid);
     TC_GAME_API Conversation* GetConversation(WorldObject const& u, ObjectGuid const& guid);
     TC_GAME_API Unit* GetUnit(WorldObject const&, ObjectGuid const& guid);
+    TC_GAME_API Unit* GetUnit(Map const*, ObjectGuid const& guid);
     TC_GAME_API Creature* GetCreature(WorldObject const& u, ObjectGuid const& guid);
     TC_GAME_API Pet* GetPet(WorldObject const&, ObjectGuid const& guid);
     TC_GAME_API Player* GetPlayer(Map const*, ObjectGuid const& guid);

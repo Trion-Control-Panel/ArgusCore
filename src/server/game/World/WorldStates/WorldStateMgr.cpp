@@ -27,6 +27,8 @@
 #include "Util.h"
 #include "World.h"
 #include "WorldStatePackets.h"
+#include <mutex>
+#include <shared_mutex>
 
 namespace
 {
@@ -34,6 +36,19 @@ constexpr int32 WORLDSTATE_ANY_MAP = -1;
 std::unordered_map<int32, WorldStateTemplate> _worldStateTemplates;
 WorldStateValueContainer _realmWorldStateValues;
 std::unordered_map<int32, WorldStateValueContainer> _worldStatesByMap;
+
+// Stage 6 fix (ARGUSCORE_FIXES.md) - _realmWorldStateValues is a realm-global singleton (not tied
+// to any one Map/shard), reachable concurrently from any Map's thread (e.g. two different maps'
+// fan-out worker threads both calling SetValue for the same realm-wide world state at the same
+// time) - mirrors Map::SetWorldStateValue's own Stage 4 fix exactly (same two-lock shape,
+// same reasoning): _realmWorldStateValuesLock is a plain shared_mutex so reads
+// (GetValue/FillInitialWorldStates) keep concurrent shared access; _realmWorldStateBroadcastLock
+// is a separate recursive_mutex serializing the whole write-through-broadcast sequence in SetValue
+// (recursive because sScriptMgr->OnWorldStateValueChange is arbitrary script code that can
+// legitimately call SetValue again on the same thread), closing the same "two writers' broadcasts
+// could otherwise reach clients out of order" race Stage 4's own review found for the per-Map case.
+std::shared_mutex _realmWorldStateValuesLock;
+std::recursive_mutex _realmWorldStateBroadcastLock;
 }
 
 void WorldStateMgr::LoadFromDB()
@@ -185,6 +200,7 @@ int32 WorldStateMgr::GetValue(int32 worldStateId, Map const* map) const
     WorldStateTemplate const* worldStateTemplate = GetWorldStateTemplate(worldStateId);
     if (!worldStateTemplate || worldStateTemplate->MapIds.empty())
     {
+        std::shared_lock<std::shared_mutex> lock(_realmWorldStateValuesLock);
         if (int32 const* value = Trinity::Containers::MapGetValuePtr(_realmWorldStateValues, worldStateId))
             return *value;
 
@@ -202,12 +218,22 @@ void WorldStateMgr::SetValue(int32 worldStateId, int32 value, bool hidden, Map* 
     WorldStateTemplate const* worldStateTemplate = GetWorldStateTemplate(worldStateId);
     if (!worldStateTemplate || worldStateTemplate->MapIds.empty())
     {
-        auto [itr, inserted] = _realmWorldStateValues.try_emplace(worldStateId, 0);
-        int32 oldValue = itr->second;
-        if (oldValue == value && !inserted)
-            return;
+        // See _realmWorldStateBroadcastLock's own comment (top of this file) for why this needs
+        // to serialize the whole write-through-broadcast sequence, not just the container write.
+        std::lock_guard<std::recursive_mutex> broadcastLock(_realmWorldStateBroadcastLock);
 
-        itr->second = value;
+        int32 oldValue;
+        bool changed;
+        {
+            std::unique_lock<std::shared_mutex> lock(_realmWorldStateValuesLock);
+            auto [itr, inserted] = _realmWorldStateValues.try_emplace(worldStateId, 0);
+            oldValue = itr->second;
+            changed = !(oldValue == value && !inserted);
+            if (changed)
+                itr->second = value;
+        }
+        if (!changed)
+            return;
 
         if (worldStateTemplate)
             sScriptMgr->OnWorldStateValueChange(worldStateTemplate, oldValue, value, nullptr);
@@ -258,8 +284,11 @@ WorldStateValueContainer WorldStateMgr::GetInitialWorldStatesForMap(Map const* m
 
 void WorldStateMgr::FillInitialWorldStates(WorldPackets::WorldState::InitWorldStates& initWorldStates, Map const* map, uint32 playerAreaId) const
 {
-    for (auto const& [worldStateId, value] : _realmWorldStateValues)
-        initWorldStates.Worldstates.emplace_back(worldStateId, value);
+    {
+        std::shared_lock<std::shared_mutex> lock(_realmWorldStateValuesLock);
+        for (auto const& [worldStateId, value] : _realmWorldStateValues)
+            initWorldStates.Worldstates.emplace_back(worldStateId, value);
+    }
 
     for (auto const& [worldStateId, value] : map->GetWorldStateValues())
     {

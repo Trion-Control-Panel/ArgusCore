@@ -22,6 +22,7 @@
 #include "IVMapManager.h"
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -69,6 +70,21 @@ namespace VMAP
             bool thread_safe_environment;
             // Mutex for iLoadedModelFiles
             std::mutex LoadedModelFilesLock;
+
+            // Phase 3 redesign (ARGUSCORE_FIXES.md) - guards iInstanceMapTrees' VALUES (the
+            // StaticMapTree* each mapId slot points to, and everything reachable through it -
+            // NOT the key set, which InitializeThreadUnsafe fully pre-populates once at startup
+            // and never structurally changes again at runtime, same invariant
+            // MMapManager::loadedMMaps relies on). loadMap/unloadMap's writes to a given mapId
+            // slot were already implicitly serialized against each other (every real caller
+            // funnels through the owning TerrainInfo's own _loadMutex, one per mapId - see
+            // TerrainMgr.h), but isInLineOfSight/getHeight/getObjectHitPos/getAreaAndLiquidData
+            // read a slot's StaticMapTree* and dereference it with NO lock at all, reached
+            // directly from Map::isInLineOfSight/GetHeight/etc. on any Map Partitioning worker
+            // thread - a missing acquire/release edge to whichever thread's write actually set
+            // that slot. unique_lock for the (rare) load/unload writers, shared_lock for the
+            // (frequent, must-never-block-each-other) LoS/height/area readers.
+            mutable std::shared_mutex InstanceMapTreesLock;
 
             static uint32 GetLiquidFlagsDummy(uint32) { return 0; }
             static bool IsVMAPDisabledForDummy(uint32 /*entry*/, uint8 /*flags*/) { return false; }

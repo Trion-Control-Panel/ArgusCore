@@ -23,6 +23,8 @@
 #include "Group.h"
 #include "Guild.h"
 #include "GuildMgr.h"
+#include "Map.h"
+#include "ObjectAccessor.h"
 #include "Pet.h"
 #include "Player.h"
 #include "Scenario.h"
@@ -88,12 +90,43 @@ KillRewarder::KillRewarder(Trinity::IteratorPair<Player**> killers, Unit* victim
 
 inline void KillRewarder::_InitGroupData(Player const* killer)
 {
+    // Stage 7 recheck fix (ARGUSCORE_FIXES.md) - these accumulate via += across every killer this
+    // KillRewarder processes in one Reward() call, and were previously never reset between
+    // iterations. A solo killer processed after a grouped one (Reward()'s per-killer loop) would
+    // inherit stale nonzero _sumLevel/_maxLevel/_maxNotGrayMember/_isFullXP left over from the
+    // earlier group - not merely wrong numbers, but (via RewardPlayerDeferred's isGrouped/
+    // sumLevel-!=-0 guard added in Stage 5d) a silently wrong reward amount rather than the
+    // divide-by-zero that guard was built to catch. Pre-existing bug, unrelated to concurrency -
+    // matches the values KillRewarder's own constructor initializes to.
+    //
+    // _groupRate added (code-review finding on this same fix) - only ever written for a grouped
+    // killer (below, via Trinity::XP::xp_in_group_rate), but read unconditionally by both the
+    // grouped AND solo _RewardPlayer paths. Missing from the original reset list despite this
+    // function's own comment already claiming to match every constructor default.
+    _count = 0;
+    _sumLevel = 0;
+    _maxLevel = 0;
+    _maxNotGrayMember = nullptr;
+    _isFullXP = false;
+    _groupRate = 1.0f;
+
     if (Group const* group = killer->GetGroup())
     {
         // 2. In case when player is in group, initialize variables necessary for group calculations:
         for (GroupReference const& itr : group->GetMembers())
         {
             Player* member = itr.GetSource();
+
+            // Cross-partition safety for this loop's reads (IsAtGroupRewardDistance/IsAlive/
+            // GetLevel, below) is established by Reward()'s own pre-scan+defer-the-whole-call
+            // guard (see its comment, KillRewarder.cpp) BEFORE _InitGroupData is ever reached -
+            // by the time this runs, every group member is already guaranteed either same-map-
+            // and-same-partition-safe, or on a genuinely different Map entirely (never touched by
+            // this Map's fan-out at all). An earlier version of this fix tried excluding unsafe
+            // members right here instead - an independent review correctly caught that this
+            // silently skews _sumLevel/_count/_isFullXP for the computation as a whole, corrupting
+            // every OTHER (safe) member's reward math too, not just gracefully degrading the
+            // excluded one - a real correctness bug, not an acceptable approximation.
             if (killer == member || (member->IsAtGroupRewardDistance(_victim) && member->IsAlive()))
             {
                 const uint8 lvl = member->GetLevel();
@@ -130,91 +163,158 @@ inline void KillRewarder::_InitXP(Player* player, Player const* killer)
         _xp = Trinity::XP::Gain(player, _victim, _isBattleGround);
 }
 
-inline void KillRewarder::_RewardHonor(Player* player)
+/*static*/ void KillRewarder::RewardPlayerDeferred(Player* player, Unit* victim, bool isBattleGround, bool isPvP, uint32 count,
+    uint32 xp, float groupRate, uint32 sumLevel, bool isFullXP, Optional<uint8> maxNotGrayMemberLevel, bool isDungeon, bool isGrouped)
 {
-    // Rewarded player must be alive.
-    if (player->IsAlive())
-        player->RewardHonor(_victim, _count, -1, true);
-}
+    // This is _RewardPlayer's real body (formerly split across _RewardPlayer/_RewardHonor/_RewardXP/
+    // _RewardReputation/_RewardKillCredit) - extracted here, taking explicit values instead of
+    // implicit `this->` member reads, so both the synchronous path (Reward()/_RewardGroup below,
+    // passing this KillRewarder's own live members) and a cross-partition deferred replay (see
+    // Reward()/_RewardGroup's own guard comments) share one implementation rather than duplicating
+    // this logic. `player`/`victim` are freshly re-resolved objects (either the synchronous
+    // call's own live pointers, or the replay's own ObjectAccessor lookups) - never stale.
+    //
+    // `isGrouped` (review finding, Stage 5d, ARGUSCORE_FIXES.md) - every branch below used to
+    // re-check `player->GetGroup()` live instead of taking this as a parameter. That's correct in
+    // the synchronous path (no gap between computing sumLevel/groupRate/isFullXP for a group and
+    // reading GetGroup() to decide whether to use them - always the same call stack, same instant)
+    // but breaks on the deferred path: sumLevel/groupRate/isFullXP are frozen at defer time, while
+    // a live GetGroup() re-check at replay time (a real window later - corrected in a Stage 7
+    // recheck: AddFarSpellCallback entries actually drain at the top of Map::DelayedUpdate, which
+    // MapManager::Update only runs after EVERY map's own Update() has completed, so the window is
+    // the rest of this Map's own Update() - boundary pass, transports, scripts, relocations - plus
+    // every OTHER map's entire Update(), not just "right after WaitAll()") could see a DIFFERENT
+    // membership state than what produced those frozen values (e.g. a solo killer, sumLevel left at
+    // 0, who joins a group in the intervening window) - `rate`'s division by `sumLevel` would
+    // divide by zero, producing
+    // `inf`, then feeding an undefined-behavior float-to-uint32 conversion a few lines down. Callers
+    // now capture `isGrouped` at the SAME instant as sumLevel/groupRate/isFullXP/maxNotGrayMemberLevel
+    // (defer time for the deferred path, call time for the sync path) so this function's branching
+    // is internally consistent with the values it was actually given, never a live/frozen mismatch.
 
-inline void KillRewarder::_RewardXP(Player* player, float rate)
-{
-    uint32 xp(_xp);
-    if (player->GetGroup())
-    {
-        // 4.2.1. If player is in group, adjust XP:
-        //        * set to 0 if player's level is more than maximum level of not gray member;
-        //        * cut XP in half if _isFullXP is false.
-        if (_maxNotGrayMember && player->IsAlive() &&
-            _maxNotGrayMember->GetLevel() >= player->GetLevel())
-            xp = _isFullXP ?
-            uint32(xp * rate) :             // Reward FULL XP if all group members are not gray.
-            uint32(xp * rate / 2) + 1;      // Reward only HALF of XP if some of group members are gray.
-        else
-            xp = 0;
-    }
-    if (xp)
-    {
-        // 4.2.2. Apply auras modifying rewarded XP (SPELL_AURA_MOD_XP_PCT and SPELL_AURA_MOD_XP_FROM_CREATURE_TYPE).
-        xp *= player->GetTotalAuraMultiplier(SPELL_AURA_MOD_XP_PCT);
-        xp *= player->GetTotalAuraMultiplierByMiscValue(SPELL_AURA_MOD_XP_FROM_CREATURE_TYPE, int32(_victim->GetCreatureType()));
-
-        // 4.2.3. Give XP to player.
-        player->GiveXP(xp, _victim, _groupRate);
-        if (Pet* pet = player->GetPet())
-            // 4.2.4. If player has pet, reward pet with XP (100% for single player, 50% for group case).
-            pet->GivePetXP(player->GetGroup() ? xp / 2 : xp);
-    }
-}
-
-inline void KillRewarder::_RewardReputation(Player* player, float rate)
-{
-    // 4.3. Give reputation (player must not be on BG).
-    // Even dead players and corpses are rewarded.
-    player->RewardReputation(_victim, rate);
-}
-
-inline void KillRewarder::_RewardKillCredit(Player* player)
-{
-    // 4.4. Give kill credit (player must not be in group, or he must be alive or without corpse).
-    if (!player->GetGroup() || player->IsAlive() || !player->GetCorpse())
-    {
-        if (Creature* target = _victim->ToCreature())
-        {
-            player->KilledMonster(target);
-            player->UpdateCriteria(CriteriaType::KillAnyCreature, target->GetCreatureType(), 1, 0, target);
-        }
-    }
-}
-
-void KillRewarder::_RewardPlayer(Player* player, bool isDungeon)
-{
     // 4. Reward player.
-    if (!_isBattleGround)
+    if (!isBattleGround)
     {
         // 4.1. Give honor (player must be alive and not on BG).
-        _RewardHonor(player);
+        if (player->IsAlive())
+            player->RewardHonor(victim, count, -1, true);
         // 4.1.1 Send player killcredit for quests with PlayerSlain
-        if (_victim->GetTypeId() == TYPEID_PLAYER)
-            player->KilledPlayerCredit(_victim->GetGUID());
+        if (victim->GetTypeId() == TYPEID_PLAYER)
+            player->KilledPlayerCredit(victim->GetGUID());
     }
     // Give XP only in PvE or in battlegrounds.
     // Give reputation and kill credit only in PvE.
-    if (!_isPvP || _isBattleGround)
+    if (!isPvP || isBattleGround)
     {
-        float const rate = player->GetGroup() ?
-            _groupRate * float(player->GetLevel()) / _sumLevel : // Group rate depends on summary level.
-            1.0f;                                                // Personal rate is 100%.
-        if (_xp)
+        float const rate = (isGrouped && sumLevel) ?
+            groupRate * float(player->GetLevel()) / sumLevel : // Group rate depends on summary level.
+            1.0f;                                               // Personal rate is 100%.
+        if (xp)
+        {
             // 4.2. Give XP.
-            _RewardXP(player, rate);
-        if (!_isBattleGround)
+            uint32 rewardXp(xp);
+            if (isGrouped)
+            {
+                // 4.2.1. If player is in group, adjust XP:
+                //        * set to 0 if player's level is more than maximum level of not gray member;
+                //        * cut XP in half if isFullXP is false.
+                if (maxNotGrayMemberLevel && player->IsAlive() && *maxNotGrayMemberLevel >= player->GetLevel())
+                    rewardXp = isFullXP ?
+                    uint32(rewardXp * rate) :             // Reward FULL XP if all group members are not gray.
+                    uint32(rewardXp * rate / 2) + 1;      // Reward only HALF of XP if some of group members are gray.
+                else
+                    rewardXp = 0;
+            }
+            if (rewardXp)
+            {
+                // 4.2.2. Apply auras modifying rewarded XP (SPELL_AURA_MOD_XP_PCT and SPELL_AURA_MOD_XP_FROM_CREATURE_TYPE).
+                rewardXp = uint32(rewardXp * player->GetTotalAuraMultiplier(SPELL_AURA_MOD_XP_PCT));
+                rewardXp = uint32(rewardXp * player->GetTotalAuraMultiplierByMiscValue(SPELL_AURA_MOD_XP_FROM_CREATURE_TYPE, int32(victim->GetCreatureType())));
+
+                // 4.2.3. Give XP to player.
+                player->GiveXP(rewardXp, victim, groupRate);
+                if (Pet* pet = player->GetPet())
+                    // 4.2.4. If player has pet, reward pet with XP (100% for single player, 50% for group case).
+                    pet->GivePetXP(isGrouped ? rewardXp / 2 : rewardXp);
+            }
+        }
+        if (!isBattleGround)
         {
             // If killer is in dungeon then all members receive full reputation at kill.
-            _RewardReputation(player, isDungeon ? 1.0f : rate);
-            _RewardKillCredit(player);
+            // 4.3. Give reputation (player must not be on BG). Even dead players and corpses are rewarded.
+            player->RewardReputation(victim, isDungeon ? 1.0f : rate);
+            // 4.4. Give kill credit (player must not be in group, or he must be alive or without corpse).
+            if (!isGrouped || player->IsAlive() || !player->GetCorpse())
+            {
+                if (Creature* target = victim->ToCreature())
+                {
+                    player->KilledMonster(target);
+                    player->UpdateCriteria(CriteriaType::KillAnyCreature, target->GetCreatureType(), 1, 0, target);
+                }
+            }
         }
     }
+}
+
+void KillRewarder::_RewardPlayer(Player* player, bool isDungeon, bool isGrouped)
+{
+    // Cross-partition guard (Stage 5d, ARGUSCORE_FIXES.md) - RewardHonor/GiveXP/RewardReputation/
+    // KilledMonster/UpdateCriteria all write into `player`'s (and `player`'s pet's) own state, but
+    // this whole call chain (Unit::Kill -> KillRewarder::Reward -> here) runs on whichever thread
+    // is processing `victim`'s kill - `attacker`'s/`victim`'s shard, not necessarily `player`'s.
+    // `player` here is either a tapper (no distance bound applied before this call at all) or a
+    // group member (bounded only by the admin-configurable CONFIG_GROUP_XP_DISTANCE, not provably
+    // <= the Stage 1 probe-width proof's MAX_VISIBILITY_DISTANCE the way most reads/writes
+    // elsewhere in this pattern are) - a real, reachable gap, not the same "safe by construction"
+    // case as e.g. AreaTrigger's bounded search radius. `this` (the KillRewarder) is a stack-
+    // lifetime temporary (see Unit::Kill's `KillRewarder(...).Reward()`), so nothing about it can
+    // be captured for a later replay - instead, every value RewardPlayerDeferred needs is captured
+    // here, before deferring, and the replay calls that shared static function directly, with no
+    // dependency on `this` surviving.
+    // Review finding (code-review deep-dive fix, ARGUSCORE_FIXES.md) - hoisted above the branch
+    // below: was computed twice, byte-identical, once per branch. A future change to the
+    // gray-member level computation patched into only one copy would silently make the deferred
+    // and synchronous paths diverge - exactly the class of frozen-vs-live mismatch this same
+    // function's own isGrouped fix (Stage 5d) worried about elsewhere.
+    Optional<uint8> maxNotGrayMemberLevel = _maxNotGrayMember ? Optional<uint8>(_maxNotGrayMember->GetLevel()) : std::nullopt;
+
+    // Review finding (code-review deep-dive fix, ARGUSCORE_FIXES.md) - `isGrouped` is now a
+    // parameter supplied by the caller (which always already knows it unambiguously: _RewardGroup
+    // calls this for a member it just pulled OUT of `group`, Reward()'s solo branch calls this
+    // only when killer->GetGroup() was already confirmed null) rather than re-derived here via
+    // `player->GetGroup() != nullptr`. That live read used to happen INSIDE the cross-partition
+    // branch below, AFTER already establishing `player` is cross-partition-unsafe to touch from
+    // this thread - reading player->GetGroup() (m_group) unsynchronized at exactly that point was
+    // the identical race this whole isGrouped mechanism was introduced to close for the DEFERRED
+    // replay, just re-opened one line earlier, at capture time.
+    if (Map* map = _victim->GetMap(); map->IsUnsafeForCurrentThreadToTouch(_victim) || map->IsUnsafeForCurrentThreadToTouch(player))
+    {
+        ObjectGuid playerGuid = player->GetGUID();
+        ObjectGuid victimGuid = _victim->GetGUID();
+        bool isBattleGround = _isBattleGround;
+        bool isPvP = _isPvP;
+        uint32 count = _count;
+        uint32 xp = _xp;
+        float groupRate = _groupRate;
+        uint32 sumLevel = _sumLevel;
+        bool isFullXP = _isFullXP;
+        map->AddFarSpellCallback([playerGuid, victimGuid, isBattleGround, isPvP, count, xp, groupRate, sumLevel, isFullXP, maxNotGrayMemberLevel, isDungeon, isGrouped](Map* map)
+        {
+            Player* player = ObjectAccessor::GetPlayer(map, playerGuid);
+            if (!player || !player->IsInWorld())
+                return;
+
+            Unit* victim = ObjectAccessor::GetUnit(map, victimGuid);
+            if (!victim || !victim->IsInWorld())
+                return;
+
+            map->ResolveCrossPartitionPair(victim, player);
+            KillRewarder::RewardPlayerDeferred(player, victim, isBattleGround, isPvP, count, xp, groupRate, sumLevel, isFullXP, maxNotGrayMemberLevel, isDungeon, isGrouped);
+        });
+        return;
+    }
+
+    RewardPlayerDeferred(player, _victim, _isBattleGround, _isPvP, _count, _xp, _groupRate, _sumLevel, _isFullXP, maxNotGrayMemberLevel, isDungeon, isGrouped);
 }
 
 void KillRewarder::_RewardGroup(Group const* group, Player const* killer)
@@ -244,7 +344,7 @@ void KillRewarder::_RewardGroup(Group const* group, Player const* killer)
                 Player* member = itr.GetSource();
                 // Killer may not be at reward distance, check directly
                 if (killer == member || member->IsAtGroupRewardDistance(_victim))
-                    _RewardPlayer(member, isDungeon);
+                    _RewardPlayer(member, isDungeon, /*isGrouped=*/true);
             }
         }
     }
@@ -252,6 +352,91 @@ void KillRewarder::_RewardGroup(Group const* group, Player const* killer)
 
 void KillRewarder::Reward()
 {
+    // Cross-partition guard (code-review deep-dive fix, ARGUSCORE_FIXES.md) - _InitGroupData
+    // (below, per killer) reads every group member's own state (position/level/alive) up to the
+    // admin-configurable CONFIG_GROUP_XP_DISTANCE, synchronously, on whichever thread is
+    // processing _victim's kill - a member near a DIFFERENT partition boundary, engaged with
+    // something on that other shard, could have its own fields concurrently written by that
+    // shard's worker thread while this reads them. An earlier version of this fix excluded such
+    // members from the aggregate right inside _InitGroupData - an independent review correctly
+    // caught that doing so corrupts _sumLevel/_count/_isFullXP for the WHOLE group's reward math,
+    // not just the excluded member's own (KillRewarder::_RewardGroup still rewards every member
+    // who passes its OWN distance check using that skewed sumLevel) - tying reward outcomes to
+    // transient shard topology instead of game rules, a real correctness bug, not an acceptable
+    // approximation. Fixed properly instead: pre-scan every killer's group for a member that (a)
+    // is actually on _victim's own Map (a member on a different Map/instance entirely is never
+    // touched by this Map's fan-out at all - Map::IsUnsafeForCurrentThreadToTouch's own bookkeeping
+    // is meaningless across Map instances, so this check is skipped for them, matching what
+    // IsAtGroupRewardDistance already effectively excludes for a cross-map member) and (b) isn't
+    // safe to read synchronously from this thread right now. If found, defer the WHOLE Reward()
+    // call - not a sub-piece of it - to the barrier phase, where every read is trivially safe
+    // (single-threaded), and reconstruct a fresh KillRewarder there rather than trying to keep
+    // `this` (a stack-lifetime temporary, see Unit::Kill's own `KillRewarder(...).Reward();`)
+    // alive across the defer, matching this class's own established "capture values, don't try to
+    // preserve `this`" idiom (RewardPlayerDeferred).
+    if (Map* map = _victim->GetMap(); map->CurrentFanOutShardForThisMap())
+    {
+        bool unsafe = false;
+        for (Player* killer : _killers)
+        {
+            // Review finding (code-review deep-dive fix, ARGUSCORE_FIXES.md) - the original
+            // version of this pre-scan only inspected a killer's GROUP members, missing the
+            // killer itself: an ungrouped/solo tapper has "no distance bound applied before this
+            // call at all" (see _RewardPlayer's own comment), and _InitXP(killer, killer) below
+            // reads killer's own state (GetVehicle, and via Trinity::XP::Gain, level/etc.)
+            // directly, before _RewardPlayer's own IsCrossPartition guard is ever reached - the
+            // identical class of unguarded read this whole pre-scan exists to catch, just missed
+            // for the ungrouped branch.
+            if (killer->GetMap() == map && map->IsUnsafeForCurrentThreadToTouch(killer))
+            {
+                unsafe = true;
+                break;
+            }
+
+            if (Group const* group = killer->GetGroup())
+            {
+                for (GroupReference const& itr : group->GetMembers())
+                {
+                    Player* member = itr.GetSource();
+                    if (member->GetMap() == map && map->IsUnsafeForCurrentThreadToTouch(member))
+                    {
+                        unsafe = true;
+                        break;
+                    }
+                }
+            }
+            if (unsafe)
+                break;
+        }
+
+        if (unsafe)
+        {
+            std::vector<ObjectGuid> killerGuids;
+            for (Player* killer : _killers)
+                killerGuids.push_back(killer->GetGUID());
+            ObjectGuid victimGuid = _victim->GetGUID();
+            bool isBattleGround = _isBattleGround;
+            map->AddFarSpellCallback([killerGuids, victimGuid, isBattleGround](Map* map)
+            {
+                Unit* victim = ObjectAccessor::GetUnit(map, victimGuid);
+                if (!victim || !victim->IsInWorld())
+                    return;
+
+                std::vector<Player*> killers;
+                killers.reserve(killerGuids.size());
+                for (ObjectGuid const& guid : killerGuids)
+                    if (Player* killer = ObjectAccessor::GetPlayer(map, guid); killer && killer->IsInWorld())
+                        killers.push_back(killer);
+
+                if (killers.empty())
+                    return;
+
+                KillRewarder(Trinity::IteratorPair(killers.data(), killers.data() + killers.size()), victim, isBattleGround).Reward();
+            });
+            return;
+        }
+    }
+
     Trinity::Containers::FlatSet<Group const*, std::less<>, boost::container::small_vector<Group const*, 3>> processedGroups;
     for (Player* killer : _killers)
     {
@@ -276,7 +461,7 @@ void KillRewarder::Reward()
             // (battleground rewards only XP, that's why).
             if (!_isBattleGround || _xp)
                 // 3.2.2. Reward killer.
-                _RewardPlayer(killer, false);
+                _RewardPlayer(killer, false, /*isGrouped=*/false);
         }
     }
 

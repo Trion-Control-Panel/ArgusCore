@@ -33,7 +33,7 @@ PathGenerator::PathGenerator(WorldObject const* owner) :
     _polyLength(0), _type(PATHFIND_BLANK), _useStraightPath(false),
     _forceDestination(false), _pointPathLimit(MAX_POINT_PATH_LENGTH), _useRaycast(false),
     _startPosition(PositionToVector3(owner)), _endPosition(G3D::Vector3::zero()), _source(owner), _navMesh(nullptr),
-    _navMeshQuery(nullptr)
+    _navMeshQuery(nullptr), _navMeshLock(nullptr)
 {
     memset(_pathPolyRefs, 0, sizeof(_pathPolyRefs));
 
@@ -43,8 +43,12 @@ PathGenerator::PathGenerator(WorldObject const* owner) :
     if (DisableMgr::IsPathfindingEnabled(_source->GetMapId()))
     {
         MMAP::MMapManager* mmap = MMAP::MMapFactory::createOrGetMMapManager();
-        _navMeshQuery = mmap->GetNavMeshQuery(mapId, _source->GetMapId(), _source->GetInstanceId());
+        // Partition-scoped query (Map Partitioning design - see ARGUSCORE_FIXES.md, Phase 3) -
+        // 0 on an unpartitioned map, identical to what this call always resolved to before.
+        uint32 partitionId = _source->GetMap()->GetPartitionIndexForObject(_source);
+        _navMeshQuery = mmap->GetNavMeshQuery(mapId, _source->GetMapId(), _source->GetInstanceId(), partitionId);
         _navMesh = _navMeshQuery ? _navMeshQuery->getAttachedNavMesh() : mmap->GetNavMesh(mapId);
+        _navMeshLock = mmap->GetNavMeshLock(mapId);
     }
 
     CreateFilter();
@@ -131,7 +135,7 @@ dtPolyRef PathGenerator::GetPathPolyByPosition(dtPolyRef const* polyPath, uint32
     for (uint32 i = 0; i < polyPathSize; ++i)
     {
         float closestPoint[VERTEX_SIZE];
-        if (dtStatusFailed(_navMeshQuery->closestPointOnPoly(polyPath[i], point, closestPoint, nullptr)))
+        if (dtStatusFailed(WithNavMeshLock([&]{ return _navMeshQuery->closestPointOnPoly(polyPath[i], point, closestPoint, nullptr); })))
             continue;
 
         float d = dtVdistSqr(point, closestPoint);
@@ -165,7 +169,7 @@ dtPolyRef PathGenerator::GetPolyByLocation(float const* point, float* distance) 
     // first try with low search box
     float extents[VERTEX_SIZE] = {3.0f, 5.0f, 3.0f};    // bounds of poly search area
     float closestPoint[VERTEX_SIZE] = {0.0f, 0.0f, 0.0f};
-    if (dtStatusSucceed(_navMeshQuery->findNearestPoly(point, extents, &_filter, &polyRef, closestPoint)) && polyRef != INVALID_POLYREF)
+    if (dtStatusSucceed(WithNavMeshLock([&]{ return _navMeshQuery->findNearestPoly(point, extents, &_filter, &polyRef, closestPoint); })) && polyRef != INVALID_POLYREF)
     {
         *distance = dtVdist(closestPoint, point);
         return polyRef;
@@ -176,7 +180,7 @@ dtPolyRef PathGenerator::GetPolyByLocation(float const* point, float* distance) 
     // Note that the extent should not overlap more than 128 polygons in the navmesh (see dtNavMeshQuery::findNearestPoly)
     extents[1] = 50.0f;
 
-    if (dtStatusSucceed(_navMeshQuery->findNearestPoly(point, extents, &_filter, &polyRef, closestPoint)) && polyRef != INVALID_POLYREF)
+    if (dtStatusSucceed(WithNavMeshLock([&]{ return _navMeshQuery->findNearestPoly(point, extents, &_filter, &polyRef, closestPoint); })) && polyRef != INVALID_POLYREF)
     {
         *distance = dtVdist(closestPoint, point);
         return polyRef;
@@ -281,7 +285,7 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
         {
             float closestPoint[VERTEX_SIZE];
             // we may want to use closestPointOnPolyBoundary instead
-            if (dtStatusSucceed(_navMeshQuery->closestPointOnPoly(endPoly, endPoint, closestPoint, nullptr)))
+            if (dtStatusSucceed(WithNavMeshLock([&]{ return _navMeshQuery->closestPointOnPoly(endPoly, endPoint, closestPoint, nullptr); })))
             {
                 dtVcopy(endPoint, closestPoint);
                 SetActualEndPosition(G3D::Vector3(endPoint[2], endPoint[0], endPoint[1]));
@@ -388,13 +392,13 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
 
         // we need any point on our suffix start poly to generate poly-path, so we need last poly in prefix data
         float suffixEndPoint[VERTEX_SIZE];
-        if (dtStatusFailed(_navMeshQuery->closestPointOnPoly(suffixStartPoly, endPoint, suffixEndPoint, nullptr)))
+        if (dtStatusFailed(WithNavMeshLock([&]{ return _navMeshQuery->closestPointOnPoly(suffixStartPoly, endPoint, suffixEndPoint, nullptr); })))
         {
             // we can hit offmesh connection as last poly - closestPointOnPoly() don't like that
             // try to recover by using prev polyref
             --prefixPolyLength;
             suffixStartPoly = _pathPolyRefs[prefixPolyLength-1];
-            if (dtStatusFailed(_navMeshQuery->closestPointOnPoly(suffixStartPoly, endPoint, suffixEndPoint, nullptr)))
+            if (dtStatusFailed(WithNavMeshLock([&]{ return _navMeshQuery->closestPointOnPoly(suffixStartPoly, endPoint, suffixEndPoint, nullptr); })))
             {
                 // suffixStartPoly is still invalid, error state
                 BuildShortcut();
@@ -416,7 +420,9 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
         }
         else
         {
-            dtResult = _navMeshQuery->findPath(
+            dtResult = WithNavMeshLock([&]
+            {
+                return _navMeshQuery->findPath(
                             suffixStartPoly,    // start polygon
                             endPoly,            // end polygon
                             suffixEndPoint,     // start position
@@ -425,6 +431,7 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
                             _pathPolyRefs + prefixPolyLength - 1,    // [out] path
                             (int*)&suffixPolyLength,
                             MAX_PATH_LENGTH - prefixPolyLength);   // max number of polygons in output path
+            });
         }
 
         if (!suffixPolyLength || dtStatusFailed(dtResult))
@@ -458,7 +465,9 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
             float hitNormal[3];
             memset(hitNormal, 0, sizeof(hitNormal));
 
-            dtResult = _navMeshQuery->raycast(
+            dtResult = WithNavMeshLock([&]
+            {
+                return _navMeshQuery->raycast(
                             startPoly,
                             startPoint,
                             endPoint,
@@ -468,6 +477,7 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
                             _pathPolyRefs,
                             (int*)&_polyLength,
                             MAX_PATH_LENGTH);
+            });
 
             if (!_polyLength || dtStatusFailed(dtResult))
             {
@@ -487,8 +497,11 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
                 dtVlerp(hitPos, startPoint, endPoint, hit);
 
                 // if it fails again, clamp to poly boundary
-                if (dtStatusFailed(_navMeshQuery->getPolyHeight(_pathPolyRefs[_polyLength - 1], hitPos, &hitPos[1])))
-                    _navMeshQuery->closestPointOnPolyBoundary(_pathPolyRefs[_polyLength - 1], hitPos, hitPos);
+                WithNavMeshLock([&]
+                {
+                    if (dtStatusFailed(_navMeshQuery->getPolyHeight(_pathPolyRefs[_polyLength - 1], hitPos, &hitPos[1])))
+                        _navMeshQuery->closestPointOnPolyBoundary(_pathPolyRefs[_polyLength - 1], hitPos, hitPos);
+                });
 
                 _pathPoints.resize(2);
                 _pathPoints[0] = GetStartPosition();
@@ -502,8 +515,11 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
             else
             {
                 // clamp to poly boundary if we fail to get the height
-                if (dtStatusFailed(_navMeshQuery->getPolyHeight(_pathPolyRefs[_polyLength - 1], endPoint, &endPoint[1])))
-                    _navMeshQuery->closestPointOnPolyBoundary(_pathPolyRefs[_polyLength - 1], endPoint, endPoint);
+                WithNavMeshLock([&]
+                {
+                    if (dtStatusFailed(_navMeshQuery->getPolyHeight(_pathPolyRefs[_polyLength - 1], endPoint, &endPoint[1])))
+                        _navMeshQuery->closestPointOnPolyBoundary(_pathPolyRefs[_polyLength - 1], endPoint, endPoint);
+                });
 
                 _pathPoints.resize(2);
                 _pathPoints[0] = GetStartPosition();
@@ -523,7 +539,9 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
         }
         else
         {
-            dtResult = _navMeshQuery->findPath(
+            dtResult = WithNavMeshLock([&]
+            {
+                return _navMeshQuery->findPath(
                             startPoly,          // start polygon
                             endPoly,            // end polygon
                             startPoint,         // start position
@@ -532,6 +550,7 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
                             _pathPolyRefs,     // [out] path
                             (int*)&_polyLength,
                             MAX_PATH_LENGTH);   // max number of polygons in output path
+            });
         }
 
         if (!_polyLength || dtStatusFailed(dtResult))
@@ -571,7 +590,9 @@ void PathGenerator::BuildPointPath(const float *startPoint, const float *endPoin
     }
     else if (_useStraightPath)
     {
-        dtResult = _navMeshQuery->findStraightPath(
+        dtResult = WithNavMeshLock([&]
+        {
+            return _navMeshQuery->findStraightPath(
                 startPoint,         // start position
                 endPoint,           // end position
                 _pathPolyRefs,     // current path
@@ -581,6 +602,7 @@ void PathGenerator::BuildPointPath(const float *startPoint, const float *endPoin
                 nullptr,               // [out] shortened path
                 (int*)&pointCount,
                 _pointPathLimit);   // maximum number of points/polygons to use
+        });
     }
     else
     {
@@ -908,18 +930,21 @@ NavTerrainFlag PathGenerator::GetNavTerrain(float x, float y, float z) const
 
 bool PathGenerator::HaveTile(const G3D::Vector3& p) const
 {
-    int tx = -1, ty = -1;
-    float point[VERTEX_SIZE] = {p.y, p.z, p.x};
+    return WithNavMeshLock([&]
+    {
+        int tx = -1, ty = -1;
+        float point[VERTEX_SIZE] = {p.y, p.z, p.x};
 
-    _navMesh->calcTileLoc(point, &tx, &ty);
+        _navMesh->calcTileLoc(point, &tx, &ty);
 
-    /// Workaround
-    /// For some reason, often the tx and ty variables wont get a valid value
-    /// Use this check to prevent getting negative tile coords and crashing on getTileAt
-    if (tx < 0 || ty < 0)
-        return false;
+        /// Workaround
+        /// For some reason, often the tx and ty variables wont get a valid value
+        /// Use this check to prevent getting negative tile coords and crashing on getTileAt
+        if (tx < 0 || ty < 0)
+            return false;
 
-    return (_navMesh->getTileAt(tx, ty, 0) != nullptr);
+        return (_navMesh->getTileAt(tx, ty, 0) != nullptr);
+    });
 }
 
 uint32 PathGenerator::FixupCorridor(dtPolyRef* path, uint32 npath, uint32 maxPath, dtPolyRef const* visited, uint32 nvisited)
@@ -977,8 +1002,11 @@ bool PathGenerator::GetSteerTarget(float const* startPos, float const* endPos,
     unsigned char steerPathFlags[MAX_STEER_POINTS];
     dtPolyRef steerPathPolys[MAX_STEER_POINTS];
     uint32 nsteerPath = 0;
-    dtStatus dtResult = _navMeshQuery->findStraightPath(startPos, endPos, path, pathSize,
+    dtStatus dtResult = WithNavMeshLock([&]
+    {
+        return _navMeshQuery->findStraightPath(startPos, endPos, path, pathSize,
                                                 steerPath, steerPathFlags, steerPathPolys, (int*)&nsteerPath, MAX_STEER_POINTS);
+    });
     if (!nsteerPath || dtStatusFailed(dtResult))
         return false;
 
@@ -1020,10 +1048,10 @@ dtStatus PathGenerator::FindSmoothPath(float const* startPos, float const* endPo
     if (polyPathSize > 1)
     {
         // Pick the closest points on poly border
-        if (dtStatusFailed(_navMeshQuery->closestPointOnPolyBoundary(polys[0], startPos, iterPos)))
+        if (dtStatusFailed(WithNavMeshLock([&]{ return _navMeshQuery->closestPointOnPolyBoundary(polys[0], startPos, iterPos); })))
             return DT_FAILURE;
 
-        if (dtStatusFailed(_navMeshQuery->closestPointOnPolyBoundary(polys[npolys - 1], endPos, targetPos)))
+        if (dtStatusFailed(WithNavMeshLock([&]{ return _navMeshQuery->closestPointOnPolyBoundary(polys[npolys - 1], endPos, targetPos); })))
             return DT_FAILURE;
     }
     else
@@ -1070,11 +1098,11 @@ dtStatus PathGenerator::FindSmoothPath(float const* startPos, float const* endPo
         dtPolyRef visited[MAX_VISIT_POLY];
 
         uint32 nvisited = 0;
-        if (dtStatusFailed(_navMeshQuery->moveAlongSurface(polys[0], iterPos, moveTgt, &_filter, result, visited, (int*)&nvisited, MAX_VISIT_POLY)))
+        if (dtStatusFailed(WithNavMeshLock([&]{ return _navMeshQuery->moveAlongSurface(polys[0], iterPos, moveTgt, &_filter, result, visited, (int*)&nvisited, MAX_VISIT_POLY); })))
             return DT_FAILURE;
         npolys = FixupCorridor(polys, npolys, MAX_PATH_LENGTH, visited, nvisited);
 
-        if (dtStatusFailed(_navMeshQuery->getPolyHeight(polys[0], result, &result[1])))
+        if (dtStatusFailed(WithNavMeshLock([&]{ return _navMeshQuery->getPolyHeight(polys[0], result, &result[1]); })))
             TC_LOG_DEBUG("maps.mmaps", "Cannot find height at position X: {} Y: {} Z: {} for {}", result[2], result[0], result[1], _source->GetDebugInfo());
         result[1] += 0.5f;
         dtVcopy(iterPos, result);
@@ -1111,7 +1139,7 @@ dtStatus PathGenerator::FindSmoothPath(float const* startPos, float const* endPo
 
             // Handle the connection.
             float connectionStartPos[VERTEX_SIZE], connectionEndPos[VERTEX_SIZE];
-            if (dtStatusSucceed(_navMesh->getOffMeshConnectionPolyEndPoints(prevRef, polyRef, connectionStartPos, connectionEndPos)))
+            if (dtStatusSucceed(WithNavMeshLock([&]{ return _navMesh->getOffMeshConnectionPolyEndPoints(prevRef, polyRef, connectionStartPos, connectionEndPos); })))
             {
                 if (nsmoothPath < maxSmoothPathSize)
                 {
@@ -1120,7 +1148,7 @@ dtStatus PathGenerator::FindSmoothPath(float const* startPos, float const* endPo
                 }
                 // Move position at the other side of the off-mesh link.
                 dtVcopy(iterPos, connectionEndPos);
-                if (dtStatusFailed(_navMeshQuery->getPolyHeight(polys[0], iterPos, &iterPos[1])))
+                if (dtStatusFailed(WithNavMeshLock([&]{ return _navMeshQuery->getPolyHeight(polys[0], iterPos, &iterPos[1]); })))
                     return DT_FAILURE;
                 iterPos[1] += 0.5f;
             }

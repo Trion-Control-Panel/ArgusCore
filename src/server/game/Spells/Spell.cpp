@@ -42,6 +42,7 @@
 #include "Log.h"
 #include "Loot.h"
 #include "LootMgr.h"
+#include "Map.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
@@ -3170,7 +3171,31 @@ SpellMissInfo Spell::PreprocessSpellHit(Unit* unit, TargetInfo& hitInfo)
             DiminishingReturnsType type = m_spellInfo->GetDiminishingReturnsGroupType();
             // Increase Diminishing on unit, current informations for actually casts will use values above
             if (type == DRTYPE_ALL || (type == DRTYPE_PLAYER && unit->IsAffectedByDiminishingReturns()))
-                unit->IncrDiminishing(m_spellInfo);
+            {
+                // Cross-partition guard (Stage 5c, ARGUSCORE_FIXES.md) - IncrDiminishing only
+                // touches unit's own m_Diminishing array (self-contained, has no caster/anchor
+                // parameter of its own to guard against), but this runs on the caster's thread
+                // (Spell target-hit processing) and `unit` can be a different, cross-partition
+                // unit - same shape as halls_of_reflection.cpp's DeleteAllFromThreatList fix
+                // (guard belongs at the reaching-in call site, not inside the self-contained
+                // callee). SpellInfo captured by raw pointer - static, server-lifetime data (see
+                // ThreatManager::AddThreat's own precedent, ThreatManager.cpp).
+                if (Map* map = m_caster->GetMap(); map->IsUnsafeForCurrentThreadToTouch(m_caster) || map->IsUnsafeForCurrentThreadToTouch(unit))
+                {
+                    ObjectGuid unitGuid = unit->GetGUID();
+                    SpellInfo const* spellInfo = m_spellInfo;
+                    map->AddFarSpellCallback([unitGuid, spellInfo](Map* map)
+                    {
+                        Unit* unit = ObjectAccessor::GetUnit(map, unitGuid);
+                        if (!unit || !unit->IsInWorld())
+                            return;
+
+                        unit->IncrDiminishing(spellInfo);
+                    });
+                }
+                else
+                    unit->IncrDiminishing(m_spellInfo);
+            }
         }
 
         // Now Reduce spell duration using data received at spell hit
@@ -3965,7 +3990,31 @@ void Spell::_cast(bool skipCheck)
     if (!(_triggeredCastFlags & TRIGGERED_IGNORE_CAST_IN_PROGRESS) && !m_spellInfo->HasAttribute(SPELL_ATTR2_NOT_AN_ACTION))
         m_originalCaster->RemoveAurasWithInterruptFlags(SpellAuraInterruptFlags::ActionDelayed, m_spellInfo);
 
-    Unit::ProcSkillsAndAuras(m_originalCaster, nullptr, procAttacker, PROC_FLAG_NONE, PROC_SPELL_TYPE_MASK_ALL, PROC_SPELL_PHASE_CAST, hitMask, this, nullptr, nullptr);
+    // Cross-partition guard (code-review deep-dive fix, ARGUSCORE_FIXES.md, closing
+    // Unit::ProcSkillsAndAuras's own documented "real, confirmed gap" for its actor-side calls) -
+    // m_originalCaster can be a third party (totem/trap/proxy casts) never validated against
+    // whichever thread is actually processing this Spell. Unlike ForwardThreatForAssistingMe's
+    // sibling gap (fixed by moving the guard into the callee, ThreatManager.cpp), this call's
+    // actor-side writes (ProcSkillsAndReactives, then TriggerAurasProcOnEvent) can't be deferred
+    // as a unit - the live `this` (Spell*) passed as `spell` is used deep inside
+    // TriggerAurasProcOnEvent (m_appliedMods, per-aura TriggerProcOnEvent script hooks), not just
+    // for its SpellInfo, so it cannot cross a defer boundary. Rather than leave the write
+    // genuinely unsynchronized, pass nullptr instead of m_originalCaster when unsafe -
+    // ProcSkillsAndAuras's own existing actor null-checks then cleanly skip both actor-side calls
+    // entirely. Uses Map::IsUnsafeForCurrentThreadToTouch (see its own comment, Map.h) rather than
+    // IsCrossPartition(m_caster->ToUnit(), ...) - an earlier version of this fix used that and an
+    // independent review caught it going silently inert for exactly the "trap/GameObject caster"
+    // scenario this guard's own comment cites as motivating (m_caster is a WorldObject*, and
+    // ->ToUnit() returns null for a non-Unit caster). IsUnsafeForCurrentThreadToTouch needs no
+    // "real anchor" object at all, sidestepping that whole class of mistake. Narrow in practice
+    // (only totem/trap/proxy casts whose original caster lands on a different partition than the
+    // actual processing thread) - silently dropping the original caster's own procs/reactives for
+    // that one cast is a real but minor gameplay approximation, not a data race.
+    Unit* actorForProc = m_originalCaster;
+    if (Map* map = m_originalCaster->GetMap(); map->IsUnsafeForCurrentThreadToTouch(m_originalCaster))
+        actorForProc = nullptr;
+
+    Unit::ProcSkillsAndAuras(actorForProc, nullptr, procAttacker, PROC_FLAG_NONE, PROC_SPELL_TYPE_MASK_ALL, PROC_SPELL_PHASE_CAST, hitMask, this, nullptr, nullptr);
 
     // Call CreatureAI hook OnSpellCast
     if (Creature* caster = m_originalCaster->ToCreature())
@@ -4216,7 +4265,14 @@ void Spell::_handle_finish_phase()
         }
     }
 
-    Unit::ProcSkillsAndAuras(m_originalCaster, nullptr, procAttacker, PROC_FLAG_NONE, m_procSpellType, PROC_SPELL_PHASE_FINISH, m_hitMask, this, nullptr, nullptr);
+    // Cross-partition guard (code-review deep-dive fix, ARGUSCORE_FIXES.md) - see the sibling
+    // guard a few hundred lines above (this file, the SendCastResult-adjacent proc call) for the
+    // full reasoning; same class of gap, same fix shape.
+    Unit* actorForProc = m_originalCaster;
+    if (Map* map = m_originalCaster->GetMap(); map->IsUnsafeForCurrentThreadToTouch(m_originalCaster))
+        actorForProc = nullptr;
+
+    Unit::ProcSkillsAndAuras(actorForProc, nullptr, procAttacker, PROC_FLAG_NONE, m_procSpellType, PROC_SPELL_PHASE_FINISH, m_hitMask, this, nullptr, nullptr);
 }
 
 void Spell::SendSpellCooldown()

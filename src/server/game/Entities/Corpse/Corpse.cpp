@@ -51,7 +51,7 @@ void Corpse::AddToWorld()
 {
     ///- Register the corpse for guid lookup
     if (!IsInWorld())
-        GetMap()->GetObjectsStore().Insert<Corpse>(this);
+        GetMap()->AddToObjectsStore(this);
 
     Object::AddToWorld();
 }
@@ -60,7 +60,7 @@ void Corpse::RemoveFromWorld()
 {
     ///- Remove the corpse from the accessor
     if (IsInWorld())
-        GetMap()->GetObjectsStore().Remove<Corpse>(this);
+        GetMap()->RemoveFromObjectsStore(this);
 
     WorldObject::RemoveFromWorld();
 }

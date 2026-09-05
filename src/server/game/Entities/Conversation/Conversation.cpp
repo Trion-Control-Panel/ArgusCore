@@ -50,7 +50,7 @@ void Conversation::AddToWorld()
     ///- Register the Conversation for guid lookup and for caster
     if (!IsInWorld())
     {
-        GetMap()->GetObjectsStore().Insert<Conversation>(this);
+        GetMap()->AddToObjectsStore(this);
         WorldObject::AddToWorld();
     }
 }
@@ -63,7 +63,7 @@ void Conversation::RemoveFromWorld()
         _ai->OnRemove();
 
         WorldObject::RemoveFromWorld();
-        GetMap()->GetObjectsStore().Remove<Conversation>(this);
+        GetMap()->RemoveFromObjectsStore(this);
     }
 }
 
@@ -120,7 +120,7 @@ struct ConversationActorFillVisitor
     {
         Creature const* bestFit = nullptr;
 
-        for (auto const& [_, creature] : Trinity::Containers::MapEqualRange(_map->GetCreatureBySpawnIdStore(), worldObject.SpawnId))
+        for (Creature* creature : _map->GetCreaturesBySpawnId(worldObject.SpawnId))
         {
             bestFit = creature;
 

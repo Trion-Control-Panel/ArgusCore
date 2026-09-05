@@ -28,6 +28,7 @@
 #include "GridNotifiersImpl.h"
 #include "Item.h"
 #include "Log.h"
+#include "Map.h"
 #include "MiscPackets.h"
 #include "MotionMaster.h"
 #include "MovementPackets.h"
@@ -5542,7 +5543,7 @@ bool AuraEffect::IsAreaAuraEffect() const
     return GetSpellEffectInfo().IsAreaAuraEffect();
 }
 
-void AuraEffect::HandlePeriodicHealthLeechAuraTick(Unit* target, Unit* caster) const
+void AuraEffect::HandlePeriodicHealthLeechAuraTick(Unit* target, Unit* caster, bool bypassPartitionGuard) const
 {
     if (!target->IsAlive())
         return;
@@ -5551,6 +5552,77 @@ void AuraEffect::HandlePeriodicHealthLeechAuraTick(Unit* target, Unit* caster) c
     {
         SendTickImmune(target, caster);
         return;
+    }
+
+    // Cross-partition guard (Piece 5b, ARGUSCORE_FIXES.md) - checked here, at the true top (before
+    // even the SPELL_EFFECT_PERSISTENT_AREA_AURA miss roll below, not just before Unit::DealDamage
+    // - an independent review caught that the original placement, after the miss roll, meant a
+    // deferred replay re-rolled SpellHitResult a second time from the top of this same function,
+    // silently ANDing two independent rolls together and reducing the effective hit rate for that
+    // narrow dynobj-caster/persistent-area/health-leech combination whenever cross-partition; the
+    // roll must happen at most once per tick, same as every other side-effecting/non-deterministic
+    // step this guard exists to protect), and separate from (checked before) DealDamage's own
+    // internal guard: this tick has a synchronous dependency on DealDamage's *exact* return value
+    // for the heal-back (new_damage below), which a "defer inside DealDamage" can't preserve - by
+    // the time control would reach DealDamage from here it's too late to cheaply unwind back out
+    // to defer just the tail. Instead the entire tick (miss roll + damage + ProcSkillsAndAuras +
+    // heal-back) is deferred and replayed as one unit once both sides are pinned into the same
+    // partition, so the heal-back still uses the real post-mitigation damage number, no
+    // approximation.
+    //
+    // Captures GetBase()->GetWeakPtr() (Trinity::unique_weak_ptr<Aura>) rather than `this` -
+    // this AuraEffect lives inside its owning Aura, so a raw `this` could dangle if the aura
+    // expires/gets replaced before the deferred callback runs during DelayedUpdate; the Aura's
+    // own lifetime is governed by its owner's m_ownedAuras list, independent of this tick's
+    // outcome, so a weak-locked Aura here is always in a well-defined state (see Aura::GetWeakPtr
+    // callers elsewhere for the same pattern - Piece 6, SpellAuras.cpp).
+    //
+    // !bypassPartitionGuard: without this, a pair Map::ResolveCrossPartitionPair can't actually
+    // unify (both sides non-transferable - e.g. two Players) would see IsCrossPartition still
+    // true on replay and re-defer, enqueuing onto Map::_farSpellCallbacks from inside the very
+    // drain loop currently processing it - an infinite synchronous loop that hangs this Map's
+    // update thread forever, not a graceful "stays cross-partition" degradation. The replay below
+    // always passes bypassPartitionGuard=true, so a replay can defer at most once, ever, and
+    // proceeds with the real logic below even if the pin genuinely couldn't succeed - the same
+    // (rare, Player-vs-Player only) behavior this code would have had before partitioning existed.
+    // CurrentFanOutShardForThisMap() gate (code-review finding, ARGUSCORE_FIXES.md) - this guard
+    // predates the gate's discovery (Stage 5a's SetMinion finding) and was never revisited, unlike
+    // its four sibling periodic-tick guards in this file, which all have it. Without it, a bare
+    // IsCrossPartition() true outside a live fan-out worker thread (below-MinPopulationForFanout,
+    // the serial boundary pass, a synchronous GM-triggered tick) still deferred - not a
+    // use-after-free (GUID/weak_ptr, no-op-safe replay), but a silent, permanent no-op instead of
+    // a one-tick delay for that tick's leech damage and heal-back.
+    if (!bypassPartitionGuard && caster)
+    {
+        if (Map* map = target->GetMap(); map->IsUnsafeForCurrentThreadToTouch(caster) || map->IsUnsafeForCurrentThreadToTouch(target))
+        {
+            Trinity::unique_weak_ptr<Aura> auraWeak = GetBase()->GetWeakPtr();
+            uint32 effIndex = GetEffIndex();
+            ObjectGuid casterGuid = caster->GetGUID();
+            ObjectGuid targetGuid = target->GetGUID();
+            map->AddFarSpellCallback([auraWeak, effIndex, casterGuid, targetGuid](Map* map)
+            {
+                Trinity::unique_strong_ref_ptr<Aura> aura = auraWeak.lock();
+                if (!aura)
+                    return;
+
+                AuraEffect* effect = aura->GetEffect(effIndex);
+                if (!effect)
+                    return;
+
+                Unit* caster = ObjectAccessor::GetUnit(map, casterGuid);
+                if (!caster || !caster->IsInWorld())
+                    return;
+
+                Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+                if (!target || !target->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(caster, target);
+                effect->HandlePeriodicHealthLeechAuraTick(target, caster, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
     }
 
     // dynobj auras must always have a caster
@@ -5621,7 +5693,17 @@ void AuraEffect::HandlePeriodicHealthLeechAuraTick(Unit* target, Unit* caster) c
         procVictim |= PROC_FLAG_TAKE_ANY_DAMAGE;
     }
 
-    int32 new_damage = Unit::DealDamage(caster, target, damage, &cleanDamage, DOT, GetSpellInfo()->GetSchoolMask(), GetSpellInfo(), false);
+    // bypassPartitionGuard=true - independent review caught this as a real bug: Piece 5b above
+    // already made the one allowed cross-partition resolution attempt for this exact
+    // (caster, target) pair (ResolveCrossPartitionPair, at the top of this replay). Without this
+    // flag, if that resolution couldn't actually unify both sides (the documented "both
+    // non-transferable, e.g. two Players" gap), DealDamage's own internal guard would fire a
+    // second, independent deferral and return only the nominal pre-mitigation damage here
+    // instead of the real post-mitigation value - which then silently corrupts the heal-back
+    // below (computed from new_damage), directly contradicting this guard's own "no
+    // approximation" guarantee. With the flag, DealDamage always runs its real logic synchronously
+    // here, exactly like every other already-cross-partition-resolved replay in this design.
+    int32 new_damage = Unit::DealDamage(caster, target, damage, &cleanDamage, DOT, GetSpellInfo()->GetSchoolMask(), GetSpellInfo(), false, /*bypassPartitionGuard=*/true);
     Unit::ProcSkillsAndAuras(caster, target, procAttacker, procVictim, PROC_SPELL_TYPE_DAMAGE, PROC_SPELL_PHASE_HIT, hitMask, nullptr, &damageInfo, nullptr);
 
     // process caster heal from now on (must be in world)
@@ -5642,7 +5724,7 @@ void AuraEffect::HandlePeriodicHealthLeechAuraTick(Unit* target, Unit* caster) c
     caster->SendSpellNonMeleeDamageLog(&log);
 }
 
-void AuraEffect::HandlePeriodicHealthFunnelAuraTick(Unit* target, Unit* caster) const
+void AuraEffect::HandlePeriodicHealthFunnelAuraTick(Unit* target, Unit* caster, bool bypassPartitionGuard /*= false*/) const
 {
     if (!caster || !caster->IsAlive() || !target->IsAlive())
         return;
@@ -5651,6 +5733,52 @@ void AuraEffect::HandlePeriodicHealthFunnelAuraTick(Unit* target, Unit* caster) 
     {
         SendTickImmune(target, caster);
         return;
+    }
+
+    // Cross-partition guard (Stage 5a, ARGUSCORE_FIXES.md) - same shape/reasoning as
+    // HandlePeriodicHealthLeechAuraTick's own guard above. Placed before caster->ModifyHealth
+    // below (unlike a guard that would only need to protect the later cross-unit HealBySpell
+    // call) so a cross-partition tick never leaves caster's health already donated while
+    // target's heal (and the ProcSkillsAndAuras call after it, which also touches target) is
+    // still pending at the barrier - the whole tick defers and replays as one atomic unit,
+    // consistent with every other periodic tick this pattern covers.
+    //
+    // CurrentFanOutShardForThisMap() gate (Stage 5a fix, ARGUSCORE_FIXES.md review finding) -
+    // see Unit::SetMinion's own comment for why bare IsCrossPartition is insufficient (a defer
+    // outside a live fan-out worker thread can never be drained in time and becomes a silent
+    // permanent no-op). Periodic tick dispatch only ever runs during a live Update() call, so
+    // this is defense-in-depth here rather than a demonstrated fix, but costs nothing.
+    if (!bypassPartitionGuard && caster != target)
+    {
+        if (Map* map = target->GetMap(); map->IsUnsafeForCurrentThreadToTouch(caster) || map->IsUnsafeForCurrentThreadToTouch(target))
+        {
+            Trinity::unique_weak_ptr<Aura> auraWeak = GetBase()->GetWeakPtr();
+            uint32 effIndex = GetEffIndex();
+            ObjectGuid casterGuid = caster->GetGUID();
+            ObjectGuid targetGuid = target->GetGUID();
+            map->AddFarSpellCallback([auraWeak, effIndex, casterGuid, targetGuid](Map* map)
+            {
+                Trinity::unique_strong_ref_ptr<Aura> aura = auraWeak.lock();
+                if (!aura)
+                    return;
+
+                AuraEffect* effect = aura->GetEffect(effIndex);
+                if (!effect)
+                    return;
+
+                Unit* caster = ObjectAccessor::GetUnit(map, casterGuid);
+                if (!caster || !caster->IsInWorld())
+                    return;
+
+                Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+                if (!target || !target->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(caster, target);
+                effect->HandlePeriodicHealthFunnelAuraTick(target, caster, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
     }
 
     uint32 damage = std::max(GetAmount(), 0);
@@ -5668,11 +5796,15 @@ void AuraEffect::HandlePeriodicHealthFunnelAuraTick(Unit* target, Unit* caster) 
     damage = int32(damage * gainMultiplier);
 
     HealInfo healInfo(caster, target, damage, GetSpellInfo(), GetSpellInfo()->GetSchoolMask());
-    caster->HealBySpell(healInfo);
+    // bypassPartitionGuard=true: the guard above has already proven caster/target are safe for
+    // this tick - see HandlePeriodicHealAurasTick's own DealHeal call site for the same
+    // reasoning (and the infinite-loop hazard skipping this would risk, HealBySpell's own
+    // comment).
+    caster->HealBySpell(healInfo, false, /*bypassPartitionGuard=*/true);
     Unit::ProcSkillsAndAuras(caster, target, PROC_FLAG_DEAL_HARMFUL_PERIODIC, PROC_FLAG_TAKE_HARMFUL_PERIODIC, PROC_SPELL_TYPE_HEAL, PROC_SPELL_PHASE_HIT, PROC_HIT_NORMAL, nullptr, nullptr, &healInfo);
 }
 
-void AuraEffect::HandlePeriodicHealAurasTick(Unit* target, Unit* caster) const
+void AuraEffect::HandlePeriodicHealAurasTick(Unit* target, Unit* caster, bool bypassPartitionGuard /*= false*/) const
 {
     if (!target->IsAlive())
         return;
@@ -5686,6 +5818,53 @@ void AuraEffect::HandlePeriodicHealAurasTick(Unit* target, Unit* caster) const
     // don't regen when permanent aura target has full power
     if (GetBase()->IsPermanent() && target->IsFullHealth())
         return;
+
+    // Cross-partition guard (Stage 5a, ARGUSCORE_FIXES.md) - same shape/reasoning as
+    // HandlePeriodicHealthLeechAuraTick's own guard above (see its comment for the full
+    // rationale on placement/weak-ptr capture/bypassPartitionGuard). Placed after the
+    // deterministic early-outs above but before the crit roll and any of this tick's real work,
+    // so a deferred replay never re-rolls crit a second time. Deferred as the whole tick (bonus
+    // calc + crit roll + DealHeal + combat log + threat forward + ProcSkillsAndAuras), not just
+    // the inner Unit::DealHeal call, because the threat-forward below needs DealHeal's *exact*
+    // healInfo.GetEffectiveHeal() - DealHeal's own internal guard can only return a nominal
+    // approximation, same "defer the whole tick" reasoning as leech-heal's heal-back dependency
+    // on DealDamage's exact return.
+    //
+    // CurrentFanOutShardForThisMap() gate (Stage 5a fix, ARGUSCORE_FIXES.md review finding) -
+    // see Unit::SetMinion's own comment for why bare IsCrossPartition is insufficient. Defense-
+    // in-depth here (periodic tick dispatch only ever runs during a live Update() call).
+    if (!bypassPartitionGuard && caster && caster != target)
+    {
+        if (Map* map = target->GetMap(); map->IsUnsafeForCurrentThreadToTouch(caster) || map->IsUnsafeForCurrentThreadToTouch(target))
+        {
+            Trinity::unique_weak_ptr<Aura> auraWeak = GetBase()->GetWeakPtr();
+            uint32 effIndex = GetEffIndex();
+            ObjectGuid casterGuid = caster->GetGUID();
+            ObjectGuid targetGuid = target->GetGUID();
+            map->AddFarSpellCallback([auraWeak, effIndex, casterGuid, targetGuid](Map* map)
+            {
+                Trinity::unique_strong_ref_ptr<Aura> aura = auraWeak.lock();
+                if (!aura)
+                    return;
+
+                AuraEffect* effect = aura->GetEffect(effIndex);
+                if (!effect)
+                    return;
+
+                Unit* caster = ObjectAccessor::GetUnit(map, casterGuid);
+                if (!caster || !caster->IsInWorld())
+                    return;
+
+                Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+                if (!target || !target->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(caster, target);
+                effect->HandlePeriodicHealAurasTick(target, caster, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
 
     uint32 stackAmountForBonuses = !GetSpellEffectInfo().EffectAttributes.HasFlag(SpellEffectAttributes::SuppressPointsStacking) ? GetBase()->GetStackAmount() : 1;
 
@@ -5710,7 +5889,10 @@ void AuraEffect::HandlePeriodicHealAurasTick(Unit* target, Unit* caster) const
 
     HealInfo healInfo(caster, target, damage, GetSpellInfo(), GetSpellInfo()->GetSchoolMask());
     Unit::CalcHealAbsorb(healInfo);
-    Unit::DealHeal(healInfo);
+    // bypassPartitionGuard=true: by this point the guard above has already proven caster/target
+    // are not cross-partition for this tick (same shard, no caster, or caster==target) - same
+    // "already-proven-safe, skip the redundant recheck" reasoning as leech-heal's DealDamage call.
+    Unit::DealHeal(healInfo, /*bypassPartitionGuard=*/true);
 
     SpellPeriodicAuraLogInfo pInfo(this, heal, heal - healInfo.GetEffectiveHeal(), healInfo.GetAbsorb(), 0, 0.0f, crit);
     target->SendPeriodicAuraLog(&pInfo);
@@ -5789,7 +5971,7 @@ void AuraEffect::HandlePeriodicManaLeechAuraTick(Unit* target, Unit* caster) con
     target->SendPeriodicAuraLog(&pInfo);
 }
 
-void AuraEffect::HandleObsModPowerAuraTick(Unit* target, Unit* caster) const
+void AuraEffect::HandleObsModPowerAuraTick(Unit* target, Unit* caster, bool bypassPartitionGuard /*= false*/) const
 {
     Powers powerType;
     if (GetMiscValue() == POWER_ALL)
@@ -5819,6 +6001,46 @@ void AuraEffect::HandleObsModPowerAuraTick(Unit* target, Unit* caster) const
                 return;
     }
 
+    // Cross-partition guard (Stage 5b review finding, ARGUSCORE_FIXES.md) - this tick calls
+    // ThreatManager::ForwardThreatForAssistingMe(caster, ...) below with no guard of its own
+    // (that function's own internal AddThreat call is guarded, but only correctly covers the
+    // "caster is already pinned to target's anchor" case - see ForwardThreatForAssistingMe's own
+    // audit note). Same shape as HandlePeriodicHealAurasTick's guard immediately above - deferred
+    // as the whole tick (not just the threat-forward call) because the threat amount depends on
+    // ModifyPower's exact `gain` return, which a deferred call could only approximate.
+    if (!bypassPartitionGuard && caster && caster != target)
+    {
+        if (Map* map = target->GetMap(); map->IsUnsafeForCurrentThreadToTouch(caster) || map->IsUnsafeForCurrentThreadToTouch(target))
+        {
+            Trinity::unique_weak_ptr<Aura> auraWeak = GetBase()->GetWeakPtr();
+            uint32 effIndex = GetEffIndex();
+            ObjectGuid casterGuid = caster->GetGUID();
+            ObjectGuid targetGuid = target->GetGUID();
+            map->AddFarSpellCallback([auraWeak, effIndex, casterGuid, targetGuid](Map* map)
+            {
+                Trinity::unique_strong_ref_ptr<Aura> aura = auraWeak.lock();
+                if (!aura)
+                    return;
+
+                AuraEffect* effect = aura->GetEffect(effIndex);
+                if (!effect)
+                    return;
+
+                Unit* caster = ObjectAccessor::GetUnit(map, casterGuid);
+                if (!caster || !caster->IsInWorld())
+                    return;
+
+                Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+                if (!target || !target->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(caster, target);
+                effect->HandleObsModPowerAuraTick(target, caster, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
+
     int32 amount = GetAmount() * target->GetMaxPower(powerType) / 100;
     TC_LOG_DEBUG("spells.aura.effect", "PeriodicTick: {} energize {} for {} dmg inflicted by {}",
         GetCasterGUID().ToString(), target->GetGUID().ToString(), amount, GetId());
@@ -5832,7 +6054,7 @@ void AuraEffect::HandleObsModPowerAuraTick(Unit* target, Unit* caster) const
     target->SendPeriodicAuraLog(&pInfo);
 }
 
-void AuraEffect::HandlePeriodicEnergizeAuraTick(Unit* target, Unit* caster) const
+void AuraEffect::HandlePeriodicEnergizeAuraTick(Unit* target, Unit* caster, bool bypassPartitionGuard /*= false*/) const
 {
     Powers powerType = Powers(GetMiscValue());
     if (!target->IsAlive() || !target->GetMaxPower(powerType))
@@ -5847,6 +6069,43 @@ void AuraEffect::HandlePeriodicEnergizeAuraTick(Unit* target, Unit* caster) cons
     // don't regen when permanent aura target has full power
     if (GetBase()->IsPermanent() && target->GetPower(powerType) == target->GetMaxPower(powerType))
         return;
+
+    // Cross-partition guard (Stage 5b review finding, ARGUSCORE_FIXES.md) - see
+    // HandleObsModPowerAuraTick's own comment immediately above, same reasoning verbatim
+    // (unguarded ForwardThreatForAssistingMe call below, deferred as the whole tick since the
+    // threat amount depends on ModifyPower's exact `gain` return).
+    if (!bypassPartitionGuard && caster && caster != target)
+    {
+        if (Map* map = target->GetMap(); map->IsUnsafeForCurrentThreadToTouch(caster) || map->IsUnsafeForCurrentThreadToTouch(target))
+        {
+            Trinity::unique_weak_ptr<Aura> auraWeak = GetBase()->GetWeakPtr();
+            uint32 effIndex = GetEffIndex();
+            ObjectGuid casterGuid = caster->GetGUID();
+            ObjectGuid targetGuid = target->GetGUID();
+            map->AddFarSpellCallback([auraWeak, effIndex, casterGuid, targetGuid](Map* map)
+            {
+                Trinity::unique_strong_ref_ptr<Aura> aura = auraWeak.lock();
+                if (!aura)
+                    return;
+
+                AuraEffect* effect = aura->GetEffect(effIndex);
+                if (!effect)
+                    return;
+
+                Unit* caster = ObjectAccessor::GetUnit(map, casterGuid);
+                if (!caster || !caster->IsInWorld())
+                    return;
+
+                Unit* target = ObjectAccessor::GetUnit(map, targetGuid);
+                if (!target || !target->IsInWorld())
+                    return;
+
+                map->ResolveCrossPartitionPair(caster, target);
+                effect->HandlePeriodicEnergizeAuraTick(target, caster, /*bypassPartitionGuard=*/true);
+            });
+            return;
+        }
+    }
 
     // ignore negative values (can be result apply spellmods to aura damage
     int32 amount = std::max(GetAmount(), 0);

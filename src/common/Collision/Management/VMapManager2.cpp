@@ -110,6 +110,9 @@ namespace VMAP
         if (!isMapLoadingEnabled())
             return LoadResult::DisabledInConfig;
 
+        // Phase 3 redesign (ARGUSCORE_FIXES.md) - see InstanceMapTreesLock's own comment (.h).
+        std::unique_lock<std::shared_mutex> lock(InstanceMapTreesLock);
+
         auto instanceTree = iInstanceMapTrees.find(mapId);
         if (instanceTree == iInstanceMapTrees.end())
         {
@@ -138,6 +141,9 @@ namespace VMAP
 
     void VMapManager2::unloadMap(unsigned int mapId, int x, int y)
     {
+        // Phase 3 redesign (ARGUSCORE_FIXES.md) - see InstanceMapTreesLock's own comment (.h).
+        std::unique_lock<std::shared_mutex> lock(InstanceMapTreesLock);
+
         auto instanceTree = iInstanceMapTrees.find(mapId);
         if (instanceTree != iInstanceMapTrees.end() && instanceTree->second)
         {
@@ -152,6 +158,9 @@ namespace VMAP
 
     void VMapManager2::unloadMap(unsigned int mapId)
     {
+        // Phase 3 redesign (ARGUSCORE_FIXES.md) - see InstanceMapTreesLock's own comment (.h).
+        std::unique_lock<std::shared_mutex> lock(InstanceMapTreesLock);
+
         auto instanceTree = iInstanceMapTrees.find(mapId);
         if (instanceTree != iInstanceMapTrees.end() && instanceTree->second)
         {
@@ -169,6 +178,10 @@ namespace VMAP
         if (!isLineOfSightCalcEnabled() || IsVMAPDisabledForPtr(mapId, VMAP_DISABLE_LOS))
             return true;
 
+        // Phase 3 redesign (ARGUSCORE_FIXES.md) - held across GetMapTree AND the subsequent
+        // isInLineOfSight call on its result, not just the lookup - see InstanceMapTreesLock's
+        // own comment (.h) for why a lock scoped to only the lookup wouldn't be enough.
+        std::shared_lock<std::shared_mutex> lock(InstanceMapTreesLock);
         auto instanceTree = GetMapTree(mapId);
         if (instanceTree != iInstanceMapTrees.end())
         {
@@ -189,6 +202,8 @@ namespace VMAP
     {
         if (isLineOfSightCalcEnabled() && !IsVMAPDisabledForPtr(mapId, VMAP_DISABLE_LOS))
         {
+            // Phase 3 redesign (ARGUSCORE_FIXES.md) - see InstanceMapTreesLock's own comment (.h).
+            std::shared_lock<std::shared_mutex> lock(InstanceMapTreesLock);
             auto instanceTree = GetMapTree(mapId);
             if (instanceTree != iInstanceMapTrees.end())
             {
@@ -219,6 +234,8 @@ namespace VMAP
     {
         if (isHeightCalcEnabled() && !IsVMAPDisabledForPtr(mapId, VMAP_DISABLE_HEIGHT))
         {
+            // Phase 3 redesign (ARGUSCORE_FIXES.md) - see InstanceMapTreesLock's own comment (.h).
+            std::shared_lock<std::shared_mutex> lock(InstanceMapTreesLock);
             auto instanceTree = GetMapTree(mapId);
             if (instanceTree != iInstanceMapTrees.end())
             {
@@ -236,6 +253,8 @@ namespace VMAP
 
     bool VMapManager2::getAreaAndLiquidData(unsigned int mapId, float x, float y, float z, Optional<uint8> reqLiquidType, AreaAndLiquidData& data) const
     {
+        // Phase 3 redesign (ARGUSCORE_FIXES.md) - see InstanceMapTreesLock's own comment (.h).
+        std::shared_lock<std::shared_mutex> lock(InstanceMapTreesLock);
         InstanceTreeMap::const_iterator instanceTree = GetMapTree(mapId);
         if (instanceTree != iInstanceMapTrees.end())
         {
@@ -307,6 +326,8 @@ namespace VMAP
 
     void VMapManager2::getInstanceMapTree(InstanceTreeMap &instanceMapTree)
     {
+        // Phase 3 redesign (ARGUSCORE_FIXES.md) - see InstanceMapTreesLock's own comment (.h).
+        std::shared_lock<std::shared_mutex> lock(InstanceMapTreesLock);
         instanceMapTree = iInstanceMapTrees;
     }
 

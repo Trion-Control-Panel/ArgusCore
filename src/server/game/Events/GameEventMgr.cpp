@@ -134,6 +134,13 @@ void GameEventMgr::StartInternalEvent(uint16 event_id)
 
 bool GameEventMgr::StartEvent(uint16 event_id, bool overwrite)
 {
+    // Stage 6 debug-mode tripwire (ARGUSCORE_FIXES.md) - GameEventMgr is a global timer-driven
+    // singleton, not scoped to any one Map/shard, and its ApplyNewEvent/UnApplyEvent-family calls
+    // reach into arbitrary maps' spawn state without any of this session's guard/defer machinery.
+    // This should never legitimately run from a live PartitionWorkerPool fan-out worker thread -
+    // if it does, something is calling into GameEventMgr from unexpected (fan-out) code, a real
+    // bug worth catching in testing rather than a case worth building new locking for defensively.
+    ASSERT(!Map::IsAnyFanOutInProgressOnThisThread(), "GameEventMgr::StartEvent must not run from a Map fan-out worker thread");
     GameEventData &data = mGameEvent[event_id];
     if (data.state == GAMEEVENT_NORMAL || data.state == GAMEEVENT_INTERNAL)
     {
@@ -174,6 +181,8 @@ bool GameEventMgr::StartEvent(uint16 event_id, bool overwrite)
 
 void GameEventMgr::StopEvent(uint16 event_id, bool overwrite)
 {
+    // Stage 6 debug-mode tripwire (ARGUSCORE_FIXES.md) - see StartEvent's own comment.
+    ASSERT(!Map::IsAnyFanOutInProgressOnThisThread(), "GameEventMgr::StopEvent must not run from a Map fan-out worker thread");
     GameEventData &data = mGameEvent[event_id];
     bool serverwide_evt = data.state != GAMEEVENT_NORMAL && data.state != GAMEEVENT_INTERNAL;
 
@@ -1128,10 +1137,8 @@ void GameEventMgr::UpdateEventNPCFlags(uint16 event_id)
         {
             for (auto& spawnId : p.second)
             {
-                auto creatureBounds = map->GetCreatureBySpawnIdStore().equal_range(spawnId);
-                for (auto itr = creatureBounds.first; itr != creatureBounds.second; ++itr)
+                for (Creature* creature : map->GetCreaturesBySpawnId(spawnId))
                 {
-                    Creature* creature = itr->second;
                     uint64 npcflag = GetNPCFlag(creature);
                     if (CreatureTemplate const* creatureTemplate = creature->GetCreatureTemplate())
                         npcflag |= creatureTemplate->npcflag;
@@ -1267,13 +1274,8 @@ void GameEventMgr::GameEventUnspawn(int16 event_id)
             sMapMgr->DoForAllMapsWithMapId(data->mapId, [&itr](Map* map)
             {
                 map->RemoveRespawnTime(SPAWN_TYPE_CREATURE, *itr);
-                auto creatureBounds = map->GetCreatureBySpawnIdStore().equal_range(*itr);
-                for (auto itr2 = creatureBounds.first; itr2 != creatureBounds.second;)
-                {
-                    Creature* creature = itr2->second;
-                    ++itr2;
+                for (Creature* creature : map->GetCreaturesBySpawnId(*itr))
                     creature->AddObjectToRemoveList();
-                }
             });
         }
     }
@@ -1298,13 +1300,8 @@ void GameEventMgr::GameEventUnspawn(int16 event_id)
             sMapMgr->DoForAllMapsWithMapId(data->mapId, [&itr](Map* map)
             {
                 map->RemoveRespawnTime(SPAWN_TYPE_GAMEOBJECT, *itr);
-                auto gameobjectBounds = map->GetGameObjectBySpawnIdStore().equal_range(*itr);
-                for (auto itr2 = gameobjectBounds.first; itr2 != gameobjectBounds.second;)
-                {
-                    GameObject* go = itr2->second;
-                    ++itr2;
+                for (GameObject* go : map->GetGameObjectsBySpawnId(*itr))
                     go->AddObjectToRemoveList();
-                }
             });
         }
     }
@@ -1339,10 +1336,8 @@ void GameEventMgr::ChangeEquipOrModel(int16 event_id, bool activate)
         // Update if spawned
         sMapMgr->DoForAllMapsWithMapId(data->mapId, [&itr, activate](Map* map)
         {
-            auto creatureBounds = map->GetCreatureBySpawnIdStore().equal_range(itr->first);
-            for (auto itr2 = creatureBounds.first; itr2 != creatureBounds.second; ++itr2)
+            for (Creature* creature : map->GetCreaturesBySpawnId(itr->first))
             {
-                Creature* creature = itr2->second;
                 if (activate)
                 {
                     itr->second.equipement_id_prev = creature->GetCurrentEquipmentId();
@@ -1666,7 +1661,8 @@ void GameEventMgr::RunSmartAIScripts(uint16 event_id, bool activate)
     {
         GameEventAIHookWorker worker(event_id, activate);
         TypeContainerVisitor<GameEventAIHookWorker, MapStoredObjectTypesContainer> visitor(worker);
-        visitor.Visit(map->GetObjectsStore());
+        for (uint32 shard = 0; shard < map->GetObjectsStoreShardCount(); ++shard)
+            visitor.Visit(map->GetObjectsStoreShard(shard));
     });
 }
 

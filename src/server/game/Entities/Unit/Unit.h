@@ -701,9 +701,9 @@ class TC_GAME_API Unit : public WorldObject
         void _addAttacker(Unit* pAttacker);                  // must be called only from Unit::Attack(Unit*)
         void _removeAttacker(Unit* pAttacker);               // must be called only from Unit::AttackStop()
         Unit* getAttackerForHelper() const;                 // If someone wants to help, who to give them
-        bool Attack(Unit* victim, bool meleeAttack);
+        bool Attack(Unit* victim, bool meleeAttack, bool bypassPartitionGuard = false);
         void CastStop(uint32 except_spellid = 0);
-        bool AttackStop();
+        bool AttackStop(bool bypassPartitionGuard = false);
         void RemoveAllAttackers();
         AttackerSet const& getAttackers() const { return m_attackers; }
         bool isAttackingPlayer() const;
@@ -715,10 +715,19 @@ class TC_GAME_API Unit : public WorldObject
             return m_attacking;
         }
 
-        void ValidateAttackersAndOwnTarget();
-        void CombatStop(bool includingCast = false, bool mutualPvP = true, bool (*unitFilter)(Unit const* otherUnit) = nullptr);
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (Unit.cpp). Never pass true from any
+        // other caller.
+        void ValidateAttackersAndOwnTarget(bool bypassPartitionGuard = false);
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (Unit.cpp). Never pass true from any
+        // other caller.
+        void CombatStop(bool includingCast = false, bool mutualPvP = true, bool (*unitFilter)(Unit const* otherUnit) = nullptr, bool bypassPartitionGuard = false);
         void CombatStopWithPets(bool includingCast = false);
-        void StopAttackFaction(uint32 faction_id);
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (Unit.cpp). Never pass true from any
+        // other caller.
+        void StopAttackFaction(uint32 faction_id, bool bypassPartitionGuard = false);
         Unit* SelectNearbyTarget(Unit* exclude = nullptr, float dist = NOMINAL_MELEE_RANGE) const;
         void SendMeleeAttackStop(Unit* victim = nullptr);
         void SendMeleeAttackStart(Unit* victim);
@@ -903,10 +912,16 @@ class TC_GAME_API Unit : public WorldObject
 
         uint16 GetMaxSkillValueForLevel(Unit const* target = nullptr) const { return (target ? GetLevelForTarget(target) : GetLevel()) * 5; }
         static void DealDamageMods(Unit const* attacker, Unit const* victim, uint32& damage, uint32* absorb);
-        static uint32 DealDamage(Unit* attacker, Unit* victim, uint32 damage, CleanDamage const* cleanDamage = nullptr, DamageEffectType damagetype = DIRECT_DAMAGE, SpellSchoolMask damageSchoolMask = SPELL_SCHOOL_MASK_NORMAL, SpellInfo const* spellProto = nullptr, bool durabilityLoss = true);
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (Unit.cpp) - guarantees a replay
+        // never re-defers even if Map::ResolveCrossPartitionPair failed to unify both sides onto
+        // one shard (both non-transferable, e.g. two Players), which would otherwise re-enqueue
+        // onto Map::_farSpellCallbacks from inside the very drain loop currently processing it
+        // and hang that Map's update thread forever. Never pass true from any other caller.
+        static uint32 DealDamage(Unit* attacker, Unit* victim, uint32 damage, CleanDamage const* cleanDamage = nullptr, DamageEffectType damagetype = DIRECT_DAMAGE, SpellSchoolMask damageSchoolMask = SPELL_SCHOOL_MASK_NORMAL, SpellInfo const* spellProto = nullptr, bool durabilityLoss = true, bool bypassPartitionGuard = false);
         static void Kill(Unit* attacker, Unit* victim, bool durabilityLoss = true, bool skipSettingDeathState = false);
         void KillSelf(bool durabilityLoss = true, bool skipSettingDeathState = false) { Unit::Kill(this, this, durabilityLoss, skipSettingDeathState); }
-        static void DealHeal(HealInfo& healInfo);
+        static void DealHeal(HealInfo& healInfo, bool bypassPartitionGuard = false);
 
         static void ProcSkillsAndAuras(Unit* actor, Unit* actionTarget, ProcFlagsInit const& typeMaskActor, ProcFlagsInit const& typeMaskActionTarget,
                                 ProcFlagsSpellType spellTypeMask, ProcFlagsSpellPhase spellPhaseMask, ProcFlagsHit hitMask, Spell* spell,
@@ -1015,10 +1030,16 @@ class TC_GAME_API Unit : public WorldObject
         void SetImmuneToAll(bool apply, bool keepCombat);
         virtual void SetImmuneToAll(bool apply) { SetImmuneToAll(apply, false); }
         bool IsImmuneToPC() const { return HasUnitFlag(UNIT_FLAG_IMMUNE_TO_PC); }
-        void SetImmuneToPC(bool apply, bool keepCombat);
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (Unit.cpp). Never pass true from any
+        // other caller.
+        void SetImmuneToPC(bool apply, bool keepCombat, bool bypassPartitionGuard = false);
         virtual void SetImmuneToPC(bool apply) { SetImmuneToPC(apply, false); }
         bool IsImmuneToNPC() const { return HasUnitFlag(UNIT_FLAG_IMMUNE_TO_NPC); }
-        void SetImmuneToNPC(bool apply, bool keepCombat);
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (Unit.cpp). Never pass true from any
+        // other caller.
+        void SetImmuneToNPC(bool apply, bool keepCombat, bool bypassPartitionGuard = false);
         virtual void SetImmuneToNPC(bool apply) { SetImmuneToNPC(apply, false); }
 
         bool IsUninteractible() const { return HasUnitFlag(UNIT_FLAG_UNINTERACTIBLE); }
@@ -1072,7 +1093,7 @@ class TC_GAME_API Unit : public WorldObject
         bool isInAccessiblePlaceFor(Creature const* c) const;
 
         void SendHealSpellLog(HealInfo& healInfo, bool critical = false);
-        int32 HealBySpell(HealInfo& healInfo, bool critical = false);
+        int32 HealBySpell(HealInfo& healInfo, bool critical = false, bool bypassPartitionGuard = false);
         void SendEnergizeSpellLog(Unit* victim, uint32 spellId, int32 damage, int32 overEnergize, Powers powerType);
         void EnergizeBySpell(Unit* victim, SpellInfo const* spellInfo, int32 damage, Powers powerType);
 
@@ -1185,10 +1206,10 @@ class TC_GAME_API Unit : public WorldObject
         Minion* GetFirstMinion() const;
         Unit* GetCharmerOrOwner() const { return IsCharmed() ? GetCharmer() : GetOwner(); }
 
-        void SetMinion(Minion *minion, bool apply);
+        void SetMinion(Minion *minion, bool apply, bool bypassPartitionGuard = false);
         void GetAllMinionsByEntry(std::list<TempSummon*>& Minions, uint32 entry);
         void RemoveAllMinionsByEntry(uint32 entry);
-        void SetCharm(Unit* target, bool apply);
+        void SetCharm(Unit* target, bool apply, bool bypassPartitionGuard = false);
         Unit* GetNextRandomRaidMemberOrPet(float radius);
         bool SetCharmedBy(Unit* charmer, CharmType type, AuraApplication const* aurApp = nullptr);
         void RemoveCharmedBy(Unit* charmer);
@@ -1218,8 +1239,8 @@ class TC_GAME_API Unit : public WorldObject
         Player* GetPlayerMovingMe() const { return m_playerMovingMe; }
 
         SharedVisionList const& GetSharedVisionList() { return m_sharedVision; }
-        void AddPlayerToVision(Player* player);
-        void RemovePlayerFromVision(Player* player);
+        void AddPlayerToVision(Player* player, bool bypassPartitionGuard = false);
+        void RemovePlayerFromVision(Player* player, bool bypassPartitionGuard = false);
         bool HasSharedVision() const { return !m_sharedVision.empty(); }
         void RemoveBindSightAuras();
         void RemoveCharmAuras();
@@ -1278,7 +1299,11 @@ class TC_GAME_API Unit : public WorldObject
         void RemoveAurasDueToSpell(uint32 spellId, ObjectGuid casterGUID = ObjectGuid::Empty, uint32 reqEffMask = 0, AuraRemoveMode removeMode = AURA_REMOVE_BY_DEFAULT);
         void RemoveAuraFromStack(uint32 spellId, ObjectGuid casterGUID = ObjectGuid::Empty, AuraRemoveMode removeMode = AURA_REMOVE_BY_DEFAULT, uint16 num = 1);
         void RemoveAurasDueToSpellByDispel(uint32 spellId, uint32 dispellerSpellId, ObjectGuid casterGUID, WorldObject* dispeller, uint8 chargesRemoved = 1);
-        void RemoveAurasDueToSpellBySteal(uint32 spellId, ObjectGuid casterGUID, WorldObject* stealer, int32 stolenCharges = 1);
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (Unit.cpp) - see
+        // ThreatManager::AddThreat's own comment (ThreatManager.h) for why this must never be
+        // passed true from any other caller.
+        void RemoveAurasDueToSpellBySteal(uint32 spellId, ObjectGuid casterGUID, WorldObject* stealer, int32 stolenCharges = 1, bool bypassPartitionGuard = false);
         void RemoveAurasDueToItemSpell(uint32 spellId, ObjectGuid castItemGuid);
         void RemoveAurasByType(AuraType auraType, ObjectGuid casterGUID = ObjectGuid::Empty, Aura* except = nullptr, bool negative = true, bool positive = true);
         void RemoveNotOwnSingleTargetAuras(bool onPhaseChange = false);
@@ -1711,7 +1736,7 @@ class TC_GAME_API Unit : public WorldObject
         void ChangeSeat(int8 seatId, bool next = true);
 
         // Should only be called by AuraEffect::HandleAuraControlVehicle(AuraApplication const* auraApp, uint8 mode, bool apply) const;
-        void _ExitVehicle(Position const* exitPosition = nullptr);
+        void _ExitVehicle(Position const* exitPosition = nullptr, bool bypassPartitionGuard = false);
         void _EnterVehicle(Vehicle* vehicle, int8 seatId, AuraApplication const* aurApp = nullptr);
 
         bool isMoving() const   { return m_movementInfo.HasMovementFlag(MOVEMENTFLAG_MASK_MOVING); }

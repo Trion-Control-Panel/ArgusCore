@@ -74,6 +74,7 @@
 #include "MMapFactory.h"
 #include "Map.h"
 #include "MapManager.h"
+#include "MapPartitioning.h"
 #include "MapUtils.h"
 #include "Metric.h"
 #include "MiscPackets.h"
@@ -702,6 +703,11 @@ void World::LoadConfigSettings(bool reload)
         // visibility into real violations without ever touching gameplay unless an operator
         // deliberately opts into Correct/Kick. See ARGUSCORE_FIXES.md.
         { .Name = "Movement.AntiCheat.Enable"sv, .DefaultValue = true, .Index = CONFIG_MOVEMENT_ANTICHEAT_ENABLE },
+        // Phase 0 infrastructure for the "Continent Map Spatial Partitioning" design - see
+        // ARGUSCORE_FIXES.md. Disabled by default: when false, MapPartitionMgr::GetLayout
+        // always returns nullptr regardless of Map.Partitioning.MapIds, so this is a true
+        // zero-behavior-change default, not just an empty map list.
+        { .Name = "Map.Partitioning.Enabled"sv, .DefaultValue = false, .Index = CONFIG_MAP_PARTITIONING_ENABLED },
     } };
 
     static constexpr ConfigOptionLoadDefinitionArray<uint32, INT_CONFIG_VALUE_COUNT> ints =
@@ -929,6 +935,12 @@ void World::LoadConfigSettings(bool reload)
         { .Name = "Movement.AntiCheat.KickBanWindowMinutes"sv, .DefaultValue = 10, .Index = CONFIG_MOVEMENT_ANTICHEAT_KICK_BAN_WINDOW_MINUTES, .Min = 1 },
         // Ban duration in seconds once KickBanThreshold is reached. 0 = permanent.
         { .Name = "Movement.AntiCheat.KickBanDuration"sv, .DefaultValue = 86400, .Index = CONFIG_MOVEMENT_ANTICHEAT_KICK_BAN_DURATION },
+        // Minimum current player population on an opted-in partitioned map before its
+        // partitions actually dispatch to a private worker thread each - below this, a
+        // partitioned map's work runs inline, sequentially, on the calling thread (Phase 3),
+        // so a quiet map costs the same as an unpartitioned one. See ARGUSCORE_FIXES.md
+        // re-check (f).
+        { .Name = "Map.Partitioning.MinPopulationForFanout"sv, .DefaultValue = 50, .Index = CONFIG_MAP_PARTITIONING_MIN_POPULATION_FOR_FANOUT, .Min = 0 },
     } };
 
     static constexpr ConfigOptionLoadDefinitionArray<uint64, INT64_CONFIG_VALUE_COUNT> int64s =
@@ -941,7 +953,16 @@ void World::LoadConfigSettings(bool reload)
     { {
         { .Name = "MaxGroupXPDistance"sv, .DefaultValue = 74.0f, .Index = CONFIG_GROUP_XP_DISTANCE },
         { .Name = "MaxRecruitAFriendBonusDistance"sv, .DefaultValue = 100.0f, .Index = CONFIG_MAX_RECRUIT_A_FRIEND_DISTANCE },
-        { .Name = "MonsterSight"sv, .DefaultValue = 50.0f, .Index = CONFIG_SIGHT_MONSTER },
+        // Stage 7 recheck fix (ARGUSCORE_FIXES.md) - Max added: unbounded, this fed
+        // Creature::m_SightDistance -> WorldObject::GetGridActivationRange() with no ceiling,
+        // which Map::VisitNearbyCellsOf used directly (see its own comment, Map.cpp) as the
+        // ACTUAL cell-visit radius - if set above the fixed classification probe width
+        // (MAX_VISIBILITY_DISTANCE + 1.0f), an interior-classified creature's real visited-cell
+        // area could reach past where classification assumed it would stop, letting two shards
+        // concurrently Update() the same object. Map.cpp's own clamp is the real fix (defense in
+        // depth doesn't rely on config discipline); this Max is the second, belt-and-suspenders
+        // layer, matching every other visibility-driven distance's own ceiling in this table.
+        { .Name = "MonsterSight"sv, .DefaultValue = 50.0f, .Index = CONFIG_SIGHT_MONSTER, .Min = 0.0f, .Max = MAX_VISIBILITY_DISTANCE },
         { .Name = "CreatureFamilyFleeAssistanceRadius"sv, .DefaultValue = 30.0f, .Index = CONFIG_CREATURE_FAMILY_FLEE_ASSISTANCE_RADIUS },
         { .Name = "CreatureFamilyAssistanceRadius"sv, .DefaultValue = 10.0f, .Index = CONFIG_CREATURE_FAMILY_ASSISTANCE_RADIUS },
         { .Name = "ThreatRadius"sv, .DefaultValue = 60.0f, .Index = CONFIG_THREAT_RADIUS },
@@ -965,6 +986,15 @@ void World::LoadConfigSettings(bool reload)
         // Multiplier applied to a unit's max speed before flagging a movement violation - absorbs
         // latency/lag jitter. See ARGUSCORE_FIXES.md.
         { .Name = "Movement.AntiCheat.ToleranceMultiplier"sv, .DefaultValue = 1.3f, .Index = CONFIG_MOVEMENT_ANTICHEAT_TOLERANCE, .Min = 1.0f },
+        // Phase 6 (ARGUSCORE_FIXES.md, "Double-buffered halo snapshots") - how close to a
+        // partition boundary (yards) an object needs to be before its position gets a
+        // cross-partition-safe published snapshot each tick. Defaults to
+        // VISIBILITY_DISTANCE_GIGANTIC (400y), not the true visibility ceiling
+        // (MAX_VISIBILITY_DISTANCE, 533.33y, reachable only via the rare Infinite/FarVisible
+        // override, excluded for Players) - a deliberate, documented, operator-tunable gap, not
+        // an oversight. Capped at MAX_VISIBILITY_DISTANCE since nothing can be visible further
+        // than that regardless of override.
+        { .Name = "Map.Partitioning.HaloWidth"sv, .DefaultValue = VISIBILITY_DISTANCE_GIGANTIC, .Index = CONFIG_MAP_PARTITIONING_HALO_WIDTH, .Min = 0.0f, .Max = MAX_VISIBILITY_DISTANCE },
     } };
 
     static constexpr ConfigOptionLoadDefinitionArray<float, MAX_RATES> rates =
@@ -1069,6 +1099,18 @@ void World::LoadConfigSettings(bool reload)
 
     for (ConfigOptionLoadDefinition<float, WorldFloatConfigs> const& definition : floats)
         StoreConfigValue(m_float_configs[definition.Index], sConfigMgr->GetFloatDefault(definition.Name, definition.DefaultValue), definition, reload);
+
+    // Map.Partitioning.MapIds is a free-form "mapId:ColumnsxRows,..." list, not a scalar value,
+    // so it's parsed directly here rather than through the declarative bool/int tables above -
+    // same reasoning as Motd/PlayerStart.String just above in this function. See
+    // ARGUSCORE_FIXES.md, "MAJOR FEATURE PROPOSAL - Continent Map Spatial Partitioning". Placed
+    // after the floats loop (not immediately after the bools/ints loops like sLayerMgr->Configure
+    // above) specifically because Phase 6's HaloWidth argument needs m_float_configs already
+    // populated - see ARGUSCORE_FIXES.md, "Double-buffered halo snapshots".
+    std::string mapPartitioningMapIds = sConfigMgr->GetStringDefault("Map.Partitioning.MapIds"sv, ""sv);
+    sMapPartitionMgr->Configure(m_bool_configs[CONFIG_MAP_PARTITIONING_ENABLED], mapPartitioningMapIds,
+                                 m_int_configs[CONFIG_MAP_PARTITIONING_MIN_POPULATION_FOR_FANOUT],
+                                 m_float_configs[CONFIG_MAP_PARTITIONING_HALO_WIDTH]);
 
     for (ConfigOptionLoadDefinition<float, Rates> const& definition : rates)
         StoreConfigValue(rate_values[definition.Index], sConfigMgr->GetFloatDefault(definition.Name, definition.DefaultValue), definition, reload);

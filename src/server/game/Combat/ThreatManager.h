@@ -138,9 +138,19 @@ class TC_GAME_API ThreatManager
         auto const& GetThreatenedByMeList() const { return _threatenedByMe; }
 
         // Notify the ThreatManager that its owner may now be suppressed on others' threat lists (immunity or damage-breakable CC being applied)
-        void EvaluateSuppressed(bool canExpire = false);
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (ThreatManager.cpp). Never pass true
+        // from any other caller.
+        void EvaluateSuppressed(bool canExpire = false, bool bypassPartitionGuard = false);
         ///== AFFECT MY THREAT LIST ==
-        void AddThreat(Unit* target, float amount, SpellInfo const* spell = nullptr, bool ignoreModifiers = false, bool ignoreRedirects = false);
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (ThreatManager.cpp) - guarantees a
+        // replay never re-defers even if Map::ResolveCrossPartitionPair failed to unify both
+        // sides onto one shard (both non-transferable, e.g. two Players), which would otherwise
+        // re-enqueue onto Map::_farSpellCallbacks from inside the very drain loop currently
+        // processing it and hang that Map's update thread forever. Never pass true from any
+        // other caller.
+        void AddThreat(Unit* target, float amount, SpellInfo const* spell = nullptr, bool ignoreModifiers = false, bool ignoreRedirects = false, bool bypassPartitionGuard = false);
         void ScaleThreat(Unit* target, float factor);
         // Modify target's threat by +percent%
         void ModifyThreatByPercent(Unit* target, int32 percent) { if (percent) ScaleThreat(target, 0.01f*float(100 + percent)); }
@@ -149,28 +159,34 @@ class TC_GAME_API ThreatManager
         // Sets the specified unit's threat to be equal to the highest entry on the threat list
         void MatchUnitThreatToHighestThreat(Unit* target);
         // Notify the ThreatManager that we have a new taunt aura (or a taunt aura expired)
-        void TauntUpdate();
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (ThreatManager.cpp). Never pass true
+        // from any other caller.
+        void TauntUpdate(bool bypassPartitionGuard = false);
         // Sets all threat refs in owner's threat list to have zero threat
         void ResetAllThreat();
         // Removes specified target from the threat list
-        void ClearThreat(Unit* target);
-        void ClearThreat(ThreatReference* ref);
+        void ClearThreat(Unit* target, bool bypassPartitionGuard = false);
+        void ClearThreat(ThreatReference* ref, bool bypassPartitionGuard = false);
         // Removes all targets from the threat list (will cause evade in UpdateVictim if called)
         void ClearAllThreat();
 
         // Fixate on the passed target; this target will always be selected until the fixate is cleared
         // (if the target is not in the threat list, does nothing)
-        void FixateTarget(Unit* target);
+        void FixateTarget(Unit* target, bool bypassPartitionGuard = false);
         void ClearFixate() { FixateTarget(nullptr); }
         Unit* GetFixateTarget() const;
 
         ///== AFFECT OTHERS' THREAT LISTS ==
         // what it says on the tin - call AddThreat on everything that's threatened by us with the specified params
-        void ForwardThreatForAssistingMe(Unit* assistant, float baseAmount, SpellInfo const* spell = nullptr, bool ignoreModifiers = false);
+        void ForwardThreatForAssistingMe(Unit* assistant, float baseAmount, SpellInfo const* spell = nullptr, bool ignoreModifiers = false, bool bypassPartitionGuard = false);
         // delete all ThreatReferences with victim == owner
         void RemoveMeFromThreatLists(bool (*unitFilter)(Unit const* otherUnit));
         // re-calculates the temporary threat modifier from auras on myself
-        void UpdateMyTempModifiers();
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (ThreatManager.cpp). Never pass true
+        // from any other caller.
+        void UpdateMyTempModifiers(bool bypassPartitionGuard = false);
         // re-calculate SPELL_AURA_MOD_THREAT modifiers
         void UpdateMySpellSchoolModifiers();
 
@@ -278,12 +294,16 @@ class TC_GAME_API ThreatReference
         bool IsTaunting() const { return _taunted >= TAUNT_STATE_TAUNT; }
         bool IsDetaunted() const { return _taunted == TAUNT_STATE_DETAUNT; }
 
-        void AddThreat(float amount);
-        void ScaleThreat(float factor);
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (ThreatManager.cpp) - see
+        // ThreatManager::AddThreat's own comment for why this must never be passed true from any
+        // other caller.
+        void AddThreat(float amount, bool bypassPartitionGuard = false);
+        void ScaleThreat(float factor, bool bypassPartitionGuard = false);
         void ModifyThreatByPercent(int32 percent) { if (percent) ScaleThreat(0.01f*float(100 + percent)); }
         void UpdateOffline();
 
-        void ClearThreat(); // dealloc's this
+        void ClearThreat(bool bypassPartitionGuard = false); // dealloc's this
 
     protected:
         static bool FlagsAllowFighting(Unit const* a, Unit const* b);
@@ -297,11 +317,34 @@ class TC_GAME_API ThreatReference
 
         virtual ~ThreatReference() = default;
 
-        void UnregisterAndFree();
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (ThreatManager.cpp) - see
+        // ThreatManager::AddThreat's own comment for why this must never be passed true from any
+        // other caller.
+        void UnregisterAndFree(bool bypassPartitionGuard = false);
 
         bool ShouldBeOffline() const;
         bool ShouldBeSuppressed() const;
-        void UpdateTauntState(TauntState state = TAUNT_STATE_NONE);
+        void UpdateTauntState(TauntState state = TAUNT_STATE_NONE, bool bypassPartitionGuard = false);
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (ThreatManager.cpp) - see
+        // ThreatManager::AddThreat's own comment for why this must never be passed true from any
+        // other caller. Factored out of ThreatManager::EvaluateSuppressed (Stage 5b,
+        // ARGUSCORE_FIXES.md) - that function used to mutate a ThreatReference's _online state and
+        // heap position directly while iterating _threatenedByMe (i.e. mutating OTHER creatures'
+        // ThreatManager state from the current unit's own thread, e.g. via a CC/immunity aura
+        // applying to `target` and calling target->GetThreatManager().EvaluateSuppressed()) with no
+        // guard at all. Moving the per-entry logic here gives it the same funnel-point guard as
+        // AddThreat/ScaleThreat/UnregisterAndFree, correct regardless of whether the entry was
+        // reached via _myThreatListEntries or _threatenedByMe.
+        void UpdateSuppressedState(bool canExpire, bool bypassPartitionGuard = false);
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (ThreatManager.cpp) - see
+        // ThreatManager::AddThreat's own comment for why this must never be passed true from any
+        // other caller. Factored out of ThreatManager::UpdateMyTempModifiers (Stage 5b,
+        // ARGUSCORE_FIXES.md) - same _threatenedByMe cross-object-write shape as
+        // UpdateSuppressedState.
+        void UpdateTempModifier(int32 mod, bool bypassPartitionGuard = false);
         Creature* const _owner;
         ThreatManager& _mgr;
         void HeapNotifyIncreased();

@@ -165,25 +165,12 @@ uint32 SmartScript::GetCounterValue(uint32 id) const
 
 GameObject* SmartScript::FindGameObjectNear(WorldObject* searchObject, ObjectGuid::LowType guid) const
 {
-    auto bounds = searchObject->GetMap()->GetGameObjectBySpawnIdStore().equal_range(guid);
-    if (bounds.first == bounds.second)
-        return nullptr;
-
-    return bounds.first->second;
+    return searchObject->GetMap()->GetGameObjectBySpawnId(guid);
 }
 
 Creature* SmartScript::FindCreatureNear(WorldObject* searchObject, ObjectGuid::LowType guid) const
 {
-    auto bounds = searchObject->GetMap()->GetCreatureBySpawnIdStore().equal_range(guid);
-    if (bounds.first == bounds.second)
-        return nullptr;
-
-    auto creatureItr = std::find_if(bounds.first, bounds.second, [](Map::CreatureBySpawnIdContainer::value_type const& pair)
-    {
-        return pair.second->IsAlive();
-    });
-
-    return creatureItr != bounds.second ? creatureItr->second : bounds.first->second;
+    return searchObject->GetMap()->GetCreatureBySpawnId(guid);
 }
 
 void SmartScript::OnReset()
@@ -2062,6 +2049,29 @@ void SmartScript::ProcessAction(SmartScriptHolder& e, Unit* unit, uint32 var0, u
                 TC_LOG_ERROR("sql.sql", "SmartScript::ProcessAction: At case SMART_ACTION_GAME_EVENT_STOP, inactive event (id: {})", eventId);
                 break;
             }
+            // Cross-partition guard (Stage 6 review finding, ARGUSCORE_FIXES.md) -
+            // GameEventMgr::StartEvent/StopEvent now ASSERT they never run from a live fan-out
+            // worker thread (a debug tripwire - see their own comment, GameEventMgr.cpp - the
+            // underlying ApplyNewEvent/UnApplyEvent work reaches into every currently-loaded map's
+            // spawn state with none of this redesign's guard/defer machinery, so calling
+            // synchronously from a live fan-out thread is genuinely unsafe, not just untested).
+            // This action runs on the scripted object's own thread, which - for an
+            // "interior"-classified creature/gameobject - IS a live fan-out worker thread for its
+            // own map, tripping that ASSERT on entirely ordinary SmartAI content. Defer to that
+            // map's serial barrier phase (guaranteed no fan-out in progress anywhere by the time it
+            // runs) instead of calling synchronously.
+            if (WorldObject* self = GetBaseObject())
+            {
+                if (Map* map = self->GetMap(); map->CurrentFanOutShardForThisMap())
+                {
+                    map->AddFarSpellCallback([eventId](Map*)
+                    {
+                        if (sGameEventMgr->IsActiveEvent(eventId))
+                            sGameEventMgr->StopEvent(eventId, true);
+                    });
+                    break;
+                }
+            }
             sGameEventMgr->StopEvent(eventId, true);
             break;
         }
@@ -2072,6 +2082,21 @@ void SmartScript::ProcessAction(SmartScriptHolder& e, Unit* unit, uint32 var0, u
             {
                 TC_LOG_ERROR("sql.sql", "SmartScript::ProcessAction: At case SMART_ACTION_GAME_EVENT_START, already activated event (id: {})", eventId);
                 break;
+            }
+            // Cross-partition guard (Stage 6 review finding, ARGUSCORE_FIXES.md) - see
+            // SMART_ACTION_GAME_EVENT_STOP's own comment immediately above, same reasoning
+            // verbatim.
+            if (WorldObject* self = GetBaseObject())
+            {
+                if (Map* map = self->GetMap(); map->CurrentFanOutShardForThisMap())
+                {
+                    map->AddFarSpellCallback([eventId](Map*)
+                    {
+                        if (!sGameEventMgr->IsActiveEvent(eventId))
+                            sGameEventMgr->StartEvent(eventId, true);
+                    });
+                    break;
+                }
             }
             sGameEventMgr->StartEvent(eventId, true);
             break;

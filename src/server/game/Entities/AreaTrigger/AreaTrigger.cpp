@@ -72,9 +72,9 @@ void AreaTrigger::AddToWorld()
         if (m_zoneScript)
             m_zoneScript->OnAreaTriggerCreate(this);
 
-        GetMap()->GetObjectsStore().Insert<AreaTrigger>(this);
+        GetMap()->AddToObjectsStore(this);
         if (_spawnId)
-            GetMap()->GetAreaTriggerBySpawnIdStore().insert(std::make_pair(_spawnId, this));
+            GetMap()->AddAreaTriggerToSpawnIdStore(_spawnId, this);
 
         WorldObject::AddToWorld();
     }
@@ -101,8 +101,8 @@ void AreaTrigger::RemoveFromWorld()
         WorldObject::RemoveFromWorld();
 
         if (IsStaticSpawn())
-            Trinity::Containers::MultimapErasePair(GetMap()->GetAreaTriggerBySpawnIdStore(), _spawnId, this);
-        GetMap()->GetObjectsStore().Remove<AreaTrigger>(this);
+            GetMap()->RemoveAreaTriggerFromSpawnIdStore(_spawnId, this);
+        GetMap()->RemoveFromObjectsStore(this);
     }
 }
 
@@ -963,6 +963,40 @@ void AreaTrigger::DoActions(Unit* unit)
                         {
                             if (Player* player = caster->ToPlayer())
                             {
+                                // Cross-partition guard (Stage 7 recheck, ARGUSCORE_FIXES.md) - for
+                                // a non-static (spell-cast) AreaTrigger, `caster` (GetCaster(), set
+                                // above) can be a different WorldObject than the entering `unit`
+                                // that drove this DoActions() call - unlike ADDAURA/CAST above,
+                                // TeleportTo() doesn't route through any already-guarded spell/aura
+                                // funnel; it's a raw write into `player`'s own state. Single one-shot
+                                // write with no ongoing relationship to keep same-partition
+                                // afterward (the trigger's job here is done once teleported) - same
+                                // shape as Aura::UpdateTargetMap's removal-loop guard (SpellAuras.cpp),
+                                // deferred without a Map::ResolveCrossPartitionPair transfer step.
+                                if (Map* map = GetMap(); map->IsUnsafeForCurrentThreadToTouch(unit) || map->IsUnsafeForCurrentThreadToTouch(player))
+                                {
+                                    ObjectGuid playerGuid = player->GetGUID();
+                                    uint32 safeLocId = action.Param;
+                                    map->AddFarSpellCallback([playerGuid, safeLocId](Map* map)
+                                    {
+                                        Player* player = ObjectAccessor::GetPlayer(map, playerGuid);
+                                        if (!player || !player->IsInWorld())
+                                            return;
+
+                                        WorldSafeLocsEntry const* safeLoc = sWorldSafeLocsStore.LookupEntry(safeLocId);
+                                        if (!safeLoc)
+                                            return;
+
+                                        if (player->GetMapId() != safeLoc->MapID)
+                                        {
+                                            if (WorldSafeLocsEntry const* instanceEntrance = player->GetInstanceEntrance(safeLoc->MapID))
+                                                safeLoc = instanceEntrance;
+                                        }
+                                        player->TeleportTo(safeLoc);
+                                    });
+                                    break;
+                                }
+
                                 if (player->GetMapId() != safeLoc->MapID)
                                 {
                                     if (WorldSafeLocsEntry const* instanceEntrance = player->GetInstanceEntrance(safeLoc->MapID))
@@ -976,6 +1010,25 @@ void AreaTrigger::DoActions(Unit* unit)
                     case AREATRIGGER_ACTION_TAVERN:
                         if (Player* player = caster->ToPlayer())
                         {
+                            // Cross-partition guard (Stage 7 recheck, ARGUSCORE_FIXES.md) - same
+                            // shape as TELEPORT above: RestMgr's flags are a raw write into
+                            // `player`'s own state with no existing guarded funnel. Single one-shot
+                            // write, deferred without a transfer step.
+                            if (Map* map = GetMap(); map->IsUnsafeForCurrentThreadToTouch(unit) || map->IsUnsafeForCurrentThreadToTouch(player))
+                            {
+                                ObjectGuid playerGuid = player->GetGUID();
+                                map->AddFarSpellCallback([playerGuid](Map* map)
+                                {
+                                    Player* player = ObjectAccessor::GetPlayer(map, playerGuid);
+                                    if (!player || !player->IsInWorld())
+                                        return;
+
+                                    player->GetRestMgr().SetInnTrigger(InnAreaTrigger{ .IsDBC = false });
+                                    player->GetRestMgr().SetRestFlag(REST_FLAG_IN_TAVERN);
+                                });
+                                break;
+                            }
+
                             player->GetRestMgr().SetInnTrigger(InnAreaTrigger{ .IsDBC = false });
                             player->GetRestMgr().SetRestFlag(REST_FLAG_IN_TAVERN);
                         }

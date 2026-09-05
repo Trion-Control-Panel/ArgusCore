@@ -161,7 +161,7 @@ void TerrainInfo::LoadMapAndVMap(int32 gx, int32 gy)
         return;
 
     {
-        std::lock_guard<std::mutex> lock(_loadMutex);
+        std::unique_lock<std::shared_mutex> lock(_loadMutex);
         LoadMapAndVMapImpl(gx, gy);
     } // release lock before touching the preloader queue
 
@@ -170,12 +170,12 @@ void TerrainInfo::LoadMapAndVMap(int32 gx, int32 gy)
     sTerrainPreloader->QueueNeighborhood(_mapId, gx, gy);
 }
 
-void TerrainInfo::LoadMMapInstance(uint32 mapId, uint32 instanceId)
+void TerrainInfo::LoadMMapInstance(uint32 mapId, uint32 instanceId, uint32 shardCount)
 {
-    LoadMMapInstanceImpl(mapId, instanceId);
+    LoadMMapInstanceImpl(mapId, instanceId, shardCount);
 
     for (std::shared_ptr<TerrainInfo> const& childTerrain : _childTerrain)
-        childTerrain->LoadMMapInstanceImpl(mapId, instanceId);
+        childTerrain->LoadMMapInstanceImpl(mapId, instanceId, shardCount);
 }
 
 void TerrainInfo::LoadMapAndVMapImpl(int32 gx, int32 gy)
@@ -184,15 +184,30 @@ void TerrainInfo::LoadMapAndVMapImpl(int32 gx, int32 gy)
     LoadVMap(gx, gy);
     LoadMMap(gx, gy);
 
+    // Phase 3 redesign (ARGUSCORE_FIXES.md) - takes the CHILD's own _loadMutex before recursing
+    // into its state, not just the parent's (which is all the caller of this function already
+    // holds) - an independent review found the recursive call previously wrote the child's
+    // _gridMap/_loadedGrids with no lock of its own at all. Accessing another TerrainInfo
+    // instance's private _loadMutex is fine here - private access is per-class, not per-object,
+    // and this is still TerrainInfo's own member function.
     for (std::shared_ptr<TerrainInfo> const& childTerrain : _childTerrain)
+    {
+        std::unique_lock<std::shared_mutex> childLock(childTerrain->_loadMutex);
         childTerrain->LoadMapAndVMapImpl(gx, gy);
+    }
 
     _loadedGrids[GetBitsetIndex(gx, gy)] = true;
 }
 
-void TerrainInfo::LoadMMapInstanceImpl(uint32 mapId, uint32 instanceId)
+void TerrainInfo::LoadMMapInstanceImpl(uint32 mapId, uint32 instanceId, uint32 shardCount)
 {
-    MMAP::MMapFactory::createOrGetMMapManager()->loadMapInstance(sWorld->GetDataPath(), _mapId, mapId, instanceId);
+    // One dtNavMeshQuery per partition, not one per instance (Map Partitioning design - see
+    // ARGUSCORE_FIXES.md, Phase 3) - an unpartitioned map's shardCount is 1, so this loop is a
+    // single iteration with partitionId 0, identical to what this call always did before.
+    // shardCount comes from the caller (the owning Map's own frozen GetShardCount()) - see this
+    // method's declaration comment (TerrainMgr.h) for why this must not be re-derived here.
+    for (uint32 partition = 0; partition < shardCount; ++partition)
+        MMAP::MMapFactory::createOrGetMMapManager()->loadMapInstance(sWorld->GetDataPath(), _mapId, mapId, instanceId, partition);
 }
 
 void TerrainInfo::LoadMap(int32 gx, int32 gy)
@@ -260,12 +275,12 @@ void TerrainInfo::UnloadMap(int32 gx, int32 gy)
     // unload later
 }
 
-void TerrainInfo::UnloadMMapInstance(uint32 mapId, uint32 instanceId)
+void TerrainInfo::UnloadMMapInstance(uint32 mapId, uint32 instanceId, uint32 shardCount)
 {
-    UnloadMMapInstanceImpl(mapId, instanceId);
+    UnloadMMapInstanceImpl(mapId, instanceId, shardCount);
 
     for (std::shared_ptr<TerrainInfo> const& childTerrain : _childTerrain)
-        childTerrain->UnloadMMapInstanceImpl(mapId, instanceId);
+        childTerrain->UnloadMMapInstanceImpl(mapId, instanceId, shardCount);
 }
 
 void TerrainInfo::UnloadMapImpl(int32 gx, int32 gy)
@@ -274,15 +289,24 @@ void TerrainInfo::UnloadMapImpl(int32 gx, int32 gy)
     VMAP::VMapFactory::createOrGetVMapManager()->unloadMap(GetId(), gx, gy);
     MMAP::MMapFactory::createOrGetMMapManager()->unloadMap(GetId(), gx, gy);
 
+    // Phase 3 redesign (ARGUSCORE_FIXES.md) - see LoadMapAndVMapImpl's own comment for why the
+    // child's own lock, not just the parent's, is needed here too.
     for (std::shared_ptr<TerrainInfo> const& childTerrain : _childTerrain)
+    {
+        std::unique_lock<std::shared_mutex> childLock(childTerrain->_loadMutex);
         childTerrain->UnloadMapImpl(gx, gy);
+    }
 
     _loadedGrids[GetBitsetIndex(gx, gy)] = false;
 }
 
-void TerrainInfo::UnloadMMapInstanceImpl(uint32 mapId, uint32 instanceId)
+void TerrainInfo::UnloadMMapInstanceImpl(uint32 mapId, uint32 instanceId, uint32 shardCount)
 {
-    MMAP::MMapFactory::createOrGetMMapManager()->unloadMapInstance(_mapId, mapId, instanceId);
+    // Mirrors LoadMMapInstanceImpl's per-partition loop - must unload every query that load
+    // actually created, not just partition 0. shardCount comes from the caller - see this
+    // method's declaration comment (TerrainMgr.h) for why this must not be re-derived here.
+    for (uint32 partition = 0; partition < shardCount; ++partition)
+        MMAP::MMapFactory::createOrGetMMapManager()->unloadMapInstance(_mapId, mapId, instanceId, partition);
 }
 
 GridMap* TerrainInfo::GetGrid(uint32 mapId, float x, float y, bool loadIfMissing /*= true*/)
@@ -294,16 +318,32 @@ GridMap* TerrainInfo::GetGrid(uint32 mapId, float x, float y, bool loadIfMissing
     // ensure GridMap is loaded
     if (!_loadedGrids[GetBitsetIndex(gx, gy)] && loadIfMissing)
     {
-        std::lock_guard<std::mutex> lock(_loadMutex);
-        LoadMapAndVMapImpl(gx, gy);
+        std::unique_lock<std::shared_mutex> lock(_loadMutex);
+        // Re-check under the lock - another thread may have loaded this grid between the
+        // unlocked bitset peek above and acquiring the lock here.
+        if (!_loadedGrids[GetBitsetIndex(gx, gy)])
+            LoadMapAndVMapImpl(gx, gy);
     }
 
-    GridMap* grid = _gridMap[gx][gy].get();
+    GridMap* grid;
+    {
+        // Phase 3 redesign (ARGUSCORE_FIXES.md) - even when already loaded, this read needs a
+        // synchronizes-with edge to whichever thread's unique_lock above actually wrote
+        // _gridMap[gx][gy] - see _loadMutex's own comment (TerrainMgr.h). shared_lock costs one
+        // atomic increment/decrement in the (overwhelmingly common) uncontended case and never
+        // blocks concurrent readers against each other, only against the rare writer.
+        std::shared_lock<std::shared_mutex> lock(_loadMutex);
+        grid = _gridMap[gx][gy].get();
+    }
     if (mapId != GetId())
     {
+        // Deliberately calls the child's own GetGrid (which takes the CHILD's own _loadMutex)
+        // rather than peeking at (*childMapItr)->_gridMap[gx][gy] directly here, which would be
+        // the exact same unguarded-read hazard on a different TerrainInfo instance's state.
         auto childMapItr = std::find_if(_childTerrain.begin(), _childTerrain.end(), [mapId](std::shared_ptr<TerrainInfo> const& childTerrain) { return childTerrain->GetId() == mapId; });
-        if (childMapItr != _childTerrain.end() && (*childMapItr)->_gridMap[gx][gy])
-            grid = (*childMapItr)->GetGrid(mapId, x, y, false);
+        if (childMapItr != _childTerrain.end())
+            if (GridMap* childGrid = (*childMapItr)->GetGrid(mapId, x, y, false))
+                grid = childGrid;
     }
 
     return grid;
@@ -314,6 +354,15 @@ void TerrainInfo::CleanUpGrids(uint32 diff)
     _cleanupTimer.Update(diff);
     if (!_cleanupTimer.Passed())
         return;
+
+    // Phase 3 redesign (ARGUSCORE_FIXES.md) - UnloadMapImpl mutates _gridMap/_loadedGrids, the
+    // same state LoadMapAndVMapImpl/GetGrid touch under _loadMutex, but this call previously ran
+    // with no lock at all - safe only via an implicit, undocumented cross-file ordering
+    // (MapManager's global m_updater.wait() barrier, which every Map's own PartitionWorkerPool
+    // fan-out is nested inside, completes before World::Update reaches sTerrainMgr.Update() here).
+    // Locking explicitly removes the dependency on that ordering continuing to hold forever, at
+    // negligible cost - this runs once per CleanupInterval (1 minute), not per tick.
+    std::unique_lock<std::shared_mutex> lock(_loadMutex);
 
     // delete those GridMap objects which have refcount = 0
     for (int32 x = 0; x < MAX_NUMBER_OF_GRIDS; ++x)

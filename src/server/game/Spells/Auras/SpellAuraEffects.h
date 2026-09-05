@@ -343,12 +343,25 @@ class TC_GAME_API AuraEffect
         void HandlePeriodicTriggerSpellAuraTick(Unit* target, Unit* caster) const;
         void HandlePeriodicTriggerSpellWithValueAuraTick(Unit* target, Unit* caster) const;
         void HandlePeriodicDamageAurasTick(Unit* target, Unit* caster) const;
-        void HandlePeriodicHealthLeechAuraTick(Unit* target, Unit* caster) const;
-        void HandlePeriodicHealthFunnelAuraTick(Unit* target, Unit* caster) const;
-        void HandlePeriodicHealAurasTick(Unit* target, Unit* caster) const;
+        // bypassPartitionGuard: internal-use only, set true exclusively by the deferred replay
+        // callback the cross-partition guard itself schedules (SpellAuraEffects.cpp) -
+        // guarantees a replay never re-defers even if Map::ResolveCrossPartitionPair failed to
+        // unify both sides onto one shard (both non-transferable, e.g. two Players), which would
+        // otherwise re-enqueue onto Map::_farSpellCallbacks from inside the very drain loop
+        // currently processing it and hang that Map's update thread forever. Never pass true from
+        // any other caller.
+        void HandlePeriodicHealthLeechAuraTick(Unit* target, Unit* caster, bool bypassPartitionGuard = false) const;
+        // Stage 5a (ARGUSCORE_FIXES.md) - same cross-partition guard shape as
+        // HandlePeriodicHealthLeechAuraTick above; see these two methods' own comments (.cpp).
+        void HandlePeriodicHealthFunnelAuraTick(Unit* target, Unit* caster, bool bypassPartitionGuard = false) const;
+        void HandlePeriodicHealAurasTick(Unit* target, Unit* caster, bool bypassPartitionGuard = false) const;
         void HandlePeriodicManaLeechAuraTick(Unit* target, Unit* caster) const;
-        void HandleObsModPowerAuraTick(Unit* target, Unit* caster) const;
-        void HandlePeriodicEnergizeAuraTick(Unit* target, Unit* caster) const;
+        // Stage 5b review finding (ARGUSCORE_FIXES.md) - same cross-partition guard shape as
+        // HandlePeriodicHealthLeechAuraTick above; see these two methods' own comments (.cpp).
+        // Needed because both call ThreatManager::ForwardThreatForAssistingMe unguarded, which
+        // itself is only safe when its caller has already pinned `caster`/`target` together.
+        void HandleObsModPowerAuraTick(Unit* target, Unit* caster, bool bypassPartitionGuard = false) const;
+        void HandlePeriodicEnergizeAuraTick(Unit* target, Unit* caster, bool bypassPartitionGuard = false) const;
         void HandlePeriodicPowerBurnAuraTick(Unit* target, Unit* caster) const;
 
         float CalcPeriodicCritChance(Unit const* caster) const;

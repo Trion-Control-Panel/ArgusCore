@@ -19,6 +19,7 @@
 #include "Group.h"
 #include "Log.h"
 #include "Map.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
 #include "SmartEnum.h"
 #include "SpellHistory.h"
@@ -109,13 +110,44 @@ void Totem::UnSummon(uint32 msTime)
     RemoveAurasDueToSpell(GetSpell(), GetGUID());
 
     // clear owner's totem slot
-    for (uint8 i = SUMMON_SLOT_TOTEM; i < MAX_TOTEM_SLOT; ++i)
+    // Cross-partition guard (Stage 5a, ARGUSCORE_FIXES.md) - GetOwner()->m_SummonSlot[i] is the
+    // OWNER's own state, written here from the TOTEM's own thread - real cross-unit mutation if
+    // totem and owner land on different shards. Narrowly scoped to just this container write (no
+    // ResolveCrossPartitionPair needed - the totem is being unsummoned regardless, nothing to pin
+    // for future interactions, only its GUID value is needed for the replay's comparison); the
+    // GetOwner()->RemoveAurasDueToSpell/group-member aura removal calls immediately below remain
+    // unguarded, tracked under Stage 5c's planned shared aura-removal defer helper, not fixed here.
+    if (Unit* owner = GetOwner())
     {
-        if (GetOwner()->m_SummonSlot[i] == GetGUID())
+        ObjectGuid totemGuid = GetGUID();
+        auto clearSlot = [totemGuid](Unit* owner)
         {
-            GetOwner()->m_SummonSlot[i].Clear();
-            break;
+            for (uint8 i = SUMMON_SLOT_TOTEM; i < MAX_TOTEM_SLOT; ++i)
+            {
+                if (owner->m_SummonSlot[i] == totemGuid)
+                {
+                    owner->m_SummonSlot[i].Clear();
+                    break;
+                }
+            }
+        };
+
+        // CurrentFanOutShardForThisMap() gate (Stage 5a fix, ARGUSCORE_FIXES.md review finding) -
+        // see Unit::SetMinion's own comment (Unit.cpp) for why bare IsCrossPartition is
+        // insufficient: a defer taken outside a live fan-out worker thread can never be drained
+        // in time and becomes a silent permanent no-op instead of a one-tick delay.
+        if (Map* map = GetMap(); map->IsUnsafeForCurrentThreadToTouch(this) || map->IsUnsafeForCurrentThreadToTouch(owner))
+        {
+            ObjectGuid ownerGuid = owner->GetGUID();
+            map->AddFarSpellCallback([ownerGuid, clearSlot](Map* map)
+            {
+                Unit* owner = ObjectAccessor::GetUnit(map, ownerGuid);
+                if (owner && owner->IsInWorld())
+                    clearSlot(owner);
+            });
         }
+        else
+            clearSlot(owner);
     }
 
     GetOwner()->RemoveAurasDueToSpell(GetSpell(), GetGUID());

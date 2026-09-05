@@ -348,9 +348,9 @@ void Creature::AddToWorld()
     ///- Register the creature for guid lookup
     if (!IsInWorld())
     {
-        GetMap()->GetObjectsStore().Insert<Creature>(this);
+        GetMap()->AddToObjectsStore(this);
         if (m_spawnId)
-            GetMap()->GetCreatureBySpawnIdStore().insert(std::make_pair(m_spawnId, this));
+            GetMap()->AddCreatureToSpawnIdStore(m_spawnId, this);
 
         Unit::AddToWorld();
         SearchFormation();
@@ -376,8 +376,8 @@ void Creature::RemoveFromWorld()
         Unit::RemoveFromWorld();
 
         if (m_spawnId)
-            Trinity::Containers::MultimapErasePair(GetMap()->GetCreatureBySpawnIdStore(), m_spawnId, this);
-        GetMap()->GetObjectsStore().Remove<Creature>(this);
+            GetMap()->RemoveCreatureFromSpawnIdStore(m_spawnId, this);
+        GetMap()->RemoveFromObjectsStore(this);
     }
 }
 
@@ -1864,22 +1864,22 @@ bool Creature::LoadFromDB(ObjectGuid::LowType spawnId, Map* map, bool addToMap, 
     {
         // If an alive instance of this spawnId is already found, skip creation
         // If only dead instance(s) exist, despawn them and spawn a new (maybe also dead) version
-        const auto creatureBounds = map->GetCreatureBySpawnIdStore().equal_range(spawnId);
-        std::vector <Creature*> despawnList;
+        Map::CreatureBySpawnIdResult existingCreatures = map->GetCreaturesBySpawnId(spawnId);
+        std::vector<Creature*> despawnList;
 
-        if (creatureBounds.first != creatureBounds.second)
+        if (!existingCreatures.empty())
         {
-            for (auto itr = creatureBounds.first; itr != creatureBounds.second; ++itr)
+            for (Creature* existing : existingCreatures)
             {
-                if (itr->second->IsAlive())
+                if (existing->IsAlive())
                 {
-                    TC_LOG_DEBUG("maps", "Would have spawned {} but {} already exists", spawnId, creatureBounds.first->second->GetGUID().ToString());
+                    TC_LOG_DEBUG("maps", "Would have spawned {} but {} already exists", spawnId, existing->GetGUID().ToString());
                     return false;
                 }
                 else
                 {
-                    despawnList.push_back(itr->second);
-                    TC_LOG_DEBUG("maps", "Despawned dead instance of spawn {} ({})", spawnId, itr->second->GetGUID().ToString());
+                    despawnList.push_back(existing);
+                    TC_LOG_DEBUG("maps", "Despawned dead instance of spawn {} ({})", spawnId, existing->GetGUID().ToString());
                 }
             }
 
@@ -2025,10 +2025,7 @@ bool Creature::hasInvolvedQuest(uint32 quest_id) const
         [spawnId, charTrans](Map* map) -> void
         {
             // despawn all active creatures, and remove their respawns
-            std::vector<Creature*> toUnload;
-            for (auto const& pair : Trinity::Containers::MapEqualRange(map->GetCreatureBySpawnIdStore(), spawnId))
-                toUnload.push_back(pair.second);
-            for (Creature* creature : toUnload)
+            for (Creature* creature : map->GetCreaturesBySpawnId(spawnId))
                 map->AddObjectToRemoveList(creature);
             map->RemoveRespawnTime(SPAWN_TYPE_CREATURE, spawnId, charTrans);
         }

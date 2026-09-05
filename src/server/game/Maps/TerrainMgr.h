@@ -27,6 +27,7 @@
 #include <bitset>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -56,22 +57,35 @@ public:
     void AddChildTerrain(std::shared_ptr<TerrainInfo> childTerrain);
 
     void LoadMapAndVMap(int32 gx, int32 gy);
-    void LoadMMapInstance(uint32 mapId, uint32 instanceId);
+    // shardCount: the OWNING Map's own already-computed Map::GetShardCount() (Phase 3, see
+    // ARGUSCORE_FIXES.md) - deliberately passed in by the caller rather than re-derived here via
+    // sMapPartitionMgr->GetLayout(mapId). TerrainInfo instances can outlive a live .reload config
+    // (Map::LoadMMapInstance/UnloadMMapInstance are each called exactly once, from Map's
+    // constructor and destructor respectively, which can straddle a reload for a long-lived Map),
+    // so a live re-query here would reintroduce the exact reload-desync class of bug
+    // Map::_cachedPartitionLayout exists to prevent everywhere else: an unload driven by a
+    // shrunk/disabled shard count would fail to reach the higher-numbered partitions' already-
+    // loaded dtNavMeshQuery objects, leaking them forever in MMapManager's navMeshQueries map.
+    void LoadMMapInstance(uint32 mapId, uint32 instanceId, uint32 shardCount);
 
 private:
     void LoadMapAndVMapImpl(int32 gx, int32 gy);
-    void LoadMMapInstanceImpl(uint32 mapId, uint32 instanceId);
+    void LoadMMapInstanceImpl(uint32 mapId, uint32 instanceId, uint32 shardCount);
     void LoadMap(int32 gx, int32 gy);
     void LoadVMap(int32 gx, int32 gy);
     void LoadMMap(int32 gx, int32 gy);
 
 public:
     void UnloadMap(int32 gx, int32 gy);
-    void UnloadMMapInstance(uint32 mapId, uint32 instanceId);
+    // shardCount: see LoadMMapInstance's own comment - must be the SAME value the matching
+    // LoadMMapInstance call used for this (mapId, instanceId), i.e. the owning Map's own frozen
+    // Map::GetShardCount(), not a fresh live query, or partitions loaded at construction won't
+    // all be reachable for unload at destruction.
+    void UnloadMMapInstance(uint32 mapId, uint32 instanceId, uint32 shardCount);
 
 private:
     void UnloadMapImpl(int32 gx, int32 gy);
-    void UnloadMMapInstanceImpl(uint32 mapId, uint32 instanceId);
+    void UnloadMMapInstanceImpl(uint32 mapId, uint32 instanceId, uint32 shardCount);
 
     GridMap* GetGrid(uint32 mapId, float x, float y, bool loadIfMissing = true);
 
@@ -108,7 +122,15 @@ private:
     TerrainInfo* _parentTerrain;
     std::vector<std::shared_ptr<TerrainInfo>> _childTerrain;
 
-    std::mutex _loadMutex;
+    // Phase 3 redesign (ARGUSCORE_FIXES.md) - std::shared_mutex, not std::mutex: an independent
+    // review found TerrainInfo::GetGrid's "already loaded" fast path read _gridMap[gx][gy] with NO
+    // lock at all, a classic broken-double-checked-locking data race against whichever thread's
+    // unique_lock actually wrote it - harmless under the old single-map-thread-at-a-time model,
+    // routinely hit once Map Partitioning's worker threads make grid loads and height/LoS queries
+    // run concurrently. unique_lock for the (rare) load/unload writers, shared_lock for the
+    // (frequent, must-never-block-each-other) "just read the already-loaded grid" callers - see
+    // GetGrid's own comment.
+    std::shared_mutex _loadMutex;
     std::unique_ptr<GridMap> _gridMap[MAX_NUMBER_OF_GRIDS][MAX_NUMBER_OF_GRIDS];
     std::atomic<uint16> _referenceCountFromMap[MAX_NUMBER_OF_GRIDS][MAX_NUMBER_OF_GRIDS];
     std::bitset<MAX_NUMBER_OF_GRIDS* MAX_NUMBER_OF_GRIDS> _loadedGrids;

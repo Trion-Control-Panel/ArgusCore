@@ -23,6 +23,7 @@
 #include "GridDefines.h"
 #include "ObjectGuid.h"
 #include "Optional.h"
+#include <mutex>
 
 class Map;
 class PhaseShift;
@@ -79,6 +80,16 @@ struct MultiPersonalPhaseTracker
     void Update(Map* map, uint32 diff);
 
 private:
+    // Phase 3 redesign, Stage 4 (ARGUSCORE_FIXES.md) - _playerData is read/written by every
+    // public method here, several reachable from a fan-out worker thread (LoadGrid via ordinary
+    // grid loading; RegisterTrackedObject via ObjectGridLoader; OnOwnerPhaseChanged via a
+    // player's own phase-changing Update(); UnregisterTrackedObject via RemoveFromMap) with zero
+    // prior synchronization. A plain mutex, not shared_mutex: nearly every entry point can
+    // structurally mutate the map (operator[] on first touch), so there's no meaningful read-only
+    // fast path worth the extra complexity. recursive_mutex specifically because
+    // OnOwnerPhaseChanged calls LoadGrid internally (both public, both lock) - a plain mutex
+    // would self-deadlock on that path.
+    mutable std::recursive_mutex _lock;
     std::unordered_map<ObjectGuid /*owner*/, PlayerPersonalPhasesTracker> _playerData;
 };
 

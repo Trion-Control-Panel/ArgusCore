@@ -20,10 +20,13 @@
 
 #include "Define.h"
 #include "IteratorPair.h"
+#include "ObjectGuid.h"
+#include "Optional.h"
 
 class Player;
 class Unit;
 class Group;
+class Map;
 
 class TC_GAME_API KillRewarder
 {
@@ -32,15 +35,25 @@ public:
 
     void Reward();
 
+    // Cross-partition guard support (Stage 5d, ARGUSCORE_FIXES.md) - _RewardPlayer's real body,
+    // extracted to take explicit values instead of implicit `this->` member reads, so it can be
+    // called identically from the synchronous path (Reward()/_RewardGroup, passing this
+    // KillRewarder's own live members) and from a deferred replay (passing values captured before
+    // `this` - a stack-lifetime temporary - goes out of scope). Public/static rather than a
+    // private member: the deferred replay lambda runs after `this` no longer exists, so it cannot
+    // rely on member/friend access the way every other guard's replay in this codebase does.
+    // isGrouped: whether `player` was in a group at the same instant sumLevel/groupRate/isFullXP/
+    // maxNotGrayMemberLevel were computed for - review finding (Stage 5d, ARGUSCORE_FIXES.md), see
+    // this function's own comment (KillRewarder.cpp) for why this can't be re-derived from a live
+    // player->GetGroup() check inside the function itself.
+    static void RewardPlayerDeferred(Player* player, Unit* victim, bool isBattleGround, bool isPvP, uint32 count,
+        uint32 xp, float groupRate, uint32 sumLevel, bool isFullXP, Optional<uint8> maxNotGrayMemberLevel, bool isDungeon, bool isGrouped);
+
 private:
     void _InitXP(Player* player, Player const* killer);
     void _InitGroupData(Player const* killer);
 
-    void _RewardHonor(Player* player);
-    void _RewardXP(Player* player, float rate);
-    void _RewardReputation(Player* player, float rate);
-    void _RewardKillCredit(Player* player);
-    void _RewardPlayer(Player* player, bool isDungeon);
+    void _RewardPlayer(Player* player, bool isDungeon, bool isGrouped);
     void _RewardGroup(Group const* group, Player const* killer);
 
     Trinity::IteratorPair<Player**> _killers;

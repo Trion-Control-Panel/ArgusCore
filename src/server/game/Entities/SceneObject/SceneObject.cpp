@@ -41,7 +41,7 @@ void SceneObject::AddToWorld()
 {
     if (!IsInWorld())
     {
-        GetMap()->GetObjectsStore().Insert<SceneObject>(this);
+        GetMap()->AddToObjectsStore(this);
         WorldObject::AddToWorld();
     }
 }
@@ -51,7 +51,7 @@ void SceneObject::RemoveFromWorld()
     if (IsInWorld())
     {
         WorldObject::RemoveFromWorld();
-        GetMap()->GetObjectsStore().Remove<SceneObject>(this);
+        GetMap()->RemoveFromObjectsStore(this);
     }
 }
 

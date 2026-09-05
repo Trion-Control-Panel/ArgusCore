@@ -757,6 +757,12 @@ enum RBACPermissions
     RBAC_PERM_COMMAND_LAYER_LIST                             = 885,
     RBAC_PERM_COMMAND_LAYER_MIGRATE                          = 886,
     //
+    // Map Partitioning Phase 7 — observability + kill-switch GM commands (ArgusCore custom, see
+    // ARGUSCORE_FIXES.md)
+    RBAC_PERM_COMMAND_PARTITION_DISABLE                      = 887,
+    RBAC_PERM_COMMAND_PARTITION_ENABLE                       = 888,
+    RBAC_PERM_COMMAND_PARTITION_STATUS                       = 889,
+    //
     RBAC_PERM_MAX
 };
 

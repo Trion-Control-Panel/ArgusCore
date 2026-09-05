@@ -20,6 +20,7 @@
 #include "EventProcessor.h"
 #include "InstanceScript.h"
 #include "MotionMaster.h"
+#include "Map.h"
 #include "MoveSplineInit.h"
 #include "ObjectAccessor.h"
 #include "ObjectGuid.h"
@@ -929,11 +930,43 @@ class npc_jaina_or_sylvanas_escape_hor : public CreatureScript
                 {
                     if (Creature* lichking = ObjectAccessor::GetCreature(*me, _instance->GetGuidData(DATA_THE_LICH_KING_ESCAPE)))
                     {
+                        Creature* wallTarget = me->SummonCreature(NPC_ICE_WALL_TARGET, IceWallTargetPosition[_icewall], TEMPSUMMON_MANUAL_DESPAWN, 12min);
+
+                        // Cross-partition guard (CLAUDE.md's Map Partitioning script audit rule,
+                        // code-review finding) - lichking (the Lich King) is a completely
+                        // different creature than `me` (Jaina/Sylvanas), reaching into its own
+                        // movement state (StopMoving), casting a spell at it, and writing its AI's
+                        // own _icewall member/EventMap (SetData) from `me`'s thread - same class
+                        // of cross-object write DeleteAllFromThreatList's own fix (above) closes,
+                        // just for a different pair of reaches. Deferred as one unit so the whole
+                        // sequence runs on the same, correctly-pinned thread rather than trying to
+                        // reason about which individual piece is "safe enough" to leave behind.
+                        uint8 icewall = _icewall;
+                        ObjectGuid wallTargetGuid = wallTarget ? wallTarget->GetGUID() : ObjectGuid::Empty;
+                        if (Map* map = me->GetMap(); map->IsUnsafeForCurrentThreadToTouch(me) || map->IsUnsafeForCurrentThreadToTouch(lichking))
+                        {
+                            ObjectGuid lichkingGuid = lichking->GetGUID();
+                            map->AddFarSpellCallback([lichkingGuid, wallTargetGuid, icewall](Map* map)
+                            {
+                                Creature* lichking = map->GetCreature(lichkingGuid);
+                                if (!lichking || !lichking->IsAIEnabled())
+                                    return;
+
+                                lichking->StopMoving();
+                                if (!wallTargetGuid.IsEmpty())
+                                    if (Creature* wallTarget = map->GetCreature(wallTargetGuid))
+                                        lichking->CastSpell(wallTarget, SPELL_SUMMON_ICE_WALL);
+
+                                lichking->AI()->SetData(DATA_ICEWALL, icewall);
+                            });
+                            return;
+                        }
+
                         lichking->StopMoving();
-                        if (Creature* wallTarget = me->SummonCreature(NPC_ICE_WALL_TARGET, IceWallTargetPosition[_icewall], TEMPSUMMON_MANUAL_DESPAWN, 12min))
+                        if (wallTarget)
                             lichking->CastSpell(wallTarget, SPELL_SUMMON_ICE_WALL);
 
-                        lichking->AI()->SetData(DATA_ICEWALL, _icewall);
+                        lichking->AI()->SetData(DATA_ICEWALL, icewall);
                     }
                 }
             }
@@ -983,6 +1016,39 @@ class npc_jaina_or_sylvanas_escape_hor : public CreatureScript
 
             void DeleteAllFromThreatList(Unit* target, ObjectGuid except)
             {
+                // Cross-partition guard (Stage 5b review finding, ARGUSCORE_FIXES.md) - `target`
+                // (the Lich King) is a completely different creature than `me` (Jaina/Sylvanas),
+                // fetched via ObjectAccessor::GetCreature and not necessarily within visibility
+                // range of `me`. This reaches into `target`'s own ThreatManager
+                // (SendRemoveToClients/UnregisterAndFree/UpdateVictim/AI callbacks via
+                // ref->ClearThreat()) from `me`'s thread. None of ThreatReference/ThreatManager's
+                // own guards catch this - they all check cross-partition-ness between a threat
+                // relationship's own two parties (target and its attacker), not between `me` (the
+                // real actor here) and `target`, which is a third party to that relationship. Defer
+                // the whole call as one unit instead, same shape as every other funnel point.
+                if (Map* map = me->GetMap(); map->IsUnsafeForCurrentThreadToTouch(me) || map->IsUnsafeForCurrentThreadToTouch(target))
+                {
+                    ObjectGuid meGuid = me->GetGUID();
+                    ObjectGuid targetGuid = target->GetGUID();
+                    map->AddFarSpellCallback([meGuid, targetGuid, except](Map* map)
+                    {
+                        Unit* meUnit = ObjectAccessor::GetUnit(map, meGuid);
+                        if (!meUnit || !meUnit->IsInWorld())
+                            return;
+
+                        Unit* targetUnit = ObjectAccessor::GetUnit(map, targetGuid);
+                        if (!targetUnit || !targetUnit->IsInWorld())
+                            return;
+
+                        map->ResolveCrossPartitionPair(meUnit, targetUnit);
+
+                        for (ThreatReference* ref : targetUnit->GetThreatManager().GetModifiableThreatList())
+                            if (ref->GetVictim()->GetGUID() != except)
+                                ref->ClearThreat(/*bypassPartitionGuard=*/true);
+                    });
+                    return;
+                }
+
                 for (ThreatReference* ref : target->GetThreatManager().GetModifiableThreatList())
                   if (ref->GetVictim()->GetGUID() != except)
                     ref->ClearThreat();

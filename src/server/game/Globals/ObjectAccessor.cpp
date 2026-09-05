@@ -77,14 +77,24 @@ namespace PlayerNameMapHolder
 {
     using MapType = std::unordered_map<std::string, Player*>;
     static MapType PlayerNameMap;
+    // Stage 6 fix (ARGUSCORE_FIXES.md) - PlayerNameMap had zero synchronization, unlike
+    // HashMapHolder<Player>'s own std::shared_mutex immediately above in this file (the "already-
+    // correct pattern" this mirrors). Pre-existing gap, not introduced by the Map Partitioning
+    // redesign - MapUpdater already runs multiple Maps concurrently even without partitioning, so
+    // two players logging in/out on two different Maps at the same time could already race on this
+    // global map. Fixed here because it's cheap and adjacent, not because Map Partitioning
+    // specifically requires it.
+    static std::shared_mutex PlayerNameMapLock;
 
     void Insert(Player* p)
     {
+        std::unique_lock<std::shared_mutex> lock(PlayerNameMapLock);
         PlayerNameMap[p->GetName()] = p;
     }
 
     void Remove(Player* p)
     {
+        std::unique_lock<std::shared_mutex> lock(PlayerNameMapLock);
         PlayerNameMap.erase(p->GetName());
     }
 
@@ -94,6 +104,7 @@ namespace PlayerNameMapHolder
         if (!normalizePlayerName(charName))
             return nullptr;
 
+        std::shared_lock<std::shared_mutex> lock(PlayerNameMapLock);
         auto itr = PlayerNameMap.find(charName);
         return (itr != PlayerNameMap.end()) ? itr->second : nullptr;
     }
@@ -114,6 +125,33 @@ WorldObject* ObjectAccessor::GetWorldObject(WorldObject const& p, ObjectGuid con
         case HighGuid::Corpse:        return GetCorpse(p, guid);
         case HighGuid::SceneObject:   return GetSceneObject(p, guid);
         case HighGuid::Conversation:  return GetConversation(p, guid);
+        default:                      return nullptr;
+    }
+}
+
+// Map-based overload - resolves purely from a Map* + GUID, with no live searcher WorldObject
+// needed, dispatching on the GUID's own HighGuid rather than a caller-supplied type. Used by the
+// Phase 4 cross-partition transfer deferred callbacks (Map::_farSpellCallbacks, see
+// ARGUSCORE_FIXES.md), which only have a GUID captured at defer time - re-deriving a searcher
+// would be circular. Deliberately dispatches on guid.GetHigh() rather than resolving through a
+// single enqueuing call site's static type: e.g. a Pet flows through the same Creature-typed
+// move-list as an ordinary Creature, so resolving by the wrong assumed type would silently look
+// in the wrong Map-side container.
+WorldObject* ObjectAccessor::GetWorldObject(Map const* m, ObjectGuid const& guid)
+{
+    switch (guid.GetHigh())
+    {
+        case HighGuid::Player:        return GetPlayer(m, guid);
+        case HighGuid::Transport:
+        case HighGuid::GameObject:    return const_cast<Map*>(m)->GetGameObject(guid);
+        case HighGuid::Vehicle:
+        case HighGuid::Creature:      return const_cast<Map*>(m)->GetCreature(guid);
+        case HighGuid::Pet:           return const_cast<Map*>(m)->GetPet(guid);
+        case HighGuid::DynamicObject: return const_cast<Map*>(m)->GetDynamicObject(guid);
+        case HighGuid::AreaTrigger:   return const_cast<Map*>(m)->GetAreaTrigger(guid);
+        case HighGuid::Corpse:        return const_cast<Map*>(m)->GetCorpse(guid);
+        case HighGuid::SceneObject:   return const_cast<Map*>(m)->GetSceneObject(guid);
+        case HighGuid::Conversation:  return const_cast<Map*>(m)->GetConversation(guid);
         default:                      return nullptr;
     }
 }
@@ -215,6 +253,21 @@ Unit* ObjectAccessor::GetUnit(WorldObject const& u, ObjectGuid const& guid)
         return GetPet(u, guid);
 
     return GetCreature(u, guid);
+}
+
+// Map-based overload - resolves purely from a Map* + GUID, with no live searcher WorldObject
+// needed. Used by the cross-partition deferred-operations callbacks (Map::_farSpellCallbacks,
+// see ARGUSCORE_FIXES.md), which only have a GUID captured at defer time - re-deriving a
+// searcher would be circular, since the searcher is exactly what's being re-resolved.
+Unit* ObjectAccessor::GetUnit(Map const* m, ObjectGuid const& guid)
+{
+    if (guid.IsPlayer())
+        return GetPlayer(m, guid);
+
+    if (guid.IsPet())
+        return const_cast<Map*>(m)->GetPet(guid);
+
+    return const_cast<Map*>(m)->GetCreature(guid);
 }
 
 Creature* ObjectAccessor::GetCreature(WorldObject const& u, ObjectGuid const& guid)
